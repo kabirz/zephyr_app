@@ -1,10 +1,10 @@
+#include "init.h"
 #include <zephyr/kernel.h>
 #include <zephyr/posix/dirent.h>
 #include <zephyr/posix/fcntl.h>
 #include <zephyr/posix/unistd.h>
+#include <zephyr/posix/time.h>
 
-#include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(modbus_history, LOG_LEVEL_INF);
 #if DT_NODE_EXISTS(DT_NODELABEL(lfs1))
 #define ROOT DT_PROP(DT_NODELABEL(lfs1), mount_point)
 #elif DT_NODE_EXISTS(DT_INST(0, zephyr_flash_disk))
@@ -108,7 +108,7 @@ static int open_latest_file(bool create)
     return fd;
 }
 
-int write_history_data(void *data, size_t size)
+static int write_history_data(void *data, size_t size)
 {
     int ret = -1;
     bool create = false;
@@ -122,18 +122,18 @@ int write_history_data(void *data, size_t size)
     }
 
     if (fd < 0) {
-       fd = open_latest_file(create); 
-       if (fd < 0) {
-           LOG_ERR("open history data file failed");
-	        k_mutex_unlock(&h_lock);
-           return -1;
-       }
+        fd = open_latest_file(create);
+        if (fd < 0) {
+            LOG_ERR("open history data file failed");
+            k_mutex_unlock(&h_lock);
+            return -1;
+       	}
     }
 
     ret = write(fd, data, size);
     if (ret < 0) {
         LOG_ERR("%s: write failed", __FUNCTION__);
-	    k_mutex_unlock(&h_lock);
+        k_mutex_unlock(&h_lock);
         return -1;
     }
     fd_offset += size;
@@ -155,5 +155,23 @@ void history_enable_write(bool enable)
     }
     enable_write = enable;
     k_mutex_unlock(&h_lock);
+}
+
+K_FIFO_DEFINE(his_rx_fifo);
+static void his_process_save(struct k_work *work)
+{
+    struct his_data *h_data;
+
+    while ((h_data = k_fifo_get(&his_rx_fifo, K_NO_WAIT)) != NULL) {
+        h_data->timestamps = (uint32_t)time(NULL);
+        write_history_data(h_data, sizeof(*h_data));
+    }
+}
+K_WORK_DEFINE(his_work, his_process_save);
+
+void send_history_data(struct his_data *data)
+{
+    k_fifo_alloc_put(&his_rx_fifo, data);
+    k_work_submit(&his_work);
 }
 

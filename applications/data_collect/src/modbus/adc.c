@@ -1,6 +1,5 @@
 #include "init.h"
 #include <zephyr/drivers/adc.h>
-#include <zephyr/posix/time.h>
 
 #define DT_SPEC_AND_COMMA(node_id, prop, idx) ADC_DT_SPEC_GET_BY_IDX(node_id, idx),
 
@@ -75,12 +74,11 @@ int adc_handler(void)
 	    }
 	    if (get_holding_reg(HOLDING_HIS_SAVE_IDX)) {
 	        data.type = AI_TYPE;
-	        data.timestamps = (uint32_t)time(NULL);
 	        for (size_t i = 0; i < ARRAY_SIZE(adc_channels); i++) {
 	            data.ai.ai_value[i] = get_input_reg(INPUT_AI0_IDX + i);
 	        }
 	        data.ai.ai_en_status = get_holding_reg(HOLDING_AI_EN_IDX);
-            write_history_data(&data, sizeof(data));
+            send_history_data(&data);
 	    }
     }
     return 0;

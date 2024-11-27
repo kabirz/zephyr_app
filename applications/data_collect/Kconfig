@@ -39,13 +39,13 @@ config MODBUS_TCP_STACK_SIZE
 
 config MODBUS_ADC_STACK_SIZE
 	int "modbus adc server stack size"
-	default 2048
+	default 512
 	help
 	  Use this to set modbus adc server stack size
 
 config MODBUS_DIO_STACK_SIZE
 	int "modbus adc server stack size"
-	default 1024
+	default 512
 	help
 	  Use this to set modbus adc server stack size
 
