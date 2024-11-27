@@ -32,6 +32,9 @@ typedef enum {
     HOLDING_TIMESTAMPL_IDX, /* timestamp low 16 bit */
     HOLDING_CFG_SAVE_IDX,  /* save configure to flash, disable: 0, enable: others */
     HOLDING_REBOOT_IDX,    /* reboot when set 1 */
+    HOLDING_HEART_EN_IDX,    /* heart enable */
+    HOLDING_HEART_TIMEOUT_IDX,    /* heart timeout 10ms ~ 65535ms */
+    HOLDING_HEART_IDX,    /* heart */
     HOLDING_MAX_IDX,
 } holding_idx;
 
@@ -57,6 +60,7 @@ struct his_data {
 
 
 extern struct modbus_user_callbacks mbs_cbs;
+void heart_event_send(void);
 int mb_set_do(uint16_t val);
 int update_input_reg(uint16_t addr, uint16_t reg);
 int update_holding_reg(uint16_t addr, uint16_t reg);

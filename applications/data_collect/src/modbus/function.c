@@ -103,6 +103,7 @@ static int holding_reg_wr(uint16_t addr, uint16_t reg)
 		set_timestamp((time_t)val);
 		break;
 	case HOLDING_CFG_SAVE_IDX:
+		holding_reg[addr] = 0;
 #ifdef CONFIG_SETTINGS
 		settings_save();
 #endif
@@ -152,11 +153,11 @@ uint16_t get_input_reg(size_t index)
 }
 
 struct modbus_user_callbacks mbs_cbs = {
-	.coil_rd = coil_rd,
-	.coil_wr = coil_wr,
-	.holding_reg_rd = holding_reg_rd,
-	.holding_reg_wr = holding_reg_wr,
-	.input_reg_rd = input_reg_rd,
+    .coil_rd = coil_rd,
+    .coil_wr = coil_wr,
+    .holding_reg_rd = holding_reg_rd,
+    .holding_reg_wr = holding_reg_wr,
+    .input_reg_rd = input_reg_rd,
 };
 
 #ifdef CONFIG_SETTINGS 
@@ -170,41 +171,50 @@ int mb_handle_get(const char *name, char *val, int val_len_max)
     name_len = settings_name_next(name, &next);
 
     if (!next) {
-	if (!strncmp(name, "history", name_len))
-	    memcpy(val, holding_reg + HOLDING_HIS_SAVE_IDX, val_len_max);
-	else if (!strncmp(name, "rs485_bps", name_len))
-	    memcpy(val, holding_reg + HOLDING_RS485_BPS_IDX, val_len_max);
-	else if (!strncmp(name, "slave_id", name_len))
-	    memcpy(val, holding_reg + HOLDING_SLAVE_ID_IDX, val_len_max);
-	else if (!strncmp(name, "ip", name_len))
-	    memcpy(val, holding_reg + HOLDING_IP_ADDR_1_IDX, val_len_max);
+    	if (!strncmp(name, "history", name_len))
+    	    memcpy(val, holding_reg + HOLDING_HIS_SAVE_IDX, val_len_max);
+    	else if (!strncmp(name, "rs485_bps", name_len))
+    	    memcpy(val, holding_reg + HOLDING_RS485_BPS_IDX, val_len_max);
+    	else if (!strncmp(name, "slave_id", name_len))
+    	    memcpy(val, holding_reg + HOLDING_SLAVE_ID_IDX, val_len_max);
+    	else if (!strncmp(name, "ip", name_len))
+    	    memcpy(val, holding_reg + HOLDING_IP_ADDR_1_IDX, val_len_max);
     } else if (!strncmp(name, "ai", name_len)) {
     	offset = name_len + 1;
-	name_len = settings_name_next(name+offset, &next);
+    	name_len = settings_name_next(name+offset, &next);
     	if (!next) {
-	    if (!strncmp(name+offset, "enable", name_len))
-	    	memcpy(val, holding_reg + HOLDING_AI_EN_IDX, val_len_max);
-	    else if (!strncmp(name+offset, "time", name_len))
-	    	memcpy(val, holding_reg + HOLDING_AI_SI_IDX, val_len_max);
-	}
+    	    if (!strncmp(name+offset, "enable", name_len))
+    	    	memcpy(val, holding_reg + HOLDING_AI_EN_IDX, val_len_max);
+    	    else if (!strncmp(name+offset, "time", name_len))
+    	    	memcpy(val, holding_reg + HOLDING_AI_SI_IDX, val_len_max);
+    	}
     } else if (!strncmp(name, "di", name_len)) {
     	offset = name_len + 1;
 	name_len = settings_name_next(name+offset, &next);
     	if (!next) {
-	    if (!strncmp(name+offset, "enable", name_len))
-	    	memcpy(val, holding_reg + HOLDING_DI_EN_IDX, val_len_max);
-	    else if (!strncmp(name+offset, "time", name_len))
-	    	memcpy(val, holding_reg + HOLDING_DI_SI_IDX, val_len_max);
-	}
+    	    if (!strncmp(name+offset, "enable", name_len))
+    	    	memcpy(val, holding_reg + HOLDING_DI_EN_IDX, val_len_max);
+    	    else if (!strncmp(name+offset, "time", name_len))
+    	    	memcpy(val, holding_reg + HOLDING_DI_SI_IDX, val_len_max);
+    	}
     } else if (!strncmp(name, "can", name_len)) {
     	offset = name_len + 1;
-	name_len = settings_name_next(name+offset, &next);
+    	name_len = settings_name_next(name+offset, &next);
     	if (!next) {
-	    if (!strncmp(name+offset, "id", name_len))
-	    	memcpy(val, holding_reg + HOLDING_CAN_ID_IDX, val_len_max);
-	    else if (!strncmp(name+offset, "bps", name_len))
-	    	memcpy(val, holding_reg + HOLDING_CAN_BPS_IDX, val_len_max);
-	}
+    	    if (!strncmp(name+offset, "id", name_len))
+    	    	memcpy(val, holding_reg + HOLDING_CAN_ID_IDX, val_len_max);
+    	    else if (!strncmp(name+offset, "bps", name_len))
+    	    	memcpy(val, holding_reg + HOLDING_CAN_BPS_IDX, val_len_max);
+    	}
+    } else if (!strncmp(name, "heart", name_len)) {
+    	offset = name_len + 1;
+    	name_len = settings_name_next(name+offset, &next);
+    	if (!next) {
+    	    if (!strncmp(name+offset, "enable", name_len))
+    	    	memcpy(val, holding_reg + HOLDING_HEART_EN_IDX, val_len_max);
+    	    else if (!strncmp(name+offset, "time", name_len))
+    	    	memcpy(val, holding_reg + HOLDING_HEART_TIMEOUT_IDX, val_len_max);
+    	}
     } else 
 	return -ENOENT;
 
@@ -220,70 +230,84 @@ int mb_handle_set(const char *name, size_t len, settings_read_cb read_cb, void *
     name_len = settings_name_next(name, &next);
 
     if (!next) {
-	if (!strncmp(name, "history", name_len)) {
-	    rc = read_cb(cb_arg, holding_reg + HOLDING_HIS_SAVE_IDX, sizeof(uint16_t));
-	    LOG_INF("<modbus/history> = %d", holding_reg[HOLDING_HIS_SAVE_IDX]);
-	   return 0;
-	} else if (!strncmp(name, "rs485_bps", name_len)) {
-	    rc = read_cb(cb_arg, holding_reg + HOLDING_RS485_BPS_IDX, sizeof(uint16_t));
-	    LOG_INF("<modbus/rs485_bps> = %d", holding_reg[HOLDING_RS485_BPS_IDX]);
-	   return 0;
-	} else if (!strncmp(name, "slave_id", name_len)) {
-	    rc = read_cb(cb_arg, holding_reg + HOLDING_SLAVE_ID_IDX, sizeof(uint16_t));
-	    LOG_INF("<modbus/slave_id> = %d", holding_reg[HOLDING_SLAVE_ID_IDX]);
-	   return 0;
-	} else if (!strncmp(name, "ip", name_len)) {
-	    rc = read_cb(cb_arg, holding_reg + HOLDING_IP_ADDR_1_IDX, sizeof(uint16_t)*4);
-	    LOG_INF("<modbus/ip> = %d.%d.%d.%d",
-		holding_reg[HOLDING_IP_ADDR_1_IDX],
-		holding_reg[HOLDING_IP_ADDR_2_IDX],
-		holding_reg[HOLDING_IP_ADDR_3_IDX],
-		holding_reg[HOLDING_IP_ADDR_4_IDX]
-	    );
-	   return 0;
-	}
+    	if (!strncmp(name, "history", name_len)) {
+    	    rc = read_cb(cb_arg, holding_reg + HOLDING_HIS_SAVE_IDX, sizeof(uint16_t));
+    	    LOG_INF("<modbus/history> = %d", holding_reg[HOLDING_HIS_SAVE_IDX]);
+    	    return 0;
+    	} else if (!strncmp(name, "rs485_bps", name_len)) {
+    	    rc = read_cb(cb_arg, holding_reg + HOLDING_RS485_BPS_IDX, sizeof(uint16_t));
+    	    LOG_INF("<modbus/rs485_bps> = %d", holding_reg[HOLDING_RS485_BPS_IDX]);
+    	    return 0;
+    	} else if (!strncmp(name, "slave_id", name_len)) {
+    	    rc = read_cb(cb_arg, holding_reg + HOLDING_SLAVE_ID_IDX, sizeof(uint16_t));
+    	    LOG_INF("<modbus/slave_id> = %d", holding_reg[HOLDING_SLAVE_ID_IDX]);
+    	    return 0;
+    	} else if (!strncmp(name, "ip", name_len)) {
+    	    rc = read_cb(cb_arg, holding_reg + HOLDING_IP_ADDR_1_IDX, sizeof(uint16_t)*4);
+    	    LOG_INF("<modbus/ip> = %d.%d.%d.%d",
+    	    	 holding_reg[HOLDING_IP_ADDR_1_IDX],
+    	    	 holding_reg[HOLDING_IP_ADDR_2_IDX],
+    	    	 holding_reg[HOLDING_IP_ADDR_3_IDX],
+    	    	 holding_reg[HOLDING_IP_ADDR_4_IDX]
+    	    );
+    	    return 0;
+    	}
     } else if (!strncmp(name, "ai", name_len)) {
     	offset = name_len + 1;
-	name_len = settings_name_next(name+offset, &next);
+    	name_len = settings_name_next(name+offset, &next);
     	if (!next) {
-	    if (!strncmp(name+offset, "enable", name_len)) {
-	    	rc = read_cb(cb_arg, holding_reg + HOLDING_AI_EN_IDX, sizeof(uint16_t));
-	    	LOG_INF("<modbus/ai/enable> = 0x%x", holding_reg[HOLDING_AI_EN_IDX]);
-	    	return 0;
-	    } else if (!strncmp(name+offset, "time", name_len)) {
-	    	rc = read_cb(cb_arg, holding_reg + HOLDING_AI_SI_IDX, sizeof(uint16_t));
-	    	LOG_INF("<modbus/ai/time> = %d ms", holding_reg[HOLDING_AI_SI_IDX]);
-	    	return 0;
-	    }
-	}
+    	    if (!strncmp(name+offset, "enable", name_len)) {
+    	    	rc = read_cb(cb_arg, holding_reg + HOLDING_AI_EN_IDX, sizeof(uint16_t));
+    	    	LOG_INF("<modbus/ai/enable> = 0x%x", holding_reg[HOLDING_AI_EN_IDX]);
+    	    	return 0;
+    	    } else if (!strncmp(name+offset, "time", name_len)) {
+    	    	rc = read_cb(cb_arg, holding_reg + HOLDING_AI_SI_IDX, sizeof(uint16_t));
+    	    	LOG_INF("<modbus/ai/time> = %d ms", holding_reg[HOLDING_AI_SI_IDX]);
+    	    	return 0;
+    	    }
+    	}
     } else if (!strncmp(name, "di", name_len)) {
     	offset = name_len + 1;
-	name_len = settings_name_next(name+offset, &next);
+    	name_len = settings_name_next(name+offset, &next);
     	if (!next) {
-	    if (!strncmp(name+offset, "enable", name_len)) {
-	    	rc = read_cb(cb_arg, holding_reg + HOLDING_DI_EN_IDX, sizeof(uint16_t));
-	    	LOG_INF("<modbus/di/enable> = 0x%x", holding_reg[HOLDING_DI_EN_IDX]);
-	    	return 0;
-	    } else if (!strncmp(name+offset, "time", name_len)) {
-	    	rc = read_cb(cb_arg, holding_reg + HOLDING_DI_SI_IDX, sizeof(uint16_t));
-	    	LOG_INF("<modbus/di/time> = %d ms", holding_reg[HOLDING_DI_SI_IDX]);
-	    	return 0;
-	    }
-	}
+    	    if (!strncmp(name+offset, "enable", name_len)) {
+    	    	rc = read_cb(cb_arg, holding_reg + HOLDING_DI_EN_IDX, sizeof(uint16_t));
+    	    	LOG_INF("<modbus/di/enable> = 0x%x", holding_reg[HOLDING_DI_EN_IDX]);
+    	    	return 0;
+    	    } else if (!strncmp(name+offset, "time", name_len)) {
+    	    	rc = read_cb(cb_arg, holding_reg + HOLDING_DI_SI_IDX, sizeof(uint16_t));
+    	    	LOG_INF("<modbus/di/time> = %d ms", holding_reg[HOLDING_DI_SI_IDX]);
+    	    	return 0;
+    	    }
+    	}
     } else if (!strncmp(name, "can", name_len)) {
     	offset = name_len + 1;
-	name_len = settings_name_next(name+offset, &next);
+    	name_len = settings_name_next(name+offset, &next);
     	if (!next) {
-	    if (!strncmp(name+offset, "id", name_len)) {
-	    	rc = read_cb(cb_arg, holding_reg + HOLDING_CAN_ID_IDX, sizeof(uint16_t));
-	    	LOG_INF("<modbus/can/id> = %d", holding_reg[HOLDING_CAN_ID_IDX]);
-	    	return 0;
-	    } else if (!strncmp(name+offset, "bps", name_len)) {
-	    	rc = read_cb(cb_arg, holding_reg + HOLDING_CAN_BPS_IDX, sizeof(uint16_t));
-	    	LOG_INF("<modbus/can/bps> = %d", holding_reg[HOLDING_CAN_BPS_IDX]);
-		return 0;
-	    }
-	}
+    	    if (!strncmp(name+offset, "id", name_len)) {
+    	    	rc = read_cb(cb_arg, holding_reg + HOLDING_CAN_ID_IDX, sizeof(uint16_t));
+    	    	LOG_INF("<modbus/can/id> = %d", holding_reg[HOLDING_CAN_ID_IDX]);
+    	    	return 0;
+    	    } else if (!strncmp(name+offset, "bps", name_len)) {
+    	    	rc = read_cb(cb_arg, holding_reg + HOLDING_CAN_BPS_IDX, sizeof(uint16_t));
+    	    	LOG_INF("<modbus/can/bps> = %d", holding_reg[HOLDING_CAN_BPS_IDX]);
+    	    	return 0;
+    	    }
+    	}
+    } else if (!strncmp(name, "heart", name_len)) {
+    	offset = name_len + 1;
+    	name_len = settings_name_next(name+offset, &next);
+    	if (!next) {
+    	    if (!strncmp(name+offset, "enable", name_len)) {
+    	    	rc = read_cb(cb_arg, holding_reg + HOLDING_HEART_EN_IDX, sizeof(uint16_t));
+    	    	LOG_INF("<modbus/heart/enable> = 0x%x", holding_reg[HOLDING_HEART_EN_IDX]);
+    	    	return 0;
+    	    } else if (!strncmp(name+offset, "time", name_len)) {
+    	    	rc = read_cb(cb_arg, holding_reg + HOLDING_HEART_TIMEOUT_IDX, sizeof(uint16_t));
+    	    	LOG_INF("<modbus/heart/time> = %d ms", holding_reg[HOLDING_HEART_TIMEOUT_IDX]);
+    	    	return 0;
+    	    }
+    	}
     }
 
     return -ENOENT;
@@ -301,7 +325,14 @@ int mb_handle_export(int (*cb)(const char *name, const void *value, size_t val_l
     (void)cb("modbus/can/bps", holding_reg + HOLDING_CAN_BPS_IDX, sizeof(uint16_t));
     (void)cb("modbus/rs485_bps", holding_reg + HOLDING_RS485_BPS_IDX, sizeof(uint16_t));
     (void)cb("modbus/slave_id", holding_reg + HOLDING_SLAVE_ID_IDX, sizeof(uint16_t));
-    (void)cb("modbus/ip", holding_reg + HOLDING_IP_ADDR_1_IDX, sizeof(uint16_t)*4);
+    /* check ip is valid */
+    if (get_holding_reg(HOLDING_IP_ADDR_4_IDX) != 0xff &&
+    	get_holding_reg(HOLDING_IP_ADDR_4_IDX) != 0 &&
+    	!IN_RANGE(get_holding_reg(HOLDING_IP_ADDR_1_IDX), 224, 239)) {
+    	(void)cb("modbus/ip", holding_reg + HOLDING_IP_ADDR_1_IDX, sizeof(uint16_t)*4);
+    }
+    (void)cb("modbus/heart/enable", holding_reg + HOLDING_HEART_EN_IDX, sizeof(uint16_t));
+    (void)cb("modbus/heart/time", holding_reg + HOLDING_HEART_TIMEOUT_IDX, sizeof(uint16_t));
 
     return 0;
 }

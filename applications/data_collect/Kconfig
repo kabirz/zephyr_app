@@ -75,7 +75,7 @@ config MODBUS_INPUT_REGISTER_NUMBERS
 
 config MODBUS_HOLDING_REGISTER_NUMBERS
 	int "modbus HOLDING register numbers"
-	default 18
+	default 21
 	help
 	  Use this to set modbus holding register numbers
 

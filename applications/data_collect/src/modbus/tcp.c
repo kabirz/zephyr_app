@@ -188,6 +188,7 @@ void tcp_poll(void)
                         mb_clients[i].time = k_uptime_get();
                         LOG_HEXDUMP_DBG(data_buf, MODBUS_MBAP_AND_FC_LENGTH, "h:>");
                         modbus_raw_get_header(&tmp_adu, data_buf);
+                        heart_event_send();
                         data_len = tmp_adu.length;
                         if ((rc = recv(mb_clients[i].fd, tmp_adu.data, tmp_adu.length, MSG_WAITALL) < 0)) {
                             LOG_ERR("receive data error");

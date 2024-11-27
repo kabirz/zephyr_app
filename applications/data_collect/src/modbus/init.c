@@ -25,6 +25,7 @@ static const uint16_t holding_regs[CONFIG_MODBUS_HOLDING_REGISTER_NUMBERS] = {
     [HOLDING_IP_ADDR_2_IDX] = 168,
     [HOLDING_IP_ADDR_3_IDX] = 12,
     [HOLDING_IP_ADDR_4_IDX] = 101,
+    [HOLDING_HEART_TIMEOUT_IDX] = 2000,
 
 };
 
@@ -76,4 +77,26 @@ int modbus_init(void)
     return 0;
 }
 
+static K_SEM_DEFINE(sync_sem, 0, 1);
+static void heart_poll(void *p)
+{
+    int timeout;
+
+    while(1) {
+        timeout = MAX(get_holding_reg(HOLDING_HEART_TIMEOUT_IDX), 500);
+        if (k_sem_take(&sync_sem, K_MSEC(timeout))) {
+            if (get_holding_reg(HOLDING_HEART_EN_IDX)) {
+                update_holding_reg(HOLDING_HEART_IDX, 0);
+                update_holding_reg(HOLDING_DO_IDX, 0);
+                mb_set_do(0);
+            }
+        }
+    }
+}
+void heart_event_send(void)
+{
+    k_sem_give(&sync_sem);
+}
+
+K_THREAD_DEFINE(heart, 512, heart_poll, NULL, NULL, NULL, 12, 0, 0);
 SYS_INIT(modbus_init, APPLICATION, 11);
