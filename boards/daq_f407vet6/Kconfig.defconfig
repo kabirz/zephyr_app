@@ -1,0 +1,11 @@
+# daq_f407vet6 board configuration
+
+
+if BOARD_DAQ_F407VET6
+
+config SPI_STM32_INTERRUPT
+	default y
+	depends on SPI
+
+endif # BOARD_DAQ_F407VET6
+

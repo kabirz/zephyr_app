@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket File Upload with Binary Metadata</title>
+</head>
+<body>
+    <h1>Upload File via WebSocket with Binary Metadata</h1>
+    <input type="file" id="fileInput">
+    <button onclick="uploadFile()">Upload</button>
+
+    <script>
+        const ws = new WebSocket("ws://localhost:8080");
+
+        ws.onopen = () => console.log("WebSocket connection opened.");
+        ws.onclose = () => console.log("WebSocket connection closed.");
+        ws.onerror = (error) => console.error("WebSocket error:", error);
+
+        function uploadFile() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert("Please select a file to upload.");
+                return;
+            }
+
+            const chunkSize = 16 * 1024; // 每次发送 16KB
+            let offset = 0;
+
+            const fileReader = new FileReader();
+
+            fileReader.onload = (e) => {
+                const chunkData = new Uint8Array(e.target.result);
+                
+                // 构造二进制元数据结构（文件大小、偏移量、块大小，每个字段占 4 字节）
+                const metadataBuffer = new ArrayBuffer(12);
+                const view = new DataView(metadataBuffer);
+                view.setUint32(0, file.size, true);     // 文件总大小
+                view.setUint32(4, offset, true);        // 偏移量
+                view.setUint32(8, chunkData.byteLength, true); // 块大小
+
+                // 组合元数据和文件数据
+                const combinedBuffer = new Uint8Array(metadataBuffer.byteLength + chunkData.byteLength);
+                combinedBuffer.set(new Uint8Array(metadataBuffer), 0);
+                combinedBuffer.set(chunkData, metadataBuffer.byteLength);
+
+                // 发送组合后的数据
+                ws.send(combinedBuffer);
+
+                offset += chunkData.byteLength;
+                
+                if (offset < file.size) {
+                    readSlice(offset); // 读取下一块
+                } else {
+                    ws.send("EOF"); // 上传完成标志
+                    console.log("File upload completed.");
+                }
+            };
+
+            const readSlice = (o) => {
+                const slice = file.slice(o, o + chunkSize);
+                fileReader.readAsArrayBuffer(slice);
+            };
+
+            readSlice(0);
+        }
+    </script>
+</body>
+</html>

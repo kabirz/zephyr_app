@@ -1,0 +1,116 @@
+/{
+	zephyr,user {
+		status-gpios = <&gpioe 7 GPIO_ACTIVE_HIGH>;
+
+		di-gpios = <&gpiod 3 GPIO_ACTIVE_HIGH>,
+							 <&gpiod 4 GPIO_ACTIVE_HIGH>,
+							 <&gpiod 5 GPIO_ACTIVE_HIGH>,
+							 <&gpiod 6 GPIO_ACTIVE_HIGH>,
+							 <&gpiob 5 GPIO_ACTIVE_HIGH>,
+							 <&gpiob 6 GPIO_ACTIVE_HIGH>,
+							 <&gpiob 7 GPIO_ACTIVE_HIGH>,
+							 <&gpiob 8 GPIO_ACTIVE_HIGH>,
+							 <&gpiob 9 GPIO_ACTIVE_HIGH>,
+							 <&gpiob 10 GPIO_ACTIVE_HIGH>,
+							 <&gpiob 11 GPIO_ACTIVE_HIGH>,
+							 <&gpiod 2 GPIO_ACTIVE_HIGH>,
+							 <&gpiob 0 GPIO_ACTIVE_HIGH>,
+							 <&gpiob 1 GPIO_ACTIVE_HIGH>,
+							 <&gpiob 3 GPIO_ACTIVE_HIGH>,
+							 <&gpiob 4 GPIO_ACTIVE_HIGH>;
+
+		do-gpios = <&gpiod 7 GPIO_ACTIVE_HIGH>,
+							 <&gpiod 8 GPIO_ACTIVE_HIGH>,
+							 <&gpiod 9 GPIO_ACTIVE_HIGH>,
+							 <&gpiod 10 GPIO_ACTIVE_HIGH>,
+							 <&gpiod 11 GPIO_ACTIVE_HIGH>,
+							 <&gpiod 12 GPIO_ACTIVE_HIGH>,
+							 <&gpiod 13 GPIO_ACTIVE_HIGH>,
+							 <&gpiod 14 GPIO_ACTIVE_HIGH>;
+
+		doled-gpios = <&gpioe 8 GPIO_ACTIVE_HIGH>,
+		              <&gpioe 9 GPIO_ACTIVE_HIGH>,
+		              <&gpioe 10 GPIO_ACTIVE_HIGH>,
+		              <&gpioe 11 GPIO_ACTIVE_HIGH>,
+		              <&gpioe 12 GPIO_ACTIVE_HIGH>,
+		              <&gpioe 13 GPIO_ACTIVE_HIGH>,
+		              <&gpioe 14 GPIO_ACTIVE_HIGH>,
+		              <&gpioe 15 GPIO_ACTIVE_HIGH>;
+
+		io-channels = <&adc1 0xa>, <&adc1 0xb>, <&adc1 0xc>, <&adc1 0xd>;
+	};
+};
+
+&usart2 {
+	pinctrl-0 = <&usart2_tx_pa2 &usart2_rx_pa3>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+	status = "okay";
+
+	modbus0 {
+		compatible = "zephyr,modbus-serial";
+		status = "okay";
+		re-gpios = <&gpioa 1 GPIO_ACTIVE_LOW>;
+	};
+};
+
+&adc1 {
+	pinctrl-0 = < &adc1_in10_pc0 &adc1_in11_pc1 &adc1_in12_pc2 &adc1_in13_pc3>;
+	pinctrl-names = "default";
+	st,adc-clock-source = <SYNC>;
+	st,adc-prescaler = <4>;
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+	channel@a {
+		reg = <0xa>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,resolution = <12>;
+	};
+
+	channel@b {
+		reg = <0xb>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,resolution = <12>;
+	};
+
+	channel@c {
+		reg = <0xc>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,resolution = <12>;
+	};
+
+	channel@d {
+		reg = <0xd>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,resolution = <12>;
+	};
+
+};
+
+&spi2 {
+	pinctrl-0 = <&spi2_sck_pb13 &spi2_miso_pb14 &spi2_mosi_pb15>;
+	pinctrl-names = "default";
+	status = "okay";
+	cs-gpios = <&gpiob 12 GPIO_ACTIVE_LOW>;
+
+	ethernet: w5500@0 {
+		compatible = "wiznet,w5500";
+		reg = <0x0>;
+		spi-max-frequency = <32000000>;
+		int-gpios = <&gpiod 1 GPIO_ACTIVE_LOW>;
+		reset-gpios = <&gpiod 0 GPIO_ACTIVE_LOW>;
+		zephyr,random-mac-address;
+		// local-mac-address = [00 00 00 01 02 03];
+		status = "okay";
+	};
+};
+

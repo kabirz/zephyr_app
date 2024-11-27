@@ -1,0 +1,4 @@
+build
+.cache
+applications/data_collect/prj.conf
+compile_commands.json

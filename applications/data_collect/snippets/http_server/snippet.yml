@@ -1,0 +1,3 @@
+name: http_server
+append:
+  EXTRA_CONF_FILE: http_server.conf

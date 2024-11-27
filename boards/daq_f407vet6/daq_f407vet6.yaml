@@ -1,0 +1,17 @@
+identifier: daq_f407vet6
+name: DAQ STM32 F407VET6 Development Board
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gnuarmemb
+  - xtools
+ram: 128
+flash: 512
+supported:
+  - can
+  - pwm
+  - counter
+  - spi
+  - gpio
+

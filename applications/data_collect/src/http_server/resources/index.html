@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zephyr DAQ Data Collect</title>
+    <style>
+        /* Basic styling for tabs */
+        .tab {
+            display: none;
+        }
+        .tab-header {
+            display: flex;
+            cursor: pointer;
+            padding: 10px;
+            background-color: #f1f1f1;
+            border: 1px solid #ccc;
+        }
+        .tab-header div {
+            flex: 1;
+            text-align: center;
+            padding: 10px;
+        }
+        .tab-header div.active {
+            background-color: #ccc;
+        }
+        .tab-content {
+            border: 1px solid #ccc;
+            padding: 20px;
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+                table {
+            width: 50%;
+            border-collapse: collapse;
+            margin: 25px 0;
+            font-size: 18px;
+            text-align: left;
+        }
+        th, td {
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <h1>Zephyr DAQ Data Collect</h1>
+    <div class="tab-header">
+        <div id="tab1-header" class="active">Base Functions</div>
+        <div id="tab2-header">Firmware upgrade</div>
+        <div id="tab3-header">History Files</div>
+    </div>
+    <div id="tab1" class="tab-content active">
+        <h2 style="text-align: center;"></h2>
+    </div>
+    <div id="tab2" class="tab-content">
+        <h2 id="version" style="text-align: center;">v1.0.0</h2>
+        <form id="uploadForm">
+        <input type="file" id="fileInput" name="file" required>
+        <button type="submit">FW Upgrade</button>
+    </form>
+    <script>
+    
+    </script>
+
+    </div>
+    <div id="tab3" class="tab-content">
+        <table id="fileTable">
+            <thead>
+                <tr>
+                    <th>File Name</th>
+                    <th>Size (bytes)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- File rows will be inserted here -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // Function to switch tabs
+        function switchTab(tabIndex) {
+            const tabs = document.querySelectorAll('.tab-content');
+            const headers = document.querySelectorAll('.tab-header div');
+
+            tabs.forEach((tab, index) => {
+                if (index === tabIndex) {
+                    tab.classList.add('active');
+                    headers[index].classList.add('active');
+                } else {
+                    tab.classList.remove('active');
+                    headers[index].classList.remove('active');
+                }
+            });
+
+            // If the third tab is selected, fetch historical files
+            if (tabIndex === 2) {
+                fetchFileData();
+            } else if (tabIndex === 1) {
+                fetchVersion();
+            }
+        }
+
+        function fetchVersion() {
+            fetch('/version')
+                .then(response => response.text())
+                .then(data => {
+                    const version = document.getElementById("version");
+                    version.innerHTML = data;
+                })
+        }
+        // Function to fetch historical files
+        function fetchFileData() {
+            fetch('/filelists')
+                .then(response => response.json())
+                .then(data => {
+                    const tableBody = document.querySelector('#fileTable tbody');
+                    tableBody.innerHTML = '';
+
+                    data.forEach(file => {
+                        const row = document.createElement('tr');
+                        const nameCell = document.createElement('td');
+                        const sizeCell = document.createElement('td');
+                        const link = document.createElement('a');
+
+                        const parts = file.name.split('/');
+                        const file_name = parts[parts.length -1];
+
+                        link.href = file.name;
+                        link.textContent = file_name;
+                        link.download = file_name;
+
+                        sizeCell.textContent = file.size;
+
+                        row.appendChild(link);
+                        row.appendChild(sizeCell);
+                        tableBody.appendChild(row);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching file data:', error);
+                });
+        }
+        document.getElementById('uploadForm').addEventListener('submit', function (event) {
+            event.preventDefault(); // Prevent the default form submission
+
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+
+            if (file) {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                res = fetch('/fw_upgrade', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    console.log(data.status);
+                    if (data.status == 'success') {
+                        alert('Firmware upgrade successfully!');
+                    } else {
+                        alert('Firmware upgrade failed!');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('File upload failed!');
+                });
+            } else {
+                alert('Please select a file to upload.');
+            }
+        });
+        // Add event listeners to tab headers
+        document.getElementById('tab1-header').addEventListener('click', () => switchTab(0));
+        document.getElementById('tab2-header').addEventListener('click', () => switchTab(1));
+        document.getElementById('tab3-header').addEventListener('click', () => switchTab(2));
+    </script>
+</body>
+</html>

@@ -1,0 +1,89 @@
+
+menu "Data collect options"
+
+config MODBUS_TCP_PRIORITY
+	int "modbus tcp server priority"
+	default 13
+	help
+	  Use this to set modbus tcp server priority
+
+config MODBUS_RTU_PRIORITY
+	int "modbus rtu server priority"
+	default 13
+	help
+	  Use this to set modbus rtu server priority
+
+config MODBUS_ADC_PRIORITY
+	int "modbus adc server priority"
+	default 13
+	help
+	  Use this to set modbus adc server priority
+
+config MODBUS_DIO_PRIORITY
+	int "modbus dio server priority"
+	default 13
+	help
+	  Use this to set modbus dio server priority
+
+config UDP_PRIORITY
+	int "udp server priority"
+	default 13
+	help
+	  Use this to set udp server priority
+
+config MODBUS_TCP_STACK_SIZE
+	int "modbus tcp server stack size"
+	default 2048
+	help
+	  Use this to set modbus tcp server stack size
+
+config MODBUS_ADC_STACK_SIZE
+	int "modbus adc server stack size"
+	default 2048
+	help
+	  Use this to set modbus adc server stack size
+
+config MODBUS_DIO_STACK_SIZE
+	int "modbus adc server stack size"
+	default 1024
+	help
+	  Use this to set modbus adc server stack size
+
+config MODBUS_RTU_STACK_SIZE
+	int "modbus rtu server stack size"
+	default 1024
+	help
+	  Use this to set modbus rtu server stack size
+
+config UDP_STACK_SIZE
+	int "UDP server stack size"
+	default 2048
+	help
+	  Use this to set udp server stack size
+
+config MODBUS_COLS_REGISTER_NUMBERS
+	int "modbus cols register numbers"
+	default 8
+	help
+	  Use this to set modbus cols register numbers
+
+config MODBUS_INPUT_REGISTER_NUMBERS
+	int "modbus input register numbers"
+	default 6
+	help
+	  Use this to set modbus input register numbers
+
+config MODBUS_HOLDING_REGISTER_NUMBERS
+	int "modbus HOLDING register numbers"
+	default 18
+	help
+	  Use this to set modbus holding register numbers
+
+endmenu
+
+module = MODBUS_APP
+module-str = modbus_app
+source "subsys/logging/Kconfig.template.log_config"
+
+source "Kconfig.zephyr"
+

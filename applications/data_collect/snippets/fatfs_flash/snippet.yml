@@ -1,0 +1,4 @@
+name: fatfs_flash
+append:
+  EXTRA_CONF_FILE: fatfs_flash.conf
+  EXTRA_DTC_OVERLAY_FILE: fatfs_flash.overlay

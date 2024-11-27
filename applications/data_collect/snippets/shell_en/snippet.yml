@@ -1,0 +1,3 @@
+name: shell_en
+append:
+  EXTRA_CONF_FILE: shell_en.conf
