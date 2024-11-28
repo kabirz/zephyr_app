@@ -1,6 +1,8 @@
 # Zephyr enviroment setup
 [help](https://docs.zephyrproject.org/latest/develop/getting_started/index.html)
 
+sdk version: zephyr-sdk-0.16.8
+
 # zephyr application
 
 ## zephyr source code
@@ -8,6 +10,8 @@
 ```shell
 west init zephyr
 cd zephyr
+# work in 7271000fe56
+git reset --hard 7271000fe56
 west update
 export ZEPHYR_BASE=`pwd`/zephyr
 ```
