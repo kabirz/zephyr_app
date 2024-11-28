@@ -1,3 +1,6 @@
+# Zephyr enviroment setup
+[help](https://docs.zephyrproject.org/latest/develop/getting_started/index.html)
+
 # zephyr application
 
 ## zephyr source code
@@ -11,18 +14,22 @@ export ZEPHYR_BASE=`pwd`/zephyr
 
 ## build data_collect for daq
 
+support daq_f407vet6  and apollo_h743ii
+
 ```shell
-west build -b daq_f407vet6 applications/data_collect -DBOARD_ROOT=`pwd` --sysbuild
+west build -b daq_f407vet6/apollo_h743ii applications/data_collect -DBOARD_ROOT=`pwd` --sysbuild
 ```
 
-## generate app
+## generate app and flash
 
 ```shell
-./tools/gen_app.sh
+./tools/flash_f407.sh
+# or
+./tools/flash_h743.sh
 ```
 
 ## image
 
-* build/app.bin: all image for daq board
-* build/data_collect/zephyr/zephyr.signed.bin: signed image for daq board
+* build/app.bin: all image(mcuboot+zephyr).
+* build/data_collect/zephyr/zephyr.signed.bin: signed image for upgrade.
 

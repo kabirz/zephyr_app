@@ -1,0 +1,6 @@
+board:
+  name: apollo_h743ii
+  full_name: Apollo H743ii
+  vendor: st
+  socs:
+    - name: stm32h743xx
