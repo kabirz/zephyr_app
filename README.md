@@ -37,3 +37,20 @@ west build -b daq_f407vet6/apollo_h743ii applications/data_collect -DBOARD_ROOT=
 * build/app.bin: all image(mcuboot+zephyr).
 * build/data_collect/zephyr/zephyr.signed.bin: signed image for upgrade.
 
+
+## [smp-tool](https://github.com/Gessler-GmbH/smp-rs/tree/main/smp-tool)
+
+### shell
+```shell
+  smp-tool -t udp -d 192.168.12.101 shell interactive
+```
+### flash
+smp-tool:
+```shell
+  smp-tool -t udp -d 192.168.12.101 app flash -u build/data_collect/zephyr/zephyr.signed.bin
+```
+python tool:
+```shell
+./tools/smp_upload.py build/data_collect/zephyr/zephyr.signed.bin
+```
+
