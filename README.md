@@ -21,6 +21,9 @@ export ZEPHYR_BASE=`pwd`/zephyr
 support daq_f407vet6  and apollo_h743ii
 
 ```shell
+# patch for mcuboot
+./tools/mcu_patch.sh
+# build
 west build -b daq_f407vet6/apollo_h743ii applications/data_collect -DBOARD_ROOT=`pwd` --sysbuild
 ```
 
@@ -51,6 +54,9 @@ smp-tool:
 ```
 python tool:
 ```shell
-./tools/smp_upload.py build/data_collect/zephyr/zephyr.signed.bin
+# mcuboot flash
+./tools/smp_upload.py -a 192.168.12.101 --mcuboot build/data_collect/zephyr/zephyr.signed.bin
+# app
+./tools/smp_upload.py -a 192.168.12.101 build/data_collect/zephyr/zephyr.signed.bin
 ```
 
