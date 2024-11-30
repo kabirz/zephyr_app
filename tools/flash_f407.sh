@@ -2,7 +2,7 @@
 
 cur_size=$(stat -c%s build/mcuboot/zephyr/zephyr.bin)
 
-fill_size=$((64*1024 - cur_size))
+fill_size=$((128*1024 - cur_size))
 
 echo $fill_size
 dd if=/dev/zero bs=1 count=$fill_size | tr '\0' '\377' > tmp.bin

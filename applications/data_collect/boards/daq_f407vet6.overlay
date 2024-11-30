@@ -1,7 +1,5 @@
 /{
 	zephyr,user {
-		status-gpios = <&gpioe 7 GPIO_ACTIVE_HIGH>;
-
 		di-gpios = <&gpiod 3 GPIO_ACTIVE_HIGH>,
 							 <&gpiod 4 GPIO_ACTIVE_HIGH>,
 							 <&gpiod 5 GPIO_ACTIVE_HIGH>,
@@ -94,23 +92,5 @@
 		zephyr,resolution = <12>;
 	};
 
-};
-
-&spi2 {
-	pinctrl-0 = <&spi2_sck_pb13 &spi2_miso_pb14 &spi2_mosi_pb15>;
-	pinctrl-names = "default";
-	status = "okay";
-	cs-gpios = <&gpiob 12 GPIO_ACTIVE_LOW>;
-
-	ethernet: w5500@0 {
-		compatible = "wiznet,w5500";
-		reg = <0x0>;
-		spi-max-frequency = <32000000>;
-		int-gpios = <&gpiod 1 GPIO_ACTIVE_LOW>;
-		reset-gpios = <&gpiod 0 GPIO_ACTIVE_LOW>;
-		zephyr,random-mac-address;
-		// local-mac-address = [00 00 00 01 02 03];
-		status = "okay";
-	};
 };
 

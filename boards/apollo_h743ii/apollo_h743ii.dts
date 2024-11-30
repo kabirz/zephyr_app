@@ -23,11 +23,11 @@
 	leds: leds {
 		compatible = "gpio-leds";
 		red_led: led_0 {
-			gpios = <&gpiob 1 GPIO_ACTIVE_HIGH>;
+			gpios = <&gpiob 1 GPIO_ACTIVE_LOW>;
 			label = "User LD1";
 		};
 		green_led: led_1 {
-			gpios = <&gpiob 0 GPIO_ACTIVE_HIGH>;
+			gpios = <&gpiob 0 GPIO_ACTIVE_LOW>;
 			label = "User LD2";
 		};
 	};
@@ -59,6 +59,7 @@
 		volt-sensor0 = &vref;
 		volt-sensor1 = &vbat;
 		rtc = &rtc;
+		mcuboot-led0 = &green_led;
 	};
 
 	zephyr,user {
@@ -225,5 +226,29 @@
 
 &vbat {
 	status = "okay";
+};
+
+&mac {
+	status = "okay";
+	pinctrl-0 = <&eth_rxd0_pc4
+		     &eth_rxd1_pc5
+		     &eth_ref_clk_pa1
+		     &eth_crs_dv_pa7
+		     &eth_tx_en_pb11
+		     &eth_txd0_pg13
+		     &eth_txd1_pg14>;
+	pinctrl-names = "default";
+};
+
+&mdio {
+	status = "okay";
+	pinctrl-0 = <&eth_mdio_pa2 &eth_mdc_pc1>;
+	pinctrl-names = "default";
+
+	ethernet-phy@0 {
+		compatible = "ethernet-phy";
+		reg = <0x00>;
+		status = "okay";
+	};
 };
 

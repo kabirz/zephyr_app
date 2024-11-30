@@ -2,8 +2,6 @@
 #include <zephyr/app_version.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/reboot.h>
-#define USER_NODE DT_PATH(zephyr_user)
-
 #include <zephyr/logging/log_ctrl.h>
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(modbus_main, CONFIG_MODBUS_APP_LOG_LEVEL);
@@ -26,7 +24,7 @@ void k_sys_fatal_error_handler(unsigned int reason, const struct arch_esf *pEsf)
 
 int main(void)
 {
-    const struct gpio_dt_spec status_gpios = GPIO_DT_SPEC_GET(USER_NODE, status_gpios);
+    const struct gpio_dt_spec status_gpios = GPIO_DT_SPEC_GET(DT_ALIAS(mcuboot_led0), gpios);
 
     gpio_pin_configure_dt(&status_gpios, GPIO_OUTPUT_INACTIVE);
     LOG_INF("build time: %s-%s, board: %s, system clk: %dMHz, version: %s",
