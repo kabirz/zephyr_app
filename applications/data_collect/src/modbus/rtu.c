@@ -6,14 +6,16 @@
 
 static struct modbus_iface_param server_param = {
 	.mode = MODBUS_MODE_RTU,
-	.server = {
-		.user_cb = &mbs_cbs,
-		.unit_id = 1,
-	},
-	.serial = {
-		.baud = 9600,
-		.parity = UART_CFG_PARITY_NONE,
-	},
+	.server =
+		{
+			.user_cb = &mbs_cbs,
+			.unit_id = 1,
+		},
+	.serial =
+		{
+			.baud = 9600,
+			.parity = UART_CFG_PARITY_NONE,
+		},
 };
 
 #define MODBUS_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(zephyr_modbus_serial)

@@ -22,20 +22,19 @@ DWORD get_fattime(void)
 }
 #endif
 
-
 static FATFS _fat_fs;
 /* mounting info */
 static struct fs_mount_t fatfs_mnt = {
 	.type = FS_FATFS,
 	.fs_data = &_fat_fs,
-	.mnt_point = "/"DT_PROP(DT_INST(0, zephyr_flash_disk), disk_name)":",
+	.mnt_point = "/" DT_PROP(DT_INST(0, zephyr_flash_disk), disk_name) ":",
 };
 static int _fs_mount_init(void)
 {
-    if (fs_mount(&fatfs_mnt)) {
-	LOG_ERR("fs mount failed");
-	return -1;
-    }
-    return 0;
+	if (fs_mount(&fatfs_mnt)) {
+		LOG_ERR("fs mount failed");
+		return -1;
+	}
+	return 0;
 }
 SYS_INIT(_fs_mount_init, APPLICATION, 90);

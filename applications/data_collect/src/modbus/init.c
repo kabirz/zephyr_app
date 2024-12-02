@@ -7,95 +7,89 @@
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/net_l2.h>
 #endif
-#ifdef CONFIG_SETTINGS 
+#ifdef CONFIG_SETTINGS
 #include <zephyr/settings/settings.h>
 #endif
 
 static const uint16_t holding_regs[CONFIG_MODBUS_HOLDING_REGISTER_NUMBERS] = {
-    [HOLDING_DI_EN_IDX] = 0xffff,
-    [HOLDING_AI_EN_IDX] = 0xf,
-    [HOLDING_DI_SI_IDX] = 200,
-    [HOLDING_AI_SI_IDX] = 200,
-    [HOLDING_HIS_SAVE_IDX] = 0,
-    [HOLDING_CAN_ID_IDX] = 0x111,
-    [HOLDING_CAN_BPS_IDX] = 10,
-    [HOLDING_RS485_BPS_IDX] = 9600,
-    [HOLDING_SLAVE_ID_IDX] = 0x1,
-    [HOLDING_IP_ADDR_1_IDX] = 192,
-    [HOLDING_IP_ADDR_2_IDX] = 168,
-    [HOLDING_IP_ADDR_3_IDX] = 12,
-    [HOLDING_IP_ADDR_4_IDX] = 101,
-    [HOLDING_HEART_TIMEOUT_IDX] = 2000,
+	[HOLDING_DI_EN_IDX] = 0xffff,  [HOLDING_AI_EN_IDX] = 0xf,
+	[HOLDING_DI_SI_IDX] = 200,     [HOLDING_AI_SI_IDX] = 200,
+	[HOLDING_HIS_SAVE_IDX] = 0,    [HOLDING_CAN_ID_IDX] = 0x111,
+	[HOLDING_CAN_BPS_IDX] = 10,    [HOLDING_RS485_BPS_IDX] = 9600,
+	[HOLDING_SLAVE_ID_IDX] = 0x1,  [HOLDING_IP_ADDR_1_IDX] = 192,
+	[HOLDING_IP_ADDR_2_IDX] = 168, [HOLDING_IP_ADDR_3_IDX] = 12,
+	[HOLDING_IP_ADDR_4_IDX] = 101, [HOLDING_HEART_TIMEOUT_IDX] = 2000,
 
 };
 
 int modbus_init(void)
 {
-    struct in_addr addr, netmask;
+	struct in_addr addr, netmask;
 #ifdef CONFIG_NETWORKING
-    struct net_if *iface;
+	struct net_if *iface;
 #endif
-    uint32_t t = time(NULL);
+	uint32_t t = time(NULL);
 
-    update_input_reg(INPUT_VER_IDX, APP_VERSION_MAJOR << 8 | APP_VERSION_MINOR);
-    for (size_t i = 0; i < ARRAY_SIZE(holding_regs); i++) {
-        if (holding_regs[i])
-            update_holding_reg(i, holding_regs[i]);
-    }
+	update_input_reg(INPUT_VER_IDX, APP_VERSION_MAJOR << 8 | APP_VERSION_MINOR);
+	for (size_t i = 0; i < ARRAY_SIZE(holding_regs); i++) {
+		if (holding_regs[i]) {
+			update_holding_reg(i, holding_regs[i]);
+		}
+	}
 
-    update_holding_reg(HOLDING_TIMESTAMPH_IDX, t>>16);
-    update_holding_reg(HOLDING_TIMESTAMPL_IDX, t&UINT16_MAX);
+	update_holding_reg(HOLDING_TIMESTAMPH_IDX, t >> 16);
+	update_holding_reg(HOLDING_TIMESTAMPL_IDX, t & UINT16_MAX);
 
-#ifdef CONFIG_SETTINGS 
+#ifdef CONFIG_SETTINGS
 	settings_load();
 #endif
-    history_enable_write(!!get_holding_reg(HOLDING_HIS_SAVE_IDX));
+	history_enable_write(!!get_holding_reg(HOLDING_HIS_SAVE_IDX));
 
 #ifdef CONFIG_NETWORKING
-    iface = net_if_get_first_by_type(&NET_L2_GET_NAME(ETHERNET));
-    if (!iface) {
-        LOG_ERR("No ethernet interfaces found.");
-        return -1;
-    }
+	iface = net_if_get_first_by_type(&NET_L2_GET_NAME(ETHERNET));
+	if (!iface) {
+		LOG_ERR("No ethernet interfaces found.");
+		return -1;
+	}
 
-    addr.s4_addr[0] = get_holding_reg(HOLDING_IP_ADDR_1_IDX);
-    addr.s4_addr[1] = get_holding_reg(HOLDING_IP_ADDR_2_IDX);
-    addr.s4_addr[2] = get_holding_reg(HOLDING_IP_ADDR_3_IDX);
-    addr.s4_addr[3] = get_holding_reg(HOLDING_IP_ADDR_4_IDX);
+	addr.s4_addr[0] = get_holding_reg(HOLDING_IP_ADDR_1_IDX);
+	addr.s4_addr[1] = get_holding_reg(HOLDING_IP_ADDR_2_IDX);
+	addr.s4_addr[2] = get_holding_reg(HOLDING_IP_ADDR_3_IDX);
+	addr.s4_addr[3] = get_holding_reg(HOLDING_IP_ADDR_4_IDX);
 
-    netmask.s_addr = 0xffffff;
-    if (net_if_ipv4_addr_add(iface, &addr, NET_ADDR_MANUAL, 0) == NULL) {
-        LOG_ERR("Cannot add ip address to interface");
-        return -1;
-    }
-    if (net_if_ipv4_set_netmask_by_addr(iface, &addr, &netmask) == false) {
-        LOG_ERR("Cannot add netmask to interface");
-        return -1;
-    }
+	netmask.s_addr = 0xffffff;
+	if (net_if_ipv4_addr_add(iface, &addr, NET_ADDR_MANUAL, 0) == NULL) {
+		LOG_ERR("Cannot add ip address to interface");
+		return -1;
+	}
+	if (net_if_ipv4_set_netmask_by_addr(iface, &addr, &netmask) == false) {
+		LOG_ERR("Cannot add netmask to interface");
+		return -1;
+	}
 #endif
 
-    return 0;
+	return 0;
 }
 
 static K_SEM_DEFINE(sync_sem, 0, 1);
 static void heart_poll(void *p)
 {
-    int timeout;
+	int timeout;
 
-    while(1) {
-        timeout = MAX(get_holding_reg(HOLDING_HEART_TIMEOUT_IDX), 500);
-        if (k_sem_take(&sync_sem, K_MSEC(timeout))) {
-            if (get_holding_reg(HOLDING_HEART_EN_IDX)) {
-                update_holding_reg(HOLDING_HEART_IDX, 0);
-                update_holding_reg(HOLDING_DO_IDX, 0);
-                mb_set_do(0);
-            }
-        }
-    }
+	while (1) {
+		timeout = MAX(get_holding_reg(HOLDING_HEART_TIMEOUT_IDX), 500);
+		if (k_sem_take(&sync_sem, K_MSEC(timeout))) {
+			if (get_holding_reg(HOLDING_HEART_EN_IDX)) {
+				update_holding_reg(HOLDING_HEART_IDX, 0);
+				update_holding_reg(HOLDING_DO_IDX, 0);
+				mb_set_do(0);
+			}
+		}
+	}
 }
 void heart_event_send(void)
 {
-    k_sem_give(&sync_sem);
+	k_sem_give(&sync_sem);
 }
 
 K_THREAD_DEFINE(heart, 512, heart_poll, NULL, NULL, NULL, 12, 0, 0);
