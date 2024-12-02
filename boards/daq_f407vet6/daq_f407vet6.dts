@@ -74,9 +74,9 @@
 };
 
 &can1 {
-	pinctrl-0 = <&can1_rx_pd0 &can1_tx_pd1>;
+	pinctrl-0 = <&can1_rx_pa11 &can1_tx_pa12>;
 	pinctrl-names = "default";
-	status = "disabled";
+	status = "okay";
 };
 
 &flash0 {
