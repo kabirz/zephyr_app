@@ -1,6 +1,5 @@
 #include "init.h"
 #include <zephyr/net/socket.h>
-#include <zephyr/data/json.h>
 #include <zephyr/net/net_if.h>
 #ifdef CONFIG_SETTINGS
 #include <zephyr/settings/settings.h>
@@ -8,6 +7,9 @@
 
 #define MULTICAST_GROUP "224.0.0.1"
 #define MULTICAST_PORT  9002
+
+#if defined(CONFIG_JSON_LIBRARY)
+#include <zephyr/data/json.h>
 
 struct get_info {
 	bool get_device_info;
@@ -109,6 +111,139 @@ static int parse_udp_msg(uint8_t *msg, size_t len)
 	memcpy(msg, NULL_MSG, sizeof(NULL_MSG));
 	return sizeof(NULL_MSG) - 1;
 }
+#elif defined(CONFIG_ZCBOR)
+#include <zcbor_decode.h>
+#include <zcbor_encode.h>
+
+static int put_d_info(zcbor_state_t *state)
+{
+
+	zcbor_tstr_put_lit(state, "device_info");
+	zcbor_map_start_encode(state, 4);
+
+	zcbor_tstr_put_lit(state, "ip");
+	zcbor_list_start_encode(state, 4);
+	zcbor_uint32_put(state, get_holding_reg(HOLDING_IP_ADDR_1_IDX));
+	zcbor_uint32_put(state, get_holding_reg(HOLDING_IP_ADDR_2_IDX));
+	zcbor_uint32_put(state, get_holding_reg(HOLDING_IP_ADDR_3_IDX));
+	zcbor_uint32_put(state, get_holding_reg(HOLDING_IP_ADDR_4_IDX));
+	zcbor_list_end_encode(state, 4);
+
+	zcbor_tstr_put_lit(state, "slave_id");
+	zcbor_uint32_put(state, get_holding_reg(HOLDING_SLAVE_ID_IDX));
+
+	zcbor_tstr_put_lit(state, "rs485_bps");
+	zcbor_uint32_put(state, get_holding_reg(HOLDING_RS485_BPS_IDX));
+
+	zcbor_tstr_put_lit(state, "timestamp");
+	zcbor_uint32_put(state, (uint32_t)time(NULL));
+	zcbor_map_end_encode(state, 4);
+
+	return 0;
+}
+
+static bool zcbor_update_holding(uint16_t id, zcbor_state_t *zsd)
+{
+	uint32_t val;
+
+	if (zcbor_uint32_decode(zsd, &val)) {
+		update_holding_reg(id, (uint16_t)val);
+		return true;
+	}
+	zcbor_any_skip(zsd, NULL);
+
+	return true;
+}
+
+static int parse_udp_msg(uint8_t *msg, size_t len)
+{
+#define KEY_FILTER(k, val) (k.len == strlen(val) && memcmp(k.value, val, key.len) == 0)
+	struct zcbor_string key;
+	uint8_t cbor_buf[256];
+	bool g_info, ok;
+	ZCBOR_STATE_E(zse, 0, cbor_buf, sizeof(cbor_buf), 0);
+	ZCBOR_STATE_D(zsd, 4, msg, len, 1, 0);
+
+
+	zcbor_map_start_encode(zse, 1);
+	if (!zcbor_map_start_decode(zsd)) {
+		goto out;
+	}
+	ok = zcbor_tstr_decode(zsd, &key);
+
+	if (ok) {
+		if (KEY_FILTER(key, "get_device_info") && zcbor_bool_decode(zsd, &g_info)) {
+			if (g_info) {
+				put_d_info(zse);
+			}
+		} else if (KEY_FILTER(key, "set_device_info")) {
+			bool reg_changed = false;
+			ok = zcbor_map_start_decode(zsd);
+			zcbor_tstr_put_lit(zse, "device_info");
+			zcbor_map_start_encode(zse, 4);
+			while (ok) {
+				ok = zcbor_tstr_decode(zsd, &key);
+				if (KEY_FILTER(key, "slave_id")) {
+					reg_changed = zcbor_update_holding(HOLDING_SLAVE_ID_IDX, zsd);
+					zcbor_tstr_put_lit(zse, "slave_id");
+					zcbor_uint32_put(zse, get_holding_reg(HOLDING_SLAVE_ID_IDX));
+				} else if (KEY_FILTER(key, "rs485_bps")) {
+					reg_changed = zcbor_update_holding(HOLDING_RS485_BPS_IDX, zsd);
+					zcbor_tstr_put_lit(zse, "rs485_bps");
+					zcbor_uint32_put(zse, get_holding_reg(HOLDING_RS485_BPS_IDX));
+				} else if (KEY_FILTER(key, "timestamp")) {
+					uint32_t timestamp;
+					if (zcbor_uint32_decode(zsd, &timestamp)) {
+						set_timestamp((time_t)timestamp);
+						reg_changed = true;
+					} else 
+						zcbor_any_skip(zsd, NULL);
+
+					zcbor_tstr_put_lit(zse, "timestamp");
+					zcbor_uint32_put(zse, (uint32_t)time(NULL));
+				} else if (KEY_FILTER(key, "ip")) {
+					uint32_t ip[4], i = 0;
+					zcbor_list_start_decode(zsd);
+					while (!zcbor_array_at_end(zsd)) {
+						if (zcbor_uint32_decode(zsd, ip + i)) {
+							update_holding_reg(HOLDING_IP_ADDR_1_IDX+i, (uint16_t)ip[i]);
+						}
+						i++;
+						if (i > 4) zcbor_any_skip(zsd, NULL);
+					}
+					zcbor_list_end_decode(zsd);
+					zcbor_tstr_put_lit(zse, "ip");
+					zcbor_list_start_encode(zse, 4);
+					zcbor_uint32_put(zse, get_holding_reg(HOLDING_IP_ADDR_1_IDX));
+					zcbor_uint32_put(zse, get_holding_reg(HOLDING_IP_ADDR_2_IDX));
+					zcbor_uint32_put(zse, get_holding_reg(HOLDING_IP_ADDR_3_IDX));
+					zcbor_uint32_put(zse, get_holding_reg(HOLDING_IP_ADDR_4_IDX));
+					zcbor_list_end_encode(zse, 4);
+				} else {
+					zcbor_any_skip(zsd, NULL);
+				}
+			}
+			zcbor_map_end_decode(zsd);
+			zcbor_map_end_encode(zse, 4);
+			if (reg_changed) {
+#ifdef CONFIG_SETTINGS
+				settings_save();
+#endif
+			}
+		} else {
+			zcbor_any_skip(zsd, NULL);
+		}
+
+        }
+        zcbor_map_end_decode(zsd);
+out:
+	zcbor_map_end_encode(zse, 1);
+	memcpy(msg, cbor_buf, zse->payload_mut - cbor_buf);
+	return zse->payload_mut - cbor_buf;
+}
+#else
+#error "Please Enable CONFIG_JSON_LIBRARY or CONFIG_ZCBOR"
+#endif
 
 static void udp_poll(void)
 {
@@ -147,7 +282,7 @@ static void udp_poll(void)
 			continue;
 		}
 		buf_len = parse_udp_msg(udp_buffer, sizeof(udp_buffer));
-		net_addr_pton(AF_INET, "224.0.0.1", &client_addr.sin_addr);
+		net_addr_pton(AF_INET, MULTICAST_GROUP, &client_addr.sin_addr);
 		if (sendto(serv, udp_buffer, buf_len, 0, (struct sockaddr *)&client_addr,
 			   sizeof(struct sockaddr)) == -1) {
 			LOG_ERR("udp send message error: %d!", errno);
