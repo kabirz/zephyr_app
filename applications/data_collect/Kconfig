@@ -25,6 +25,12 @@ config MODBUS_DIO_PRIORITY
 	help
 	  Use this to set modbus dio server priority
 
+config FTP_PRIORITY
+	int "ftp server priority"
+	default 13
+	help
+	  Use this to set ftp server priority
+
 config UDP_PRIORITY
 	int "udp server priority"
 	default 13
@@ -55,6 +61,12 @@ config MODBUS_RTU_STACK_SIZE
 	help
 	  Use this to set modbus rtu server stack size
 
+config FTP_STACK_SIZE
+	int "FTP server stack size"
+	default 2048
+	help
+	  Use this to set ftp server stack size
+
 config UDP_STACK_SIZE
 	int "UDP server stack size"
 	default 2048
@@ -78,6 +90,12 @@ config MODBUS_HOLDING_REGISTER_NUMBERS
 	default 21
 	help
 	  Use this to set modbus holding register numbers
+
+config FTP_SERVER 
+	bool "ftp server"
+	select NET_CONTEXT_SNDTIMEO
+	help
+	  ftp server
 
 endmenu
 
