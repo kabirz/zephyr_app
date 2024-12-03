@@ -8,31 +8,26 @@ sdk version: zephyr-sdk-0.16.8
 ## zephyr source code
 
 ```shell
-west init zephyr
-cd zephyr
-# work in 7271000fe56
-git reset --hard 7271000fe56
+west init -m <this_git_url> app
+cd app
 west update
-export ZEPHYR_BASE=`pwd`/zephyr
 ```
 
 ## build data_collect for daq
 
 support daq_f407vet6  and apollo_h743ii
 
+## applay all patches
 ```shell
-# patch for mcuboot
-./tools/mcu_patch.sh
+./apps/tools/apply_patches.sh
 # build
-west build -b daq_f407vet6/apollo_h743ii applications/data_collect -DBOARD_ROOT=`pwd` --sysbuild
+west build -b daq_f407vet6/apollo_h743ii apps/applications/data_collect --sysbuild
 ```
 
-## generate app and flash
+## generate app
 
 ```shell
-./tools/flash_f407.sh
-# or
-./tools/flash_h743.sh
+./apps/tools/gen_app.sh
 ```
 
 ## image
@@ -48,6 +43,10 @@ west build -b daq_f407vet6/apollo_h743ii applications/data_collect -DBOARD_ROOT=
   smp-tool -t udp -d 192.168.12.101 shell interactive
 ```
 ### flash
+debug tool
+```shell
+cargo-flash --chip STM32F407VETx/STM32H743IITx --binary-format bin --base-address 0x8000000 --path build/app.bin
+```
 smp-tool:
 ```shell
   smp-tool -t udp -d 192.168.12.101 app flash -u build/data_collect/zephyr/zephyr.signed.bin

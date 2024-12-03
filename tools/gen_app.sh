@@ -13,6 +13,3 @@ cat tmp.bin >> build/app.bin
 cat build/data_collect/zephyr/zephyr.signed.bin >> build/app.bin
 
 rm tmp.bin
-
-cargo-flash --chip stm32h743iitx --binary-format bin --base-address 0x8000000 --path build/app.bin
-
