@@ -1,4 +1,4 @@
-From f931dae0172018c41e0721b0460163826a01c154 Mon Sep 17 00:00:00 2001
+From d93d660b02cb19a14c79ff2892c9e6e23a6b5e27 Mon Sep 17 00:00:00 2001
 From: kabirz <jxwazxzhp@126.com>
 Date: Sat, 30 Nov 2024 18:17:03 +0800
 Subject: [PATCH] mcuboot: support udp upgrade
@@ -7,10 +7,10 @@ Signed-off-by: kabirz <jxwazxzhp@126.com>
 ---
  boot/zephyr/CMakeLists.txt     |   2 +
  boot/zephyr/Kconfig            |   2 +
- boot/zephyr/Kconfig.udp_upload |  31 ++
- boot/zephyr/boot_udp.c         | 724 +++++++++++++++++++++++++++++++++
- boot/zephyr/main.c             |  14 +
- 5 files changed, 773 insertions(+)
+ boot/zephyr/Kconfig.udp_upload |  38 ++
+ boot/zephyr/boot_udp.c         | 761 +++++++++++++++++++++++++++++++++
+ boot/zephyr/main.c             |   7 +
+ 5 files changed, 810 insertions(+)
  create mode 100644 boot/zephyr/Kconfig.udp_upload
  create mode 100644 boot/zephyr/boot_udp.c
 
@@ -42,10 +42,10 @@ index 7ff11ee9..7211b73e 100644
  	default n
 diff --git a/boot/zephyr/Kconfig.udp_upload b/boot/zephyr/Kconfig.udp_upload
 new file mode 100644
-index 00000000..65928b5c
+index 00000000..01e4d92e
 --- /dev/null
 +++ b/boot/zephyr/Kconfig.udp_upload
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,38 @@
 +# SPDX-License-Identifier: Apache-2.0
 +#
 +menuconfig MCUBOOT_UDP
@@ -63,12 +63,19 @@ index 00000000..65928b5c
 +
 +if MCUBOOT_UDP
 +
++config MCUBOOT_UDP_IP_ADDRESS
++	string "network ip address"
++	default "192.168.12.101"
++
 +config MCUBOOT_UDP_PORT
 +	int "UDP SMP port"
 +	default 1337
 +	help
 +	  UDP port that SMP server will listen for SMP commands on.
 +
++config UDP_LINK_COUNT
++	int "network link count"
++	default 50
 +
 +config MCUBOOT_UDP_WAIT_TIMEOUT
 +	int "Duration to wait for the udp timeout in s"
@@ -79,14 +86,14 @@ index 00000000..65928b5c
 +endif
 diff --git a/boot/zephyr/boot_udp.c b/boot/zephyr/boot_udp.c
 new file mode 100644
-index 00000000..62eed133
+index 00000000..51983358
 --- /dev/null
 +++ b/boot/zephyr/boot_udp.c
-@@ -0,0 +1,724 @@
-+#include "zephyr/logging/log.h"
+@@ -0,0 +1,761 @@
 +#include <zephyr/kernel.h>
 +#include <zephyr/sys/reboot.h>
 +#include <zephyr/net/socket.h>
++#include <zephyr/net/net_if.h>
 +#include <bootutil/bootutil_log.h>
 +#include <bootutil/image.h>
 +#include <bootutil/boot_hooks.h>
@@ -756,8 +763,39 @@ index 00000000..62eed133
 +
 +int boot_udp_init(void)
 +{
++#ifdef CONFIG_MCUBOOT_UDP_IP_ADDRESS
++	struct in_addr addr, netmask;
++	int count = CONFIG_UDP_LINK_COUNT;
++	struct net_if *iface= net_if_get_first_by_type(&NET_L2_GET_NAME(ETHERNET));
++	if (!iface) {
++		BOOT_LOG_ERR("No ethernet interfaces found.");
++		return -1;
++	}
++
++	while (!net_if_is_up(iface)) {
++		if (count--) {
++			k_msleep(100);
++		} else {
++			BOOT_LOG_ERR("Link not up.");
++			return -1;
++		}
++	}
++
++	net_addr_pton(AF_INET, CONFIG_MCUBOOT_UDP_IP_ADDRESS, &addr);
++	netmask.s_addr = 0xffffff;
++	if (net_if_ipv4_addr_add(iface, &addr, NET_ADDR_MANUAL, 0) == NULL) {
++		BOOT_LOG_ERR("Cannot add ip address to interface");
++		return -1;
++	}
++	if (net_if_ipv4_set_netmask_by_addr(iface, &addr, &netmask) == false) {
++		BOOT_LOG_ERR("Cannot add netmask to interface");
++		return -1;
++	}
++	BOOT_LOG_INF("network is linked, ip address: %s, waiting smp connect", CONFIG_MCUBOOT_UDP_IP_ADDRESS);
++#endif
 +	int ret;
 +	struct sockaddr_in server_addr;
++
 +	sock = zsock_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 +	if (sock < 0) {
 +		BOOT_LOG_ERR("udp socket create error");
@@ -773,6 +811,9 @@ index 00000000..62eed133
 +		return -1;
 +	}
 +
++#ifdef CONFIG_MCUBOOT_INDICATION_LED
++	io_led_set(1);
++#endif
 +	return sock;
 +}
 +
@@ -798,6 +839,9 @@ index 00000000..62eed133
 +				BOOT_LOG_INF(
 +					"No udp packet received, booting...");
 +				zsock_close(sock);
++#ifdef CONFIG_MCUBOOT_INDICATION_LED
++				io_led_set(0);
++#endif
 +				return;
 +			} else {
 +				BOOT_LOG_ERR("Error receiving data: %d", errno);
@@ -808,25 +852,18 @@ index 00000000..62eed133
 +	}
 +}
 diff --git a/boot/zephyr/main.c b/boot/zephyr/main.c
-index 30f8447a..7aa78e4a 100644
+index 30f8447a..8e6209d7 100644
 --- a/boot/zephyr/main.c
 +++ b/boot/zephyr/main.c
-@@ -437,6 +437,20 @@ int main(void)
+@@ -437,6 +437,13 @@ int main(void)
  
      mcuboot_status_change(MCUBOOT_STATUS_STARTUP);
  
 +#ifdef CONFIG_MCUBOOT_UDP
-+    BOOT_LOG_INF("waiting udp smp upload");
 +    extern int boot_udp_init(void);
 +    extern void boot_udp_start(int timeout_in_s);
-+#ifdef CONFIG_MCUBOOT_INDICATION_LED
-+    io_led_set(1);
-+#endif
 +    if (boot_udp_init() >= 0)
 +        boot_udp_start(CONFIG_MCUBOOT_UDP_WAIT_TIMEOUT);
-+#ifdef CONFIG_MCUBOOT_INDICATION_LED
-+    io_led_set(0);
-+#endif
 +#endif
 +
  #ifdef CONFIG_BOOT_SERIAL_ENTRANCE_GPIO
