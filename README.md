@@ -19,7 +19,8 @@ support daq_f407vet6  and apollo_h743ii
 
 ## applay all patches
 ```shell
-./apps/tools/apply_patches.sh
+# apply patches
+python apps/tools/apply_patches.py
 # build
 west build -b daq_f407vet6/apollo_h743ii apps/applications/data_collect --sysbuild
 ```
@@ -27,7 +28,7 @@ west build -b daq_f407vet6/apollo_h743ii apps/applications/data_collect --sysbui
 ## generate app
 
 ```shell
-./apps/tools/gen_app.sh
+python apps/tools/export_images.py
 ```
 
 ## image
