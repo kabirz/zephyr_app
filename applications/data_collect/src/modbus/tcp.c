@@ -7,6 +7,8 @@
 #include <zephyr/modbus/modbus.h>
 #include <zephyr/posix/sys/select.h>
 #include <zephyr/net/socket.h>
+#include <zephyr/net/net_mgmt.h>
+#include <zephyr/net/net_event.h>
 
 #define MAX_CLIENTS     3
 #define MODBUS_TCP_PORT 502
@@ -19,6 +21,22 @@ static struct modbus_client {
 static struct modbus_adu tmp_adu;
 K_SEM_DEFINE(received, 0, 1);
 static int server_iface;
+static bool link_down;
+
+#ifdef CONFIG_NET_MGMT_EVENT
+static void net_event_handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event, struct net_if *iface)
+{
+	if (mgmt_event == NET_EVENT_IF_DOWN) {
+		update_holding_reg(HOLDING_DO_IDX, 0);
+		mb_set_do(0);
+		link_down = true;
+		LOG_WRN("Network interface link down");
+	} else if (mgmt_event == NET_EVENT_IF_UP) {
+		link_down = false;
+		LOG_INF("Network interface link up");
+	}
+}
+#endif
 
 static int server_raw_cb(const int iface, const struct modbus_adu *adu, void *user_data)
 {
@@ -37,14 +55,15 @@ static int server_raw_cb(const int iface, const struct modbus_adu *adu, void *us
 	return 0;
 }
 
-static struct modbus_iface_param server_param = {.mode = MODBUS_MODE_RAW,
-						 .server =
-							 {
-								 .user_cb = &mbs_cbs,
-								 .unit_id = 1,
-							 },
-						 .rawcb.raw_tx_cb = server_raw_cb,
-						 .rawcb.user_data = NULL};
+static struct modbus_iface_param server_param = {
+	.mode = MODBUS_MODE_RAW,
+	.server = {
+		.user_cb = &mbs_cbs,
+		.unit_id = 1,
+	},
+	.rawcb.raw_tx_cb = server_raw_cb,
+	.rawcb.user_data = NULL
+};
 
 static int init_modbus_server(void)
 {
@@ -73,6 +92,13 @@ void tcp_poll(void)
 	struct timeval timeout;
 	static int counter;
 	fd_set readfds;
+
+#ifdef CONFIG_NET_MGMT_EVENT
+	static struct net_mgmt_event_callback net_mgmt_cb;
+
+	net_mgmt_init_event_callback(&net_mgmt_cb, net_event_handler, NET_EVENT_IF_DOWN|NET_EVENT_IF_UP);
+	net_mgmt_add_event_callback(&net_mgmt_cb);
+#endif
 
 	if (init_modbus_server()) {
 		LOG_ERR("Modbus TCP server initialization failed");
@@ -143,8 +169,8 @@ void tcp_poll(void)
 			}
 
 			for (int i = 0; i < MAX_CLIENTS; i++) {
-				if (mb_clients[i].time &&
-				    (mb_clients[i].time + 30000) < k_uptime_get()) {
+				if ((mb_clients[i].time && (mb_clients[i].time + 30000) < k_uptime_get()) ||
+					link_down) {
 					getpeername(mb_clients[i].fd,
 						    (struct sockaddr *)&client_addr,
 						    (socklen_t *)&client_addr_len);
