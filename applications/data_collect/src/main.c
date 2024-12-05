@@ -31,6 +31,7 @@ int main(void)
 	LOG_INF("build time: %s-%s, board: %s, system clk: %dMHz, version: %s", __DATE__, __TIME__,
 		CONFIG_BOARD_TARGET, CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC / 1000000,
 		APP_VERSION_STRING);
+	need_reboot = false;
 	while (1) {
 		gpio_pin_set_dt(&status_gpios, 0);
 		k_msleep(2700);

@@ -2,41 +2,42 @@
 
 import os
 import zipfile
-from typing import List
+from typing import List, Tuple
 from west.util import west_topdir
 from pathlib import Path
 
 TOP_DIR = Path(west_topdir())
-TOOL_DIR = TOP_DIR/'apps/tools'
+TOOL_DIR = TOP_DIR / 'apps/tools'
+BUILD_DIR = TOP_DIR / 'build'
+
 
 def generate_app():
-    MCUBOOT_BIN = TOP_DIR/'build/mcuboot/zephyr/zephyr.bin'
-    APP_SIGN_BIN = TOP_DIR/'build/data_collect/zephyr/zephyr.signed.bin'
-    OUT_APP = TOP_DIR/'build/app.bin'
+	MCUBOOT_BIN = BUILD_DIR / 'mcuboot/zephyr/zephyr.bin'
+	APP_SIGN_BIN = BUILD_DIR / 'data_collect/zephyr/zephyr.signed.bin'
+	OUT_APP = BUILD_DIR / 'app.bin'
 
-    with open(OUT_APP, 'wb') as f:
-        f.write(open(MCUBOOT_BIN, 'rb').read())
-        f.seek(128*1024, os.SEEK_SET)
-        f.write(open(APP_SIGN_BIN, 'rb').read())
-
-
-def zip_files(files: List[Path], out_zip_file: str):
-    with zipfile.ZipFile(out_zip_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for file in files:
-            zipf.write(file, os.path.basename(file))
-
-    print(f'Files compressed into {out_zip_file}')
+	with OUT_APP.open(mode='wb') as f:
+		f.write(MCUBOOT_BIN.read_bytes())
+		f.seek(128 * 1024, os.SEEK_SET)
+		f.write(APP_SIGN_BIN.read_bytes())
 
 
-files: List[Path] = [
-    TOP_DIR / 'build/app.bin',
-    TOP_DIR / 'build/data_collect/zephyr/zephyr.signed.bin',
-    TOOL_DIR / 'parser_raw.py',
-    TOOL_DIR / 'udp_multi_getinfo.py',
-    TOOL_DIR / 'udp_multi_setinfo.py',
-    TOOL_DIR / 'smp_upload.py',
+def zip_files(files: List[Tuple[Path, str]], out_zip_file: Path):
+	with zipfile.ZipFile(out_zip_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
+		for file, path in files:
+			zipf.write(file, os.path.join(path, os.path.basename(file)))
+
+	print(f'Files compressed into {out_zip_file}')
+
+
+files: List[Tuple[Path, str]] = [
+	(BUILD_DIR / 'app.bin', 'images'),
+	(BUILD_DIR / 'data_collect/zephyr/zephyr.signed.bin', 'images'),
+	(TOOL_DIR / 'parser_raw.py', 'tools'),
+	(TOOL_DIR / 'udp_multi_getinfo.py', 'tools'),
+	(TOOL_DIR / 'udp_multi_setinfo.py', 'tools'),
+	(TOOL_DIR / 'smp_upload.py', 'tools'),
 ]
 generate_app()
 
-zip_files(files, 'daq_f407.zip')
-
+zip_files(files, BUILD_DIR / 'daq_f407.zip')
