@@ -8,44 +8,27 @@ manifest:
   remotes:
     - name: zephyr_site
       url-base: https://github.com/zephyrproject-rtos
+    - name: kabirz
+      url-base: https://github.com/kabirz
 
   projects:
     - name: zephyr
       revision: 1a633609a0d2b386cfd1d43940c98a38d6bf3690
       path: zephyr
-      west-commands: scripts/west-commands.yml
+      import:
+        name-allowlist:
+          - hal_stm32
+          - zcbor
+          - mbedtls
+          - cmsis
+          - fatfs
+          - littlefs
+          - segger
 
     - name: mcuboot
-      revision: eb942067989569f9cf319b087d0bb16b16effd86
+      revision: 27d7a6f1ab9a3a9a37887feb0bea387f9c63ef00
+      remote: kabirz
       path: bootloader/mcuboot
-
-    - name: hal_stm32
-      revision: d5fb525486544f7fcec365a89c2ca5ea936618f5
-      path: modules/hal/stm32
-
-    - name: zcbor
-      revision: 9b07780aca6fb21f82a241ba386ad9b379809337
-      path: modules/lib/zcbor
-
-    - name: mbedtls
-      revision: 4952e1328529ee549d412b498ea71c54f30aa3b1
-      path: modules/crypto/mbedtls
-
-    - name: cmsis
-      revision: 4b96cbb174678dcd3ca86e11e1f24bc5f8726da0
-      path: modules/hal/cmsis
-
-    - name: fatfs
-      revision: 427159bf95ea49b7680facffaa29ad506b42709b
-      path: modules/fs/fatfs
-
-    - name: littlefs
-      revision: 009bcff0ed4853a53df8256039fa815bda6854dd
-      path: modules/fs/littlefs
-
-    - name: segger
-      revision: 1a607e8718171cfbc1ee6b2a5ec00f619d1cc7fc
-      path: modules/debug/segger
 
   self:
     path: apps

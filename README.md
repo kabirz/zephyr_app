@@ -13,14 +13,12 @@ cd app
 west update
 ```
 
-## build data_collect for daq
+## build data_collect
 
 support daq_f407vet6  and apollo_h743ii
 
 ## applay all patches
 ```shell
-# apply patches
-python apps/tools/apply_patches.py
 # build
 west build -b daq_f407vet6/apollo_h743ii apps/applications/data_collect --sysbuild
 ```
