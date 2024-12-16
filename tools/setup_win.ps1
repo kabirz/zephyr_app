@@ -7,7 +7,7 @@ $softwareList = @(
     'GnuWin32.Make',
     'JernejSimoncic.Wget',
     'Ninja-build.Ninja',
-    'Python.Python.3.10'
+    'astral-sh.uv',
 )
 
 foreach ($software in $softwareList) {
