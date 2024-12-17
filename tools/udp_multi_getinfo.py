@@ -4,6 +4,7 @@ import struct
 from socket import (
     AF_INET,
     IP_ADD_MEMBERSHIP,
+    IP_MULTICAST_IF,
     IPPROTO_IP,
     SO_REUSEADDR,
     SOCK_DGRAM,
@@ -36,6 +37,9 @@ s = socket(AF_INET, SOCK_DGRAM)
 s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
 mreq = struct.pack('4s4s', inet_aton(MULTICAST_GROUP), inet_aton(args.ip))
 s.setsockopt(IPPROTO_IP, IP_ADD_MEMBERSHIP, mreq)
+
+# set multicast interface
+s.setsockopt(IPPROTO_IP, IP_MULTICAST_IF, inet_aton(args.ip))
 
 # msgs
 query_msgs = {

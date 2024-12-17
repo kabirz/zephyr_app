@@ -62,8 +62,8 @@ static int get_d_info(uint8_t *buf, size_t len)
 static int parse_udp_msg(uint8_t *msg, size_t len)
 {
 	int ret;
-	struct set_info s_info;
-	struct get_info g_info;
+	struct set_info s_info = {0};
+	struct get_info g_info = {0};
 
 	ret = json_obj_parse(msg, strlen(msg), get_info_descr, ARRAY_SIZE(get_info_descr), &g_info);
 	if (ret < 0) {
@@ -196,7 +196,7 @@ static int parse_udp_msg(uint8_t *msg, size_t len)
 					if (zcbor_uint32_decode(zsd, &timestamp)) {
 						set_timestamp((time_t)timestamp);
 						reg_changed = true;
-					} else 
+					} else
 						zcbor_any_skip(zsd, NULL);
 
 					zcbor_tstr_put_lit(zse, "timestamp");
