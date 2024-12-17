@@ -87,7 +87,7 @@ static int parse_udp_msg(uint8_t *msg, size_t len)
 			update_holding_reg(HOLDING_IP_ADDR_4_IDX, s_info.set_device_info.ip[3]);
 			reg_changed = true;
 		}
-		if (s_info.set_device_info.slave_id) {
+		if (IN_RANGE(s_info.set_device_info.slave_id, 1, UINT8_MAX)) {
 			update_holding_reg(HOLDING_SLAVE_ID_IDX,
 					   (uint16_t)s_info.set_device_info.slave_id);
 			reg_changed = true;
@@ -96,7 +96,7 @@ static int parse_udp_msg(uint8_t *msg, size_t len)
 			extern void set_timestamp(time_t);
 			set_timestamp((time_t)s_info.set_device_info.timestamp);
 		}
-		if (s_info.set_device_info.rs485_bps) {
+		if (IN_RANGE(s_info.set_device_info.rs485_bps, 1, UINT16_MAX)) {
 			update_holding_reg(HOLDING_RS485_BPS_IDX,
 					   (uint16_t)s_info.set_device_info.rs485_bps);
 			reg_changed = true;
