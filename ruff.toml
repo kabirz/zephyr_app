@@ -1,6 +1,7 @@
 line-length = 100
+indent-width = 4
 
 [format]
 quote-style = "single"
-indent-style = "tab"
+indent-style = "space"
 docstring-code-format = true

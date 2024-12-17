@@ -1,16 +1,16 @@
-from socket import (
-	socket,
-	AF_INET,
-	SOCK_DGRAM,
-	SOL_SOCKET,
-	SO_REUSEADDR,
-	IPPROTO_IP,
-	IP_ADD_MEMBERSHIP,
-	inet_aton,
-)
-import struct
 import argparse
 import ipaddress
+import struct
+from socket import (
+    AF_INET,
+    IP_ADD_MEMBERSHIP,
+    IPPROTO_IP,
+    SO_REUSEADDR,
+    SOCK_DGRAM,
+    SOL_SOCKET,
+    inet_aton,
+    socket,
+)
 
 
 def valid_ip(address):
@@ -19,6 +19,7 @@ def valid_ip(address):
         return address
     except ValueError:
         raise argparse.ArgumentTypeError(f'{address} is not valid ip')
+
 
 parser = argparse.ArgumentParser(description='udp multicast set device info')
 parser.add_argument('--cbor2', action='store_true', help='use cbor2 as data struct')
@@ -38,23 +39,25 @@ s.setsockopt(IPPROTO_IP, IP_ADD_MEMBERSHIP, mreq)
 
 # msgs
 query_msgs = {
-	'get_device_info': True,
+    'get_device_info': True,
 }
 
 # send msgs
 if args.cbor2:
     import cbor2
+
     s.sendto(cbor2.dumps(query_msgs), address)
 else:
     import json
+
     s.sendto(json.dumps(query_msgs).encode(), address)
 
 # recv msgs
 data, a = s.recvfrom(1024)
 print(f'[recv from {a}]:')
 if args.cbor2:
-	print(cbor2.loads(data))
+    print(cbor2.loads(data))
 else:
-	print(json.loads(data.decode()))
+    print(json.loads(data.decode()))
 
 s.close()
