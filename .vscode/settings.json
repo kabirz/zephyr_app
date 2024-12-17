@@ -1,0 +1,9 @@
+{
+  "cmake.environment": { "ZEPHYR_BASE": "${workspaceFolder}/../zephyr" },
+  "cmake.sourceDirectory": "${workspaceFolder}/../zephyr/share/sysbuild",
+  "cmake.buildDirectory": "${workspaceFolder}/../out",
+  "cmake.configureArgs": [
+    "-DBOARD=apollo_h743ii",
+    "-DAPP_DIR=${workspaceFolder}/applications/data_collect"
+  ]
+}
