@@ -175,7 +175,7 @@
 		};
 		slot0_partition: partition@20000 {
 			label = "image-0";
-			reg = <0x00020000 DT_SIZE_K(896)>;
+			reg = <0x00020000 DT_SIZE_K(1920)>;
 		};
 	};
 };
@@ -198,15 +198,15 @@
 
 			storage_partition: partition@0 {
 				label = "data";
-				reg = <0x00000000 DT_SIZE_M(28)>;
+				reg = <0x00000000 DT_SIZE_M(26)>;
 			};
-			slot1_partition: partition@1C00000 {
+			slot1_partition: partition@1A00000 {
 				label = "image-1";
-				reg = <0x01C00000 DT_SIZE_K(896)>;
+				reg = <0x01A00000 DT_SIZE_K(1920)>;
 			};
-			scratch_partition: partition@1D00000 {
+			scratch_partition: partition@1C00000 {
 				label = "image-scratch";
-				reg = <0x01D00000 DT_SIZE_K(896)>;
+				reg = <0x01C00000 DT_SIZE_K(1920)>;
 			};
 			cfg_partition: partition@1E00000 {
 				label = "cfg";
