@@ -3,6 +3,9 @@
 #include <zephyr/posix/fcntl.h>
 #include <zephyr/posix/unistd.h>
 #include <zephyr/posix/sys/time.h>
+#include <zephyr/net/net_l2.h>
+#include <zephyr/net/net_ip.h>
+#include <zephyr/net/net_if.h>
 #include "ftp.h"
 
 #include <zephyr/logging/log.h>
@@ -99,35 +102,61 @@ static int port_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 	if (session->port_pasv_fd >= 0) {
 		close(session->port_pasv_fd);
 		session->port_pasv_fd = -1;
+		if (session->pasvs_fd > 0) {
+			close(session->pasvs_fd);
+			session->pasvs_fd = -1;
+		}
 	}
 
 	char *reply = NULL;
 	int portcom[6];
 	char iptmp[100];
 	int index = 0;
+	int port = 0;
 	char *ptr = cmd_param;
-	while (ptr != NULL) {
-		if (*ptr == ',') {
-			ptr++;
+	if (strcmp(cmd, "PORT") == 0) {
+		/* format ip1,ip2,ip3,ip4,porth,portl */
+		while (ptr != NULL) {
+			if (*ptr == ',') {
+				ptr++;
+			}
+			portcom[index] = atoi(ptr);
+			if ((portcom[index] < 0) || (portcom[index] > 255)) {
+				break;
+			}
+			index++;
+			if (index == 6) {
+				break;
+			}
+			ptr = strchr(ptr, ',');
 		}
-		portcom[index] = atoi(ptr);
-		if ((portcom[index] < 0) || (portcom[index] > 255)) {
-			break;
+		if (index < 6) {
+			reply = "504 invalid parameter.\r\n";
+			send(session->fd, reply, strlen(reply), 0);
+			return 0;
 		}
-		index++;
-		if (index == 6) {
-			break;
-		}
-		ptr = strchr(ptr, ',');
-	}
-	if (index < 6) {
-		reply = "504 invalid parameter.\r\n";
-		send(session->fd, reply, strlen(reply), 0);
-		return 0;
-	}
 
-	snprintf(iptmp, sizeof(iptmp), "%d.%d.%d.%d", portcom[0], portcom[1], portcom[2],
-		 portcom[3]);
+		snprintf(iptmp, sizeof(iptmp), "%d.%d.%d.%d", portcom[0], portcom[1], portcom[2],
+			 portcom[3]);
+		port = portcom[4] << 8 | portcom[5];
+	} else if (strcmp(cmd, "EPRT") == 0) {
+		/* format |<type>|<ip>|<port>| */
+		char *split;
+		ptr++;
+		if (*ptr != '1') {
+			reply = "425 Only support IPv4.\r\n";
+			send(session->fd, reply, strlen(reply), 0);
+			return 0;
+		}
+		ptr += 2;
+		split = strchr(ptr, '|');
+		*split = '\0';
+		snprintf(iptmp, sizeof(iptmp), "%s", ptr);
+		ptr = split + 1;
+		split = strchr(ptr, '|');
+		*split = '\0';
+		port = atoi(ptr);
+	}
 
 	int rc = -1;
 	do {
@@ -147,7 +176,7 @@ static int port_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 		struct sockaddr_in addr;
 		memset(&addr, 0, sizeof(addr));
 		addr.sin_family = AF_INET;
-		addr.sin_port = htons(portcom[4] * 256 + portcom[5]);
+		addr.sin_port = htons(port);
 		addr.sin_addr.s_addr = inet_addr(iptmp);
 		if (connect(session->port_pasv_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
 			LOG_ERR("connect error");
@@ -163,12 +192,67 @@ static int port_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 		if (session->port_pasv_fd >= 0) {
 			close(session->port_pasv_fd);
 			session->port_pasv_fd = -1;
+			if (session->pasvs_fd > 0) {
+				close(session->pasvs_fd);
+				session->pasvs_fd = -1;
+			}
 		}
 		return 0;
 	}
 
 	reply = "200 Port Command Successful.\r\n";
 	send(session->fd, reply, strlen(reply), 0);
+	return 0;
+}
+
+static int pasv_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
+{
+	struct sockaddr_in bind_addr;
+	socklen_t addr_len = sizeof(bind_addr);
+	char *reply = malloc(1024);
+
+	session->pasvs_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (session->pasvs_fd < 0) {
+		snprintf(reply, 1024, "504 socket create error.\r\n");
+		goto passv_end;
+	}
+
+	bind_addr.sin_family = AF_INET;
+	bind_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+	bind_addr.sin_port = 0;
+
+	if (bind(session->pasvs_fd, (struct sockaddr *)&bind_addr, sizeof(bind_addr)) < 0) {
+		snprintf(reply, 1024, "504 socket bind error.\r\n");
+		goto passv_end;
+	}
+	if (getsockname(session->pasvs_fd, (struct sockaddr *)&bind_addr, &addr_len) != 0) {
+		LOG_ERR("Failed to get socket name");
+	}
+
+	char addr_str[INET_ADDRSTRLEN];
+	inet_ntop(bind_addr.sin_family, &bind_addr.sin_addr, addr_str, sizeof(addr_str));
+	if (listen(session->pasvs_fd, 5) < 0) {
+		snprintf(reply, 1024, "504 socket listen error.\r\n");
+		goto passv_end;
+	}
+
+	if (strcmp(cmd, "PASV") == 0) {
+		struct net_if *iface = net_if_get_first_by_type(&NET_L2_GET_NAME(ETHERNET));
+		if (iface) {
+			uint8_t *addr = iface->config.ip.ipv4->unicast->ipv4.address.in_addr.s4_addr;
+			snprintf(reply, 1024, "227 Entering Passive Mode (%d,%d,%d,%d,%d,%d).\r\n",
+				addr[0], addr[1], addr[2], addr[3],
+				bind_addr.sin_port & 0xff,
+				bind_addr.sin_port >> 8);
+		}
+	} else if (strcmp(cmd, "EPSV") == 0) {
+		snprintf(reply, 1024, "229 Entering Extended Passive Mode (|||%d|).\r\n",
+			 ntohs(bind_addr.sin_port));
+	}
+passv_end:
+	send(session->fd, reply, strlen(reply), 0);
+	free(reply);
+
 	return 0;
 }
 
@@ -288,9 +372,22 @@ static int list_statbuf_get(struct dirent *dirent, struct stat *s, char *buf, in
 	return ret;
 }
 
+void pasv_accept(struct ftp_session *session)
+{
+	struct sockaddr_in client_addr;
+	socklen_t client_addr_len = sizeof(client_addr);
+
+	session->port_pasv_fd = accept(session->pasvs_fd, (struct sockaddr *)&client_addr, &client_addr_len);
+}
+
 static int list_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 {
 	char *reply = NULL;
+
+	if (session->pasvs_fd > 0) {
+		pasv_accept(session);
+	}
+
 	if (session->port_pasv_fd < 0) {
 		reply = "502 Not Implemented.\r\n";
 		send(session->fd, reply, strlen(reply), 0);
@@ -339,6 +436,10 @@ static int list_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 
 	close(session->port_pasv_fd);
 	session->port_pasv_fd = -1;
+	if (session->pasvs_fd > 0) {
+		close(session->pasvs_fd);
+		session->pasvs_fd = -1;
+	}
 
 	reply = "226 Transfert Complete.\r\n";
 	send(session->fd, reply, strlen(reply), 0);
@@ -348,6 +449,11 @@ static int list_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 static int nlist_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 {
 	char *reply = NULL;
+
+	if (session->pasvs_fd > 0) {
+		pasv_accept(session);
+	}
+
 	if (session->port_pasv_fd < 0) {
 		reply = "502 Not Implemented.\r\n";
 		send(session->fd, reply, strlen(reply), 0);
@@ -385,6 +491,10 @@ static int nlist_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 
 	close(session->port_pasv_fd);
 	session->port_pasv_fd = -1;
+	if (session->pasvs_fd > 0) {
+		close(session->pasvs_fd);
+		session->pasvs_fd = -1;
+	}
 
 	reply = "226 Transfert Complete.\r\n";
 	send(session->fd, reply, strlen(reply), 0);
@@ -634,6 +744,11 @@ static int rest_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 static int retr_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 {
 	char *reply = NULL;
+
+	if (session->pasvs_fd > 0) {
+		pasv_accept(session);
+	}
+
 	if (session->port_pasv_fd < 0) {
 		reply = "502 Not Implemented.\r\n";
 		send(session->fd, reply, strlen(reply), 0);
@@ -725,6 +840,10 @@ out:
 	close(fd);
 	close(session->port_pasv_fd);
 	session->port_pasv_fd = -1;
+	if (session->pasvs_fd > 0) {
+		close(session->pasvs_fd);
+		session->pasvs_fd = -1;
+	}
 
 	if (result != 0) {
 		return -1;
@@ -790,6 +909,10 @@ static int stor_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 		return 0;
 	}
 
+	if (session->pasvs_fd > 0) {
+		pasv_accept(session);
+	}
+
 	if (session->port_pasv_fd < 0) {
 		reply = "502 Not Implemented.\r\n";
 		send(session->fd, reply, strlen(reply), 0);
@@ -849,6 +972,10 @@ static int stor_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 	close(fd);
 	close(session->port_pasv_fd);
 	session->port_pasv_fd = -1;
+	if (session->pasvs_fd > 0) {
+		close(session->pasvs_fd);
+		session->pasvs_fd = -1;
+	}
 
 	if (result != 0) {
 		return -1;
@@ -894,6 +1021,9 @@ static struct ftp_session_cmd {
 	int (*cmd_fn)(struct ftp_session *session, char *cmd, char *cmd_param);
 } session_cmds[] = {
 	{"PORT", port_cmd_fn},
+	{"EPRT", port_cmd_fn},
+	{"PASV", pasv_cmd_fn},
+	{"EPSV", pasv_cmd_fn},
 	{"PWD", pwd_cmd_fn},
 	{"XPWD", pwd_cmd_fn},
 	{"TYPE", type_cmd_fn},

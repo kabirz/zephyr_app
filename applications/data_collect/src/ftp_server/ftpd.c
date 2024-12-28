@@ -18,6 +18,7 @@ static void ftp_session_reset(struct ftp_session *sess)
 {
 	memset(sess, 0, sizeof(*sess));
 	sess->port_pasv_fd = -1;
+	sess->pasvs_fd = -1;
 };
 
 static void ftp_session_release(struct ftp_session *sess)
@@ -25,6 +26,9 @@ static void ftp_session_release(struct ftp_session *sess)
 	close(sess->fd);
 	if (sess->port_pasv_fd != -1) {
 		close(sess->port_pasv_fd);
+	}
+	if (sess->pasvs_fd != -1) {
+		close(sess->pasvs_fd);
 	}
 	ftp_session_reset(sess);
 }
@@ -121,6 +125,7 @@ static void ftp_poll(void)
 				if (ftp_sessions[i].fd == 0) {
 					ftp_sessions[i].fd = client;
 					ftp_sessions[i].port_pasv_fd = -1;
+					ftp_sessions[i].pasvs_fd = -1;
 					ftp_sessions[i].time = k_uptime_get();
 					getpeername(ftp_sessions[i].fd,
 						    (struct sockaddr *)&client_addr,

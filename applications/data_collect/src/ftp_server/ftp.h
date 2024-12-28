@@ -27,6 +27,7 @@ struct ftp_session {
 	int fd;
 	int is_anonymous;
 	int port_pasv_fd;
+	int pasvs_fd;
 	int offset;
 	int64_t time;
 	enum ftp_session_state state;
