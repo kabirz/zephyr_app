@@ -10,7 +10,6 @@ LOG_MODULE_REGISTER(ftp, LOG_LEVEL_INF);
 #define CONNECT_ERR_MSG "Only 3 connections is allowed, please close other one and retry\r\n"
 
 #define MAX_CLIENTS 4
-#define FTP_PORT    21
 static uint8_t data_buf[256];
 static struct ftp_session ftp_sessions[MAX_CLIENTS];
 

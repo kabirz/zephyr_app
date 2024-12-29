@@ -15,6 +15,8 @@
 
 #define USER_NAME           "admin"
 #define USER_PAWD           "admin"
+#define FTP_PORT            21
+#define FTP_DATA_PORT       20
 #define FTP_SESSION_TIMEOUT (120 * 1000)
 
 enum ftp_session_state {
@@ -29,6 +31,7 @@ struct ftp_session {
 	int port_pasv_fd;
 	int pasvs_fd;
 	int offset;
+	int type;
 	int64_t time;
 	enum ftp_session_state state;
 	char currentdir[256];

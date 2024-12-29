@@ -11,6 +11,21 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(ftp, LOG_LEVEL_INF);
 
+static int ftp_data_send(int fd, uint8_t *data, size_t len)
+{
+	int send_bytes = 0;
+	int result = 0;
+
+	while (send_bytes < len) {
+		result = send(fd, data + send_bytes, MIN(len - send_bytes, 256), 0);
+		if (result <= 0) {
+			return result;
+		}
+		send_bytes += result;
+	}
+	return len;
+}
+
 static int ftp_create_dir(const char *path)
 {
 	int result = 0;
@@ -160,11 +175,21 @@ static int port_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 
 	int rc = -1;
 	do {
+		struct sockaddr_in addr;
 		session->port_pasv_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 		if (session->port_pasv_fd < 0) {
 			LOG_ERR("socket create error");
 			break;
 		}
+
+		addr.sin_family = AF_INET;
+		addr.sin_port = htons(FTP_DATA_PORT);
+		addr.sin_addr.s_addr = htonl(INADDR_ANY);
+		if (bind(session->port_pasv_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+			LOG_ERR("socket bind error.");
+			break;
+		}
+
 		struct timeval tv;
 		tv.tv_sec = 20;
 		tv.tv_usec = 0;
@@ -173,7 +198,6 @@ static int port_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 			LOG_ERR("don't support SO_SNDTIMEO");
 			break;
 		}
-		struct sockaddr_in addr;
 		memset(&addr, 0, sizeof(addr));
 		addr.sin_family = AF_INET;
 		addr.sin_port = htons(port);
@@ -274,8 +298,10 @@ static int type_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 	// Ignore it
 	char *reply = NULL;
 	if (strcmp(cmd_param, "I") == 0) {
+		session->type = 1;
 		reply = "200 Type set to binary.\r\n";
 	} else {
+		session->type = 0;
 		reply = "200 Type set to ascii.\r\n";
 	}
 
@@ -285,7 +311,7 @@ static int type_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 
 static int syst_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 {
-	char *reply = "215 RT-Thread RTOS\r\n";
+	char *reply = "215 Zephyr RTOS\r\n";
 	send(session->fd, reply, strlen(reply), 0);
 	return 0;
 }
@@ -407,30 +433,41 @@ static int list_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 		return 0;
 	}
 
-	reply = "150 Opening Binary mode connection for file list.\r\n";
+	if (session->type == 1) {
+		reply = "150 Opening binary mode connection for file list.\r\n";
+	} else {
+		reply = "150 Opening ascii mode connection for file list.\r\n";
+	}
 	send(session->fd, reply, strlen(reply), 0);
 
 	struct dirent *dirent = NULL;
-	char tmp[256];
+	int offset = 0;
 	struct stat s;
+	reply = malloc(1024);
+	char *tmp = reply + 1024 - 256;
 	do {
 		dirent = readdir(dir);
 		if (dirent == NULL) {
 			break;
 		}
-		snprintf(tmp, sizeof(tmp), "%s/%s", session->currentdir, dirent->d_name);
+		snprintf(tmp, 256, "%s/%s", session->currentdir, dirent->d_name);
 		memset(&s, 0, sizeof(struct stat));
 		if (stat(tmp, &s) != 0) {
 			continue;
 		}
 
-		int stat_len = list_statbuf_get(dirent, &s, tmp, sizeof(tmp));
+		int stat_len = list_statbuf_get(dirent, &s, tmp, 256);
 		if (stat_len <= 0) {
 			continue;
 		}
-
-		send(session->port_pasv_fd, tmp, stat_len, 0);
+		if (offset + stat_len > (1024 - 256)) {
+			ftp_data_send(session->port_pasv_fd, reply, offset);
+			offset = 0;
+		}
+		memcpy(reply+offset, tmp, stat_len);
+		offset += stat_len;
 	} while (dirent != NULL);
+	free(reply);
 
 	closedir(dir);
 
@@ -473,7 +510,11 @@ static int nlist_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 		return 0;
 	}
 
-	reply = "150 Opening Binary mode connection for file list.\r\n";
+	if (session->type == 1) {
+		reply = "150 Opening binary mode connection for file list.\r\n";
+	} else {
+		reply = "150 Opening ascii mode connection for file list.\r\n";
+	}
 	send(session->fd, reply, strlen(reply), 0);
 
 	struct dirent *dirent = NULL;
@@ -803,7 +844,7 @@ static int retr_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 		return 0;
 	}
 
-	reply = malloc(4096);
+	reply = malloc(1024);
 	if (reply == NULL) {
 		close(fd);
 		return -1;
@@ -811,12 +852,15 @@ static int retr_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 
 	if ((session->offset > 0) && (session->offset < file_size)) {
 		lseek(fd, session->offset, SEEK_SET);
-		snprintf(reply, 4096,
-			 "150 Opening binary mode data connection for \"%s\" (%d/%d bytes).\r\n",
+		snprintf(reply, 1024,
+			 "150 Opening %s mode data connection for \"%s\" (%d/%d bytes).\r\n",
+			 session->type == 1 ? "binary" : "ascii",
 			 path, file_size - session->offset, file_size);
 	} else {
-		snprintf(reply, 4096,
-			 "150 Opening binary mode data connection for \"%s\" (%d bytes).\r\n", path,
+		snprintf(reply, 1024,
+			 "150 Opening %s mode data connection for \"%s\" (%d bytes).\r\n",
+			 session->type == 1 ? "binary" : "ascii",
+			 path,
 			 file_size);
 	}
 	send(session->fd, reply, strlen(reply), 0);
@@ -824,18 +868,12 @@ static int retr_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 	int recv_bytes = 0;
 	int result = 0;
 
-	while ((recv_bytes = read(fd, reply, 4096)) > 0) {
-		int send_bytes = 0;
-		while (send_bytes < recv_bytes) {
-			result = send(session->port_pasv_fd, reply + send_bytes,
-				      recv_bytes - send_bytes, 0);
-			if (result <= 0) {
-				goto out;
-			}
-			send_bytes += result;
+	while ((recv_bytes = read(fd, reply, 1024)) > 0) {
+		if (ftp_data_send(session->port_pasv_fd, reply, recv_bytes) != recv_bytes) {
+			result = -1;
+			break;
 		}
 	}
-out:
 	free(reply);
 	close(fd);
 	close(session->port_pasv_fd);
@@ -846,10 +884,10 @@ out:
 	}
 
 	if (result != 0) {
-		return -1;
+		reply = "426 Connection closed, transfer aborted.\r\n";
+	} else {
+		reply = "226 Transfert Complete.\r\n";
 	}
-
-	reply = "226 Finished.\r\n";
 	send(session->fd, reply, strlen(reply), 0);
 	session->offset = 0;
 	return 0;
@@ -978,10 +1016,10 @@ static int stor_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 	}
 
 	if (result != 0) {
-		return -1;
+		reply = "426 Connection closed, transfer aborted.\r\n";
+	} else {
+		reply = "226 Transfert Complete.\r\n";
 	}
-
-	reply = "226 Finished.\r\n";
 	send(session->fd, reply, strlen(reply), 0);
 	return 0;
 }
