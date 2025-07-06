@@ -6,13 +6,27 @@ from pathlib import Path
 from typing import List, Tuple
 
 from west.util import west_topdir
+import yaml
 
 TOP_DIR = Path(west_topdir())
 TOOL_DIR = TOP_DIR / 'apps/tools'
 BUILD_DIR = TOP_DIR / 'build'
-MCUBOOT_BIN = BUILD_DIR / 'mcuboot/zephyr/zephyr.bin'
-APP_SIGN_BIN = BUILD_DIR / 'data_collect/zephyr/zephyr.signed.bin'
+LOAD_SIZE = 0x20000
+
+with open(BUILD_DIR/'build_info.yml', 'r') as f:
+    info = yaml.safe_load(f)
+    for vals in info['cmake']['images']:
+        if vals['name'] == 'mcuboot':
+            MCUBOOT_BIN = BUILD_DIR / 'mcuboot/zephyr/zephyr.bin'
+            with open(BUILD_DIR/'mcuboot/zephyr/include/generated/zephyr/autoconf.h', 'r') as conf:
+                for lines in conf.readlines():
+                    if 'CONFIG_FLASH_LOAD_SIZE' in lines:
+                        LOAD_SIZE = int((lines.split(' ')[-1][:-1]), 0)
+        else:
+            APP_NAME = vals["name"]
+            APP_SIGN_BIN = BUILD_DIR / f'{APP_NAME}/zephyr/zephyr.signed.bin'
 OUT_APP = BUILD_DIR / 'app.bin'
+print(f'LOAD_SIZE is 0x{LOAD_SIZE:x}')
 
 
 def generate_app() -> None:
@@ -40,4 +54,5 @@ files: List[Tuple[Path, str]] = [
 ]
 generate_app()
 
-zip_files(files, BUILD_DIR / 'daq_f407.zip')
+zip_files(files, BUILD_DIR / f'{APP_NAME}.zip')
+
