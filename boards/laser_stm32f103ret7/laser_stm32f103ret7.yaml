@@ -1,0 +1,19 @@
+identifier: laser_stm32f103ret7
+name: STM32F103RCT6 Mini Board
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gnuarmemb
+ram: 64
+flash: 512
+supported:
+  - gpio
+  - i2c
+  - spi
+  - pwm
+  - watchdog
+  - adc
+  - counter
+  - usbd
+vendor: st
