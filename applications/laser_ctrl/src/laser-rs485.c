@@ -96,7 +96,7 @@ SYS_INIT(rs485_init, APPLICATION, 10);
 #include <zephyr/shell/shell.h>
 static int cmd_rs485_write(const struct shell *ctx, size_t argc, char **argv)
 {
-	rs485_send(argv[2], strlen(argv[2]));
+	rs485_send(argv[1], strlen(argv[1]));
 	return 0;
 }
 
@@ -104,7 +104,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_rs485_cmds,
 			       SHELL_CMD_ARG(send, NULL,
 					     "rs485 send\n"
 					     "Usage: send <strings>",
-					     cmd_rs485_write, 1, 0),
+					     cmd_rs485_write, 2, 0),
 			       SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(rs485, &sub_rs485_cmds, "rs485 commands", NULL);

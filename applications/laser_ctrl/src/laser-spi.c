@@ -52,11 +52,11 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_biss_cmds,
 			       SHELL_CMD_ARG(version, NULL,
 					     "get biss version\n"
 					     "Usage: version",
-					     cmd_version_get, 1, 0),
+					     cmd_version_get, 2, 0),
 			       SHELL_CMD_ARG(transfer, NULL,
 					     "transfer bytes to an spi device\n"
 					     "Usage: transfer <reg> [<byte1>, ...]",
-					     cmd_spi_transceive, 1, 7),
+					     cmd_spi_transceive, 2, 7),
 			       SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(biss, &sub_biss_cmds, "Spi biss commands", NULL);

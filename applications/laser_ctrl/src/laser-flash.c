@@ -36,7 +36,7 @@ int laser_flash_write(uint8_t address, uint32_t val)
 	if (address < 50) {
 		laser_regs[address] = val;
 	}
-	if (flash_area_flatten(fa, 0, sizeof(laser_regs)) == 0) {
+	if (flash_area_flatten(fa, 0, 4096) == 0) {
 		if (flash_area_write(fa, 0, laser_regs, sizeof(laser_regs)) == 0) {
 			return 0;
 		}
@@ -66,8 +66,8 @@ static int cmd_lflash_write(const struct shell *ctx, size_t argc, char **argv)
 	uint8_t regs = strtol(argv[1], NULL, 0);
 
 	for (int i = 0; i < argc - 2; i++) {
-		l_buf = strtol(argv[1 + i], NULL, 0);
-		laser_flash_write(regs, l_buf);
+		l_buf = strtol(argv[2 + i], NULL, 0);
+		laser_flash_write(regs+i, l_buf);
 	}
 
 	return 0;
@@ -79,8 +79,8 @@ static int cmd_lflash_read(const struct shell *ctx, size_t argc, char **argv)
 	uint32_t val;
 
 	for (int i = 0; i < strtol(argv[2], NULL, 0); i++) {
-		laser_flash_read(regs, &val);
-		shell_print(ctx, "%d: 0x%x", regs, val);
+		laser_flash_read(regs+i, &val);
+		shell_print(ctx, "%d: 0x%x", regs+i, val);
 	}
 	return 0;
 }
@@ -89,11 +89,11 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_lflash_cmds,
 			       SHELL_CMD_ARG(write, NULL,
 					     "write bytes to flash\n"
 					     "Usage: write <reg> <word1> [<word2>..], reg < 256",
-					     cmd_lflash_write, 2, 7),
+					     cmd_lflash_write, 3, 7),
 			       SHELL_CMD_ARG(read, NULL,
 					     "read bytes from flash\n"
-					     "Usage: read <numbers>]",
-					     cmd_lflash_read, 1, 0),
+					     "Usage: read <reg> <numbers>",
+					     cmd_lflash_read, 3, 0),
 			       SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(lflash, &sub_lflash_cmds, "Spi Flash commands", NULL);
