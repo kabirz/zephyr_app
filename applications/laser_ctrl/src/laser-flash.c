@@ -1,5 +1,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/storage/flash_map.h>
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(laser_flash, LOG_LEVEL_INF);
 
 #define CFG_PARTITION    cfg_partition
 #define CFG_PARTITION_ID FIXED_PARTITION_ID(CFG_PARTITION)
@@ -11,14 +13,14 @@ static bool inited;
 static int laser_flash_init(void)
 {
 	if (flash_area_open(CFG_PARTITION_ID, &fa) != 0) {
-		printk("flash open failed\n");
+		LOG_ERR("flash open failed");
 		inited = false;
 		return -1;
 	}
 
 	if (flash_area_read(fa, 0, laser_regs, sizeof(laser_regs)) != 0) {
 		flash_area_close(fa);
-		printk("flash read failed\n");
+		LOG_ERR("flash read failed");
 		fa = NULL;
 		return -1;
 	}
@@ -39,7 +41,7 @@ int laser_flash_write(uint8_t address, uint32_t val)
 			return 0;
 		}
 	}
-	printk("flash write failed\n");
+	LOG_ERR("flash write failed");
 
 	return 0;
 }

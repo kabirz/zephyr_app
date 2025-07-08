@@ -2,6 +2,8 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/spi.h>
 #include <zephyr/sys/util.h>
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(laser_spi, LOG_LEVEL_INF);
 
 static const struct spi_dt_spec spi_spec =
 	SPI_DT_SPEC_GET(DT_NODELABEL(spi_laser_fpga), SPI_WORD_SET(8), 0);

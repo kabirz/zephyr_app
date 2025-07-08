@@ -3,6 +3,8 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(laser_rs485, LOG_LEVEL_INF);
 
 #define USER_NODE DT_PATH(zephyr_user)
 static const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(usart2));
@@ -16,7 +18,7 @@ static void uart_cb(const struct device *dev, void *user_data)
 		int len = uart_fifo_read(dev, rx_buf, sizeof(rx_buf));
 		if (len > 0) {
 			bin2hex(rx_buf, len, hex_buf, sizeof(hex_buf));
-			printk("RX: %s\n", hex_buf);
+			LOG_INF("RX: %s", hex_buf);
 		}
 	}
 }
