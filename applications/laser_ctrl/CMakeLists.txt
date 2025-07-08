@@ -10,4 +10,5 @@ target_sources(app PRIVATE
   src/laser-rs485.c
   src/laser-spi.c
   src/laser-flash.c
+  src/laser-can.c
 )
