@@ -1,0 +1,6 @@
+
+/{
+	zephyr,user {
+		rs485_tx-gpios = <&gpiod 3 GPIO_ACTIVE_LOW>;
+	};
+};

@@ -71,12 +71,14 @@
 	pinctrl-0 = <&usart2_tx_pa2 &usart2_rx_pa3>;
 	pinctrl-names = "default";
 	current-speed = <115200>;
+	status = "okay";
 };
 
 &spi1 {
-	pinctrl-0 = <&spi1_nss_master_pa4 &spi1_sck_master_pa5
+	pinctrl-0 = <&spi1_sck_master_pa5
 		     &spi1_miso_master_pa6 &spi1_mosi_master_pa7>;
 	pinctrl-names = "default";
+	cs-gpios = <&gpioa 4 GPIO_ACTIVE_LOW>;
 	status = "okay";
 	gd25q80csigr: gd25q80csigr@0 {
 		compatible = "jedec,spi-nor";
@@ -91,25 +93,30 @@
 
 			slot1_partition: partition@0 {
 				label = "image-1";
-				reg = <0x00D00000 DT_SIZE_K(384)>;
+				reg = <0x00000000 DT_SIZE_K(384)>;
 			};
 			scratch_partition: partition@60000 {
 				label = "image-scratch";
-				reg = <0x00D80000 DT_SIZE_K(384)>;
+				reg = <0x00060000 DT_SIZE_K(384)>;
 			};
-			cfg_partition: partition@C00000 {
+			cfg_partition: partition@C0000 {
 				label = "cfg";
-				reg = <0x00E00000 DT_SIZE_K(256)>;
+				reg = <0x000C0000 DT_SIZE_K(256)>;
 			};
 		};
 	};
 };
 
 &spi2 {
-	pinctrl-0 = <&spi2_nss_master_pb12 &spi2_sck_master_pb13
-		     &spi2_miso_master_pb14 &spi2_mosi_master_pb15>;
+	pinctrl-0 = <&spi2_sck_master_pb13 &spi2_miso_master_pb14 &spi2_mosi_master_pb15>;
 	pinctrl-names = "default";
+	cs-gpios = <&gpiob 12 GPIO_ACTIVE_LOW>;
 	status = "okay";
+	spi_laser_fpga: spi_laser_fpga@0 {
+		compatible = "spi,laser";
+		spi-max-frequency = <DT_FREQ_M(1)>;
+		reg = <0>;
+	};
 };
 
 &can1 {
