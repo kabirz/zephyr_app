@@ -9,4 +9,5 @@ target_sources(app PRIVATE
   src/main.c
   src/laser-rs485.c
   src/laser-spi.c
+  src/laser-flash.c
 )
