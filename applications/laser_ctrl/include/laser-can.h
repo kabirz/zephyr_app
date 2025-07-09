@@ -20,7 +20,7 @@ enum fw_error_code {
 	FW_CODE_OFFSET,
 	FW_CODE_UPDATE_SUCCESS,
 	FW_CODE_VERSION,
-	FW_CODE_CONFIMR,
+	FW_CODE_CONFIRM,
 	FW_CODE_FLASH_ERROR,
 	FW_CODE_TRANFER_ERROR,
 };
@@ -34,17 +34,10 @@ struct laser_can_msg {
 	int error;
 	int count;
 };
-#define HEAP_SIZE (sizeof(struct laser_can_msg)*10)
 
-struct can_cob_msg {
-	uint8_t command;
-	uint16_t index;
-	uint8_t subindex;
-	uint32_t data;
-};
 int laser_can_send(struct can_frame *frame);
-int cob_id664_process(void *msg);
-int cob_id665_process(void *msg);
+int cob_id664_process(struct can_frame *frame);
+int cob_id665_process(struct can_frame *frame);
 
 #include <zephyr/dfu/flash_img.h>
 #include <zephyr/dfu/mcuboot.h>

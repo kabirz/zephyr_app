@@ -1,7 +1,6 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/drivers/gpio.h>
-#include <zephyr/sys/util.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(laser_rs485, LOG_LEVEL_INF);
@@ -17,7 +16,6 @@ static const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(usart2));
 static const struct gpio_dt_spec rs485tx_gpios = GPIO_DT_SPEC_GET(USER_NODE, rs485_tx_gpios);
 #endif
 static uint8_t rx_buf[128];
-static uint8_t hex_buf[128];
 bool laser_enabled;
 
 static void uart_cb(const struct device *dev, void *user_data)
@@ -25,8 +23,7 @@ static void uart_cb(const struct device *dev, void *user_data)
 	while (uart_irq_update(dev) && uart_irq_rx_ready(dev)) {
 		int len = uart_fifo_read(dev, rx_buf, sizeof(rx_buf));
 		if (len > 0) {
-			bin2hex(rx_buf, len, hex_buf, sizeof(hex_buf));
-			LOG_INF("RX: %s", hex_buf);
+			LOG_HEXDUMP_INF(rx_buf, len, "RX:");
 		}
 	}
 }
