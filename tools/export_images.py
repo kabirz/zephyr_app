@@ -7,10 +7,16 @@ from typing import List, Tuple
 
 from west.util import west_topdir
 import yaml
+import argparse
+
+parser = argparse.ArgumentParser('export images')
+parser.add_argument('build_dir', type=str, help='spec build output name, not path')
+
+args = parser.parse_args()
 
 TOP_DIR = Path(west_topdir())
 TOOL_DIR = TOP_DIR / 'apps/tools'
-BUILD_DIR = TOP_DIR / 'build'
+BUILD_DIR = TOP_DIR / args.build_dir
 LOAD_SIZE = 0x20000
 
 with open(BUILD_DIR/'build_info.yml', 'r') as f:
