@@ -58,18 +58,24 @@ int laster_stopclear(void)
 
 int laster_on(void)
 {
-	uint8_t data[] = {0x73, 0x30, 0x63, 0x0D, 0x0A};
+	uint8_t data[] = {0x73, 0x30, 0x6F, 0x2B, 0x31, 0x0D, 0x0A};
 
 	rs485_send(data, sizeof(data));
 
 	return 0;
 }
 
-int laster_con_measure(void)
+int laster_con_measure(uint32_t val)
 {
-	uint8_t data[] = {0x73, 0x30, 0x68, 0x0D, 0x0A};
+	uint8_t data[32] = {0x73, 0x30, 0x68, 0x2B};
+	int offset = 4;
 
-	rs485_send(data, sizeof(data));
+	offset += snprintf(data+offset, sizeof(data)-offset, "%d", val);
+	data[offset] = 0x0D;
+	data[offset+1] = 0x0A;
+	offset += 2;
+
+	rs485_send(data, offset);
 
 	return 0;
 }
@@ -93,14 +99,6 @@ static int rs485_init(void)
 	uart_irq_rx_enable(uart_dev);
 
 	return 0;
-}
-
-void rs_demo(void)
-{
-	while (true) {
-		rs485_send("Hello RS485", 8);
-		k_sleep(K_MSEC(1));
-	}
 }
 
 SYS_INIT(rs485_init, APPLICATION, 10);
