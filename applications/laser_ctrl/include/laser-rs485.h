@@ -5,5 +5,5 @@
 int laser_stopclear(void);
 int laser_on(void);
 int laser_con_measure(uint32_t val);
-
+extern bool laser_enabled;
 #endif

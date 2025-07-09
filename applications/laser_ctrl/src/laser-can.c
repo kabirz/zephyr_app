@@ -1,5 +1,7 @@
 #include <zephyr/kernel.h>
 #include <laser-can.h>
+#include <laser-rs485.h>
+#include <laser-flash.h>
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(laser_can, LOG_LEVEL_INF);
 
@@ -27,6 +29,7 @@ static void laser_canrx_msg_handler(struct can_frame *frame)
 	case FW_UP_START:
 	case FW_UP_DATA:
 	case FW_UP_CONFIRM:
+	case FW_GET_VER:
 		fw_update(frame);
 		break;
 	default:
@@ -68,7 +71,7 @@ static K_WORK_DEFINE(laser_can_work, can_msg_process);
 
 int laser_can_send(struct can_frame *frame)
 {
-	if (k_sem_take(&laser_can_sem, K_MSEC(5)) != 0) {
+	if (k_sem_take(&laser_can_sem, K_SECONDS(5)) != 0) {
 		LOG_ERR("previous can frame send failed");
 		return -1;
 	}
@@ -112,7 +115,7 @@ static void laser_canrx_callback(const struct device *dev, struct can_frame *fra
 	msg->frame = *frame;
 }
 
-int layer_can_init(void)
+int laser_can_init(void)
 {
 	int err = 0;
 	struct can_filter filter;
@@ -132,13 +135,35 @@ int layer_can_init(void)
 		LOG_ERR("failed to start CAN controller (err %d)", err);
 		goto end;
 	}
+	laser_flash_read_mode();
 	filter.id = COB_ID1_RX;
 	filter.mask = CAN_STD_ID_MASK;
 	err = can_add_rx_filter(can_dev, laser_canrx_callback, NULL, &filter);
 	filter.id = COB_ID2_RX;
 	err = can_add_rx_filter(can_dev, laser_canrx_callback, NULL, &filter);
+	filter.id = FW_UP_START;
+	err = can_add_rx_filter(can_dev, laser_canrx_callback, NULL, &filter);
+	filter.id = FW_UP_DATA;
+	err = can_add_rx_filter(can_dev, laser_canrx_callback, NULL, &filter);
+	filter.id = FW_UP_CONFIRM;
+	err = can_add_rx_filter(can_dev, laser_canrx_callback, NULL, &filter);
+	filter.id = FW_GET_VER;
+	err = can_add_rx_filter(can_dev, laser_canrx_callback, NULL, &filter);
 end:
 	return err;
 }
 
-SYS_INIT(layer_can_init, APPLICATION, 12);
+SYS_INIT(laser_can_init, APPLICATION, 12);
+
+
+void laser_data_process_handler(void)
+{
+	while (true) {
+		k_sleep(K_MSEC(500));
+		if (read_mode && laser_enabled) {
+			// send data
+		}
+	}
+}
+
+K_THREAD_DEFINE(laser_data, 1024, laser_data_process_handler, NULL, NULL, NULL, 12, 0, 0);

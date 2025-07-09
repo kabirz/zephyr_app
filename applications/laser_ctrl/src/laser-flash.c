@@ -8,7 +8,7 @@ LOG_MODULE_REGISTER(laser_flash, LOG_LEVEL_INF);
 
 static const struct flash_area *fa;
 static uint32_t laser_regs[50];
-static bool inited, write_mode, read_mode;
+bool inited, write_mode, read_mode;
 
 static int laser_flash_init(void)
 {

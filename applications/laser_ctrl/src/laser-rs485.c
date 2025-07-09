@@ -18,6 +18,7 @@ static const struct gpio_dt_spec rs485tx_gpios = GPIO_DT_SPEC_GET(USER_NODE, rs4
 #endif
 static uint8_t rx_buf[128];
 static uint8_t hex_buf[128];
+bool laser_enabled;
 
 static void uart_cb(const struct device *dev, void *user_data)
 {
@@ -52,6 +53,7 @@ int laser_stopclear(void)
 	uint8_t data[] = {0x73, 0x30, 0x63, 0x0D, 0x0A};
 
 	rs485_send(data, sizeof(data));
+	laser_enabled = false;
 
 	return 0;
 }
@@ -61,6 +63,7 @@ int laser_on(void)
 	uint8_t data[] = {0x73, 0x30, 0x6F, 0x2B, 0x31, 0x0D, 0x0A};
 
 	rs485_send(data, sizeof(data));
+	laser_enabled = true;
 
 	return 0;
 }

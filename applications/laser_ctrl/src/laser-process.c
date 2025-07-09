@@ -189,7 +189,7 @@ int fw_update(struct can_frame *frame)
 		flash_img_buffered_write(&msg.flash_img_ctx, frame->data, 0, false);
 		boot_write_img_confirmed();
 		fw_can_recevie(0x55AA55AA, FW_CODE_CONFIMR);
-		k_sleep(K_MSEC(5));
+		k_sleep(K_SECONDS(5));
 		sys_reboot(SYS_REBOOT_COLD);
 	} else if (frame->id == FW_GET_VER) {
 		fw_can_recevie(APPVERSION, FW_CODE_VERSION);

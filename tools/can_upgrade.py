@@ -22,9 +22,17 @@ args = parser.parse_args()
 bus = can.interface.Bus(interface='socketcan', channel=args.channel, bitrate=250000)
 
 filters = [
-    {"can_id": 0x105, "can_mask": 0x21, "extended": False},
+    {"can_id": 0x105, "can_mask": 0x10f, "extended": False},
 ]
 bus.set_filters(filters)
+
+def can_recv(bus: can.BusABC, timeout=5):
+    while True:
+        rx_frame = bus.recv(timeout)
+        if not rx_frame:
+            raise BaseException("can receive data timeout")
+        if rx_frame.arbitration_id == 0x105:
+            return struct.unpack('>2I', rx_frame.data)
 
 def firmware_upgrade(file_name):
     with open(file_name, 'rb') as f:
@@ -33,10 +41,7 @@ def firmware_upgrade(file_name):
         msg = can.Message(arbitration_id=0x101, data=data)
         bus.send(msg)
         f_offset = 0
-        data = bus.recv(30)
-        if not data:
-            raise BaseException("can receive data timeout")
-        code, offset = struct.unpack('>2I', data.data)
+        code, offset = can_recv(bus)
         if code != FW_CODE_OFFSET and offset != 0:
             raise BaseException(f"flash erase error: code({code}), offset({f_offset}, {offset})")
         while True:
@@ -47,19 +52,13 @@ def firmware_upgrade(file_name):
                 f_offset += len(chunk)
             msg = can.Message(arbitration_id=0x102, data=chunk)
             bus.send(msg)
-            data = bus.recv(1)
-            if not data:
-                raise BaseException("can receive data timeout")
-            code, offset = struct.unpack('>2I', data.data)
+            code, offset = can_recv(bus)
             if code != FW_CODE_OFFSET or offset != f_offset:
                 raise BaseException(f"firmware upload error: code({code}), offset({f_offset}, {offset})")
 
         msg = can.Message(arbitration_id=0x103, data=[1])
         bus.send(msg)
-        data = bus.recv(10)
-        if not data:
-            raise BaseException("can receive data timeout")
-        code, offset = struct.unpack('>2I', data.data)
+        code, offset = can_recv(bus, timeout=30)
         if code == 0x55AA55AA and offset == FW_CODE_CONFIMR:
             print(f"Image {args.file} upload finished, board will reboot and upgrade, it will take about 90~150s")
 
@@ -67,11 +66,7 @@ def firmware_upgrade(file_name):
 def firmware_version():
     msg = can.Message(arbitration_id=0x104, data=[1])
     bus.send(msg)
-    data = bus.recv(10)
-    if not data:
-        raise BaseException("can receive data timeout")
-
-    code, version = struct.unpack('>2I', data.data)
+    code, version = can_recv(bus)
     if code == FW_CODE_VERSION:
         ver1, ver2, ver3 =  version & 0xff, (version > 8) & 0xff, (version > 16) & 0xff
         print(f"version: v{ver1}.{ver2}.{ver3}")
