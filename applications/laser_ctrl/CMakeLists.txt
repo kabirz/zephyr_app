@@ -8,7 +8,12 @@ project(laser_ctrl)
 target_sources(app PRIVATE
   src/main.c
   src/laser-rs485.c
-  src/laser-spi.c
   src/laser-flash.c
   src/laser-can.c
 )
+
+dt_nodelabel(dts_partition_path NODELABEL "spi_laser_fpga")
+if (DEFINED dts_partition_path)
+  target_sources(app PRIVATE src/laser-spi.c)
+endif()
+

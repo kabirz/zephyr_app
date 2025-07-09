@@ -7,8 +7,15 @@
 LOG_MODULE_REGISTER(laser_rs485, LOG_LEVEL_INF);
 
 #define USER_NODE DT_PATH(zephyr_user)
+#if defined(CONFIG_BOARD_MONV_F407VET6)
+static const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(usart3));
+#elif defined(CONFIG_BOARD_LASER_STM32F103RET7)
 static const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(usart2));
+#endif
+
+#if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)
 static const struct gpio_dt_spec rs485tx_gpios = GPIO_DT_SPEC_GET(USER_NODE, rs485_tx_gpios);
+#endif
 static uint8_t rx_buf[128];
 static uint8_t hex_buf[128];
 
@@ -25,15 +32,19 @@ static void uart_cb(const struct device *dev, void *user_data)
 
 static void rs485_send(const uint8_t *data, size_t len)
 {
+#if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)
 	gpio_pin_set_dt(&rs485tx_gpios, 1);
-	k_busy_wait(50);
+	k_busy_wait(30);
+#endif
 
 	for (size_t i = 0; i < len; i++) {
 		uart_poll_out(uart_dev, data[i]);
 	}
 
-	k_busy_wait(50);
+#if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)
+	k_busy_wait(30);
 	gpio_pin_set_dt(&rs485tx_gpios, 0);
+#endif
 }
 
 int laster_stopclear(void)
@@ -74,7 +85,9 @@ static int rs485_init(void)
 
 	uart_configure(uart_dev, &uart_cfg);
 
+#if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)
 	gpio_pin_configure_dt(&rs485tx_gpios, GPIO_OUTPUT_INACTIVE);
+#endif
 
 	uart_irq_callback_set(uart_dev, uart_cb);
 	uart_irq_rx_enable(uart_dev);
