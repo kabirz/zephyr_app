@@ -1,8 +1,9 @@
 #ifndef __LASER_RS485_H__
 #define __LASER_RS485_H__
 
-int laster_stopclear(void);
-int laster_on(void);
-int laster_con_measure(void);
+#include <zephyr/kernel.h>
+int laser_stopclear(void);
+int laser_on(void);
+int laser_con_measure(uint32_t val);
 
 #endif

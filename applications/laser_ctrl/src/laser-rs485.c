@@ -47,7 +47,7 @@ static void rs485_send(const uint8_t *data, size_t len)
 #endif
 }
 
-int laster_stopclear(void)
+int laser_stopclear(void)
 {
 	uint8_t data[] = {0x73, 0x30, 0x63, 0x0D, 0x0A};
 
@@ -56,7 +56,7 @@ int laster_stopclear(void)
 	return 0;
 }
 
-int laster_on(void)
+int laser_on(void)
 {
 	uint8_t data[] = {0x73, 0x30, 0x6F, 0x2B, 0x31, 0x0D, 0x0A};
 
@@ -65,7 +65,7 @@ int laster_on(void)
 	return 0;
 }
 
-int laster_con_measure(uint32_t val)
+int laser_con_measure(uint32_t val)
 {
 	uint8_t data[32] = {0x73, 0x30, 0x68, 0x2B};
 	int offset = 4;
