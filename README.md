@@ -26,7 +26,7 @@ west build -b daq_f407vet6/apollo_h743ii apps/applications/data_collect --sysbui
 ## generate app
 
 ```shell
-python apps/tools/export_images.py
+python apps/tools/export_images.py build # build is output folder name
 ```
 
 ## image
