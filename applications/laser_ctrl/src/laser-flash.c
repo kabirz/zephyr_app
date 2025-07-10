@@ -1,3 +1,5 @@
+#include "laser-common.h"
+#include "zephyr/sys/atomic.h"
 #include <zephyr/kernel.h>
 #include <zephyr/storage/flash_map.h>
 #include <zephyr/logging/log.h>
@@ -38,25 +40,24 @@ int laser_flash_read_mode(void)
 		fa = NULL;
 		inited = false;
 	}
-	write_mode = false;
-	read_mode = true;
+	atomic_clear_bit(&laser_status, LASER_WRITE_MODE);
 	return 0;
 }
 
 int laser_flash_write_mode(void)
 {
-	if (write_mode) return 0;
 	if (!inited) {
 		if (laser_flash_init()) return -1;
 	}
-	write_mode = true;
-	read_mode = false;
+
+	atomic_set_bit(&laser_status, LASER_WRITE_MODE);
 	return 0;
 }
 
 int laser_flash_write(uint16_t address, uint32_t val)
 {
-	if (!write_mode) {
+	if (atomic_test_bit(&laser_status, LASER_WRITE_MODE) &&
+		!atomic_test_bit(&laser_status, LASER_FW_UPDATE)) {
 		LOG_ERR("Please enable write mode first");
 		return -1;
 	}
@@ -75,8 +76,8 @@ int laser_flash_write(uint16_t address, uint32_t val)
 
 int laser_flash_read(uint16_t address, uint32_t *val)
 {
-	if (!read_mode) {
-		LOG_ERR("Please enable read mode first");
+	if (!inited) {
+		LOG_ERR("%s: flash error", __FUNCTION__);
 		return -1;
 	}
 	if (address < 50) {

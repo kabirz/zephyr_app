@@ -1,7 +1,6 @@
 #ifndef __LASER_CAN_H__
 #define __LASER_CAN_H__
-#include <zephyr/kernel.h>
-#include <zephyr/drivers/can.h>
+#include "laser-common.h"
 
 enum {
 	COB_ID1_RX = 0x664,
@@ -9,30 +8,9 @@ enum {
 	COB_ID2_RX = 0x665,
 	COB_ID2_TX = 0x5E5,
 
-	FW_UP_START   = 0x101,
-	FW_UP_DATA    = 0x102,
-	FW_UP_CONFIRM = 0x103,
-	FW_GET_VER    = 0x104,
-	FW_UP_TX      = 0x105,
-};
-
-enum fw_error_code {
-	FW_CODE_OFFSET,
-	FW_CODE_UPDATE_SUCCESS,
-	FW_CODE_VERSION,
-	FW_CODE_CONFIRM,
-	FW_CODE_FLASH_ERROR,
-	FW_CODE_TRANFER_ERROR,
-};
-
-struct laser_can_msg {
-	struct can_frame frame;
-	#define CAN_RX       0
-	#define CAN_SEND     1
-	#define CAN_TX_COM   2
-	uint8_t type;
-	int error;
-	int count;
+	PLATFORM_RX   = 0x101,
+	PLATFORM_TX   = 0x102,
+	FW_DATA_RX    = 0x103,
 };
 
 int laser_can_send(struct can_frame *frame);
@@ -50,5 +28,7 @@ struct image_fw_msg {
 	uint8_t data[512];
 };
 int fw_update(struct can_frame *frame);
+bool check_can_device_ready(void);
+int laser_can_init(void);
 
 #endif

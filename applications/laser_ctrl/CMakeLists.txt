@@ -12,6 +12,7 @@ target_sources(app PRIVATE
   src/laser-flash.c
   src/laser-can.c
   src/laser-process.c
+  src/firmware.c
 )
 
 dt_nodelabel(dts_partition_path NODELABEL "spi_laser_fpga")

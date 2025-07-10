@@ -3,6 +3,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <laser-common.h>
 LOG_MODULE_REGISTER(laser_rs485, LOG_LEVEL_INF);
 
 #define USER_NODE DT_PATH(zephyr_user)
@@ -16,7 +17,6 @@ static const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(usart2));
 static const struct gpio_dt_spec rs485tx_gpios = GPIO_DT_SPEC_GET(USER_NODE, rs485_tx_gpios);
 #endif
 static uint8_t rx_buf[128];
-bool laser_enabled;
 
 static void uart_cb(const struct device *dev, void *user_data)
 {
@@ -50,8 +50,6 @@ int laser_stopclear(void)
 	uint8_t data[] = {0x73, 0x30, 0x63, 0x0D, 0x0A};
 
 	rs485_send(data, sizeof(data));
-	laser_enabled = false;
-
 	return 0;
 }
 
@@ -60,7 +58,6 @@ int laser_on(void)
 	uint8_t data[] = {0x73, 0x30, 0x6F, 0x2B, 0x31, 0x0D, 0x0A};
 
 	rs485_send(data, sizeof(data));
-	laser_enabled = true;
 
 	return 0;
 }

@@ -23,10 +23,8 @@ static void laser_canrx_msg_handler(struct can_frame *frame)
 	case COB_ID2_RX:
 		cob_id665_process(frame);
 		break;
-	case FW_UP_START:
-	case FW_UP_DATA:
-	case FW_UP_CONFIRM:
-	case FW_GET_VER:
+	case PLATFORM_RX:
+	case FW_DATA_RX:
 		fw_update(frame);
 		break;
 	default:
@@ -100,16 +98,15 @@ static void laser_canrx_callback(const struct device *dev, struct can_frame *fra
 	k_work_submit(&laser_can_work);
 }
 
+bool check_can_device_ready(void)
+{
+	return DEVICE_API_IS(can, can_dev) && device_is_ready(can_dev);
+}
+
 int laser_can_init(void)
 {
 	int err = 0;
 	struct can_filter filter = {0};
-
-	if (!device_is_ready(can_dev)) {
-		LOG_ERR("can device (%s) is not ready", can_dev->name);
-		LOG_ERR("%d, %d",  can_dev->state->initialized, can_dev->state->init_res);
-		return -1;
-	}
 
 	if ((err = can_set_bitrate(can_dev, 250000)) != 0) {
 		LOG_ERR("failed to set bitrate (err %d)", err);
@@ -126,26 +123,21 @@ int laser_can_init(void)
 	err = can_add_rx_filter(can_dev, laser_canrx_callback, NULL, &filter);
 	filter.id = COB_ID2_RX;
 	err = can_add_rx_filter(can_dev, laser_canrx_callback, NULL, &filter);
-	filter.id = FW_UP_START;
+	filter.id = PLATFORM_RX;
 	err = can_add_rx_filter(can_dev, laser_canrx_callback, NULL, &filter);
-	filter.id = FW_UP_DATA;
-	err = can_add_rx_filter(can_dev, laser_canrx_callback, NULL, &filter);
-	filter.id = FW_UP_CONFIRM;
-	err = can_add_rx_filter(can_dev, laser_canrx_callback, NULL, &filter);
-	filter.id = FW_GET_VER;
+	filter.id = FW_DATA_RX;
 	err = can_add_rx_filter(can_dev, laser_canrx_callback, NULL, &filter);
 end:
 	return err;
 }
 
-SYS_INIT(laser_can_init, APPLICATION, 32);
-
-
 void laser_data_process_handler(void)
 {
 	while (true) {
 		k_sleep(K_MSEC(500));
-		if (read_mode && laser_enabled) {
+		if (!atomic_test_bit(&laser_status, LASER_WRITE_MODE) &&
+		!atomic_test_bit(&laser_status, LASER_FW_UPDATE) &&
+		atomic_test_bit(&laser_status, LASER_ON)) {
 			// send data
 		}
 	}
