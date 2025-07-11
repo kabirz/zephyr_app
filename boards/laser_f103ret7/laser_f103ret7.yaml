@@ -1,5 +1,5 @@
-identifier: laser_stm32f103ret7
-name: STM32F103RCT6 Mini Board
+identifier: laser_f103ret7
+name: laser F103RET7 Board
 type: mcu
 arch: arm
 toolchain:

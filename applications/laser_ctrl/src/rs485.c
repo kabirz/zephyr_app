@@ -12,7 +12,7 @@ int laser_stopclear(void);
 #define USER_NODE DT_PATH(zephyr_user)
 #if defined(CONFIG_BOARD_MONV_F407VET6)
 static const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(usart3));
-#elif defined(CONFIG_BOARD_LASER_STM32F103RET7)
+#elif defined(CONFIG_BOARD_LASER_F103RET7)
 static const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(usart2));
 #endif
 
@@ -67,7 +67,7 @@ static void laser_msg_process_thread(void)
 						.id = 0x2E4,
 						.dlc = can_bytes_to_dlc(8),
 					};
-#if defined(CONFIG_BOARD_LASER_STM32F103RET7)
+#if defined(CONFIG_BOARD_LASER_F103RET7)
 					int32_t encode1, encode2;
 					laser_get_encode_data(&encode1, &encode2);
 					frame.data_32[0] = (encode1 & 0xFFFFF) << 12 | (encode2 & 0xFFF00) >> 8;

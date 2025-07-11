@@ -13,7 +13,7 @@ west update
 ## build
 
 ```shell
-west build -b laser_stm32f103ret7 apps/applications/laser_ctrl --sysbuild
+west build -b laser_f103ret7 apps/applications/laser_ctrl --sysbuild
 ```
 
 

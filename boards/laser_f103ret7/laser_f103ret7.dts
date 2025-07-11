@@ -9,7 +9,7 @@
 #include <st/f1/stm32f103r(c-d-e)tx-pinctrl.dtsi>
 
 / {
-	model = "laser_stm32f103ret7 board";
+	model = "laser_f103ret7 board";
 	compatible = "stm32f103";
 
 	chosen {
