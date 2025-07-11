@@ -6,18 +6,22 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(laser_spi, LOG_LEVEL_INF);
 
-#define VERSION_GET_REG   0x00
-#define ENCODE1_GET_REG   0x08
-#define ENCODE2_GET_REG   0x0c
+enum {
+	VERSION_GET_REG = 0,
+	TIMESTAMP_REG,
+	ENCODE1_GET_REG,
+	ENCODE2_GET_REG,
+	FPGA_RESET = 0xA5,
+};
 
 static const struct spi_dt_spec spi_spec =
 	SPI_DT_SPEC_GET(DT_NODELABEL(spi_laser_fpga), SPI_WORD_SET(8), 0);
 
 struct encode_msg {
 	uint8_t reg;
-	uint64_t single_num:17;
-	uint64_t mutli_num:14;
-	uint64_t timestamp:32;
+  	uint32_t single_num:17;
+  	uint32_t mutli_num:15;
+  	uint32_t timecount;
 } __PACKED;
 
 struct encode_data {
@@ -39,7 +43,7 @@ static int spi_tranfer(void *tx_buffer, void *rx_buffer, size_t size)
 	return spi_transceive_dt(&spi_spec, &tx_buf_set, &rx_buf_set);
 }
 
-int fpga_version_get(void)
+uint32_t fpga_uint32_get(uint8_t reg, uint32_t *val)
 {
 	uint8_t rx_buf[5] = {0}, tx_buf[5] = {0};
 
@@ -47,9 +51,24 @@ int fpga_version_get(void)
 	if (spi_tranfer(tx_buf, rx_buf, sizeof(rx_buf))) {
 		LOG_ERR("spi tranfer error");
 		return -1;
-	} else {
-		LOG_HEXDUMP_INF(rx_buf, sizeof(rx_buf), "version:");
 	}
+	*val = *(uint32_t *)(rx_buf+1);
+
+	return 0;
+}
+
+uint32_t fpga_uint32_set(uint8_t reg, uint32_t val)
+{
+	uint8_t rx_buf[5] = {0}, tx_buf[5] = {0};
+
+	tx_buf[0] = VERSION_GET_REG;
+	*(uint32_t *)(tx_buf+1) = val;
+
+	if (spi_tranfer(tx_buf, rx_buf, sizeof(rx_buf))) {
+		LOG_ERR("spi tranfer error");
+		return -1;
+	}
+
 	return 0;
 }
 
@@ -73,6 +92,7 @@ int laser_get_encode_data(int32_t *encode1, int32_t *encode2)
 		fpga_time_diff = UINT32_MAX - encode_datas[0].timecount + encode_datas[1].timecount;
 	else
 		fpga_time_diff = encode_datas[1].timecount - encode_datas[0].timecount;
+
 	local_time_diff = encode_datas[1].timestamp - encode_datas[0].timestamp;
 	if ((fpga_time_diff -local_time_diff) > 30) {
 		LOG_WRN("encode1: fpga diff: %d ms, local diff: %d ms", fpga_time_diff, local_time_diff);
@@ -86,32 +106,52 @@ int laser_get_encode_data(int32_t *encode1, int32_t *encode2)
 	if ((fpga_time_diff -local_time_diff) > 30) {
 		LOG_WRN("encode2: fpga diff: %d ms, local diff: %d ms", fpga_time_diff, local_time_diff);
 	}
-	*encode1 = encode_datas[1].single_num;
-	*encode2 = encode_datas[3].single_num;
+	*encode1 = encode_datas[1].single_num * 360 + encode_datas[1].mutli_num;
+	*encode2 = encode_datas[3].single_num * 360 + encode_datas[3].mutli_num;
 	return 0;
 }
 
 static void encode_process_thread(void)
 {
-	struct encode_msg rx_buf[2];
+	struct encode_msg msg[2];
+	uint32_t version, timestamp;
 
-	fpga_version_get();
+	// FGPA reset
+	fpga_uint32_set(FPGA_RESET, 0xA5);
+	k_sleep(K_MSEC(20));
+
+	// timestamp, version
+	fpga_uint32_get(TIMESTAMP_REG, &timestamp);
+	fpga_uint32_get(VERSION_GET_REG, &version);
+	LOG_INF("FPAG Version: 0x%x, timestamp: %d ms", version, timestamp);
 	while (true) {
 		if (!atomic_test_bit(&laser_status, LASER_WRITE_MODE) &&
 			!atomic_test_bit(&laser_status, LASER_FW_UPDATE)) {
-			encode_data_get(ENCODE1_GET_REG, &rx_buf[0]);
-			encode_data_get(ENCODE2_GET_REG, &rx_buf[1]);
+			encode_data_get(ENCODE1_GET_REG, &msg[0]);
+			encode_data_get(ENCODE2_GET_REG, &msg[1]);
 			encode_datas[0] = encode_datas[1];
-			encode_datas[1].timecount = k_uptime_get();
-			encode_datas[1].timestamp = rx_buf[0].timestamp;
-			encode_datas[1].single_num = rx_buf[0].single_num;
-			encode_datas[1].mutli_num = rx_buf[0].mutli_num;
+			encode_datas[1].timecount = msg[0].timecount;
+			encode_datas[1].timestamp = k_uptime_get();
+			if (msg[0].single_num & BIT(16)) // nagetive
+				encode_datas[1].single_num = - (msg[0].single_num & BIT_MASK(16));
+			else
+				encode_datas[1].single_num = msg[0].single_num;
+			if (msg[0].mutli_num & BIT(14)) // nagetive
+				encode_datas[1].mutli_num = - (msg[0].mutli_num & BIT_MASK(14));
+			else
+				encode_datas[1].mutli_num = msg[0].mutli_num;
 
 			encode_datas[2] = encode_datas[3];
-			encode_datas[3].timecount = k_uptime_get();
-			encode_datas[3].timestamp = rx_buf[1].timestamp;
-			encode_datas[3].single_num = rx_buf[1].single_num;
-			encode_datas[3].mutli_num = rx_buf[1].mutli_num;
+			encode_datas[3].timecount = msg[1].timecount;
+			encode_datas[3].timestamp = k_uptime_get();
+			if (msg[0].single_num & BIT(16)) // nagetive
+				encode_datas[3].single_num = - (msg[1].single_num & BIT_MASK(16));
+			else
+				encode_datas[3].single_num = msg[1].single_num;
+			if (msg[0].mutli_num & BIT(14)) // nagetive
+				encode_datas[3].mutli_num = - (msg[1].mutli_num & BIT_MASK(14));
+			else
+				encode_datas[3].mutli_num = msg[1].mutli_num;
 
 			k_sleep(K_MSEC(10));
 		} else {
@@ -126,9 +166,14 @@ K_THREAD_DEFINE(encode_msg, 1024, encode_process_thread, NULL, NULL, NULL, 13, 0
 #include <stdlib.h>
 static int shell_version_get(const struct shell *ctx, size_t argc, char **argv)
 {
-	fpga_version_get();
+	uint32_t version;
+
+	fpga_uint32_get(VERSION_GET_REG, &version);
+
+	shell_print(ctx, "fpge version: 0x%x", version);
 	return 0;
 }
+
 static int shell_encode_get(const struct shell *ctx, size_t argc, char **argv)
 {
 	struct encode_msg rx_msg;
@@ -146,8 +191,17 @@ static int shell_encode_get(const struct shell *ctx, size_t argc, char **argv)
 		return -1;
 	}
 	if (encode_data_get(reg, &rx_msg) == 0) {
+		int32_t single_num, mutli_num;
+		if (rx_msg.single_num & BIT(16)) // nagetive
+			single_num = - (rx_msg.single_num & BIT_MASK(16));
+		else
+			single_num = rx_msg.single_num;
+		if (rx_msg.mutli_num & BIT(14)) // nagetive
+			mutli_num = - (rx_msg.mutli_num & BIT_MASK(14));
+		else
+			mutli_num = rx_msg.mutli_num;
 		shell_print(ctx, "timestamp: %d ms, single num: %d, mutil num: %d",
-		rx_msg.timestamp, rx_msg.single_num, rx_msg.mutli_num);
+	       rx_msg.timecount, single_num, mutli_num);
 	}
 	return 0;
 }

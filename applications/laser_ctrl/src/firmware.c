@@ -75,9 +75,10 @@ int fw_update(struct can_frame *frame)
 			LOG_INF("recived firmware: %d/%d", msg.offset, msg.total_size);
 			fw_can_recevie(FW_CODE_UPDATE_SUCCESS, msg.total_size);
 		} else {
-			if (msg.offset % 1024 == 0)
+			if (msg.offset % 4096 == 0)
 				LOG_INF("recived firmware: %d/%d", msg.offset, msg.total_size);
-			fw_can_recevie(FW_CODE_OFFSET, msg.offset);
+			if (msg.offset % 256 == 0)
+				fw_can_recevie(FW_CODE_OFFSET, msg.offset);
 		}
 	}
 	return 0;
