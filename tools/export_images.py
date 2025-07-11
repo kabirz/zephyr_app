@@ -38,7 +38,7 @@ print(f'LOAD_SIZE is 0x{LOAD_SIZE:x}')
 def generate_app() -> None:
     with OUT_APP.open(mode='wb') as f:
         f.write(MCUBOOT_BIN.read_bytes())
-        f.seek(128 * 1024, os.SEEK_SET)
+        f.seek(LOAD_SIZE, os.SEEK_SET)
         f.write(APP_SIGN_BIN.read_bytes())
 
 

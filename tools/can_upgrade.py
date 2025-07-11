@@ -95,7 +95,7 @@ def firmware_version():
     bus.send(msg)
     code, version = can_recv(bus)
     if code == FW_CODE_VERSION:
-        ver1, ver2, ver3 =  version & 0xff, (version > 8) & 0xff, (version > 16) & 0xff
+        ver1, ver2, ver3 =  (version >> 24) & 0xff, (version >> 16) & 0xff, (version >> 8) & 0xff
         print(f"version: v{ver1}.{ver2}.{ver3}")
 
 def board_reboot():

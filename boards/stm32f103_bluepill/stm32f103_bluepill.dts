@@ -85,10 +85,11 @@
 };
 
 &spi1 {
-	pinctrl-0 = <&spi1_nss_master_pa4 &spi1_sck_master_pa5
+	pinctrl-0 = <&spi1_sck_master_pa5
 		     &spi1_miso_master_pa6 &spi1_mosi_master_pa7>;
 	pinctrl-names = "default";
 	status = "okay";
+	cs-gpios = <&gpioa 4 GPIO_ACTIVE_LOW>;
 };
 
 &spi2 {
