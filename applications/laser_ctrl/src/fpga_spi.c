@@ -2,7 +2,6 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/spi.h>
 #include <zephyr/sys/util.h>
-#include <cstdint>
 #include <laser-common.h>
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(laser_spi, LOG_LEVEL_INF);
@@ -89,7 +88,7 @@ int laser_get_encode_data(int32_t *encode1, int32_t *encode2)
 	}
 	*encode1 = encode_datas[1].single_num;
 	*encode2 = encode_datas[3].single_num;
-	return 0'
+	return 0;
 }
 
 static void encode_process_thread(void)

@@ -21,6 +21,7 @@ enum board_option {
 
 enum {
 	LASER_WRITE_MODE,
+	LASER_NEED_CLOSE,
 	LASER_ON,
 	LASER_CON_MESURE,
 	LASER_FW_UPDATE,

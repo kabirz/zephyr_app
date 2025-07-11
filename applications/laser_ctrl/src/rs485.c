@@ -8,6 +8,7 @@
 #include <laser-common.h>
 LOG_MODULE_REGISTER(laser_rs485, LOG_LEVEL_INF);
 
+int laser_stopclear(void);
 #define USER_NODE DT_PATH(zephyr_user)
 #if defined(CONFIG_BOARD_MONV_F407VET6)
 static const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(usart3));
@@ -100,8 +101,12 @@ static void uart_cb(const struct device *dev, void *user_data)
 		buf.len += uart_fifo_read(dev, buf.data + buf.len, sizeof(buf.data) - buf.len);
 		if (buf.len > 2) {
 			if (buf.data[buf.len-1] == 0x0A && buf.data[buf.len-2] == 0x0D) {
+				if (atomic_test_and_clear_bit(&laser_status, LASER_NEED_CLOSE)) {
+					laser_stopclear();
+				} else {
 				k_msgq_put(&laser_rs485_msgq, &buf, K_NO_WAIT);
 				memset(&buf, 0, sizeof(buf));
+				}
 			}
 		}
 	}
@@ -177,6 +182,7 @@ static int rs485_init(void)
 
 #if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)
 	gpio_pin_configure_dt(&rs485tx_gpios, GPIO_OUTPUT_INACTIVE);
+	gpio_pin_set_dt(&rs485tx_gpios, 0);
 #endif
 
 	uart_irq_callback_set(uart_dev, uart_cb);
