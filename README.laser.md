@@ -4,7 +4,6 @@
 
 ```shell
 west init -m <this_git_url> app --mf zephyr4_1.yml
-west config manifest.project-filter +canopennode
 cd app
 west update
 ```

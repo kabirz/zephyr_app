@@ -17,15 +17,10 @@ manifest:
       path: zephyr
       import:
         name-allowlist:
-          - hal_stm32
-          - zcbor
-          - mbedtls
           - cmsis
-          - fatfs
-          - littlefs
-          - segger
+          - hal_stm32
+          - mbedtls
           - mcuboot
-          - canopennode
 
   self:
     path: apps
