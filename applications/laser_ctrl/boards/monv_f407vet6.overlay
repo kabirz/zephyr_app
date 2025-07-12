@@ -2,6 +2,9 @@
 	pinctrl-0 = <&usart3_tx_pb10 &usart3_rx_pb11>;
 	pinctrl-names = "default";
 	current-speed = <19200>;
+	parity = "even";
+	stop-bits = "1";
+	data-bits = <7>;
 	status = "okay";
 };
 

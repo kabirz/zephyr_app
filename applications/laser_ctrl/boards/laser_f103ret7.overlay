@@ -1,7 +1,7 @@
 
 /{
 	zephyr,user {
-		rs485_tx-gpios = <&gpiod 3 GPIO_ACTIVE_HIGH>;
+		rs485_tx-gpios = <&gpioa 1 GPIO_ACTIVE_HIGH>;
 	};
 };
 
@@ -9,6 +9,9 @@
 	pinctrl-0 = <&usart2_tx_pa2 &usart2_rx_pa3>;
 	pinctrl-names = "default";
 	current-speed = <19200>;
+	parity = "even";
+	stop-bits = "1";
+	data-bits = <7>;
 	status = "okay";
 };
 

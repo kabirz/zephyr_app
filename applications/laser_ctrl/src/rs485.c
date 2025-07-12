@@ -171,15 +171,6 @@ int laser_clear_err(void)
 
 static int rs485_init(void)
 {
-
-	struct uart_config uart_cfg = {.baudrate = 19200,
-				       .parity = UART_CFG_PARITY_EVEN,
-				       .stop_bits = UART_CFG_STOP_BITS_1,
-				       .data_bits = UART_CFG_DATA_BITS_7,
-				       .flow_ctrl = UART_CFG_FLOW_CTRL_NONE};
-
-	uart_configure(uart_dev, &uart_cfg);
-
 #if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)
 	gpio_pin_configure_dt(&rs485tx_gpios, GPIO_OUTPUT_INACTIVE);
 	gpio_pin_set_dt(&rs485tx_gpios, 0);
