@@ -78,5 +78,5 @@ elif BOARD_NAME in ('monv_f407vet6', 'laser_f103ret7') and APP_NAME == 'laser_ct
         (TOOL_DIR / 'can_upgrade.py', 'tools', 'can_download.py'),
     ]
 
-    zip_files(files1, BUILD_DIR / f'{APP_NAME}.zip')
+    zip_files(files1, BUILD_DIR / f'{BOARD_NAME}_{APP_NAME}.zip')
 

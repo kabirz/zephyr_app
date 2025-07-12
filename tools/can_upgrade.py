@@ -57,34 +57,34 @@ def firmware_upgrade(file_name):
     with open(file_name, 'rb') as f:
         total_size = os.path.getsize(args.file)
         data = struct.pack('<2I', BOARD_START_UPDATE, total_size)
+        bar = tqdm.tqdm(total=total_size)
         msg = can.Message(arbitration_id=PLATFORM_RX, data=data, is_extended_id=False)
         bus.send(msg)
-        f_offset = 0
         code, offset = can_recv(bus)
         if code != FW_CODE_OFFSET and offset != 0:
-            raise BaseException(f"flash erase error: code({code}), offset({f_offset}, {offset})")
-        bar = tqdm.tqdm(total=total_size)
+            raise BaseException(f"flash erase error: code({code}), offset({bar.n}, {offset})")
         while True:
             chunk = f.read(8)
             if not chunk:
                 break
             else:
-                f_offset += len(chunk)
-                bar.update(f_offset - bar.n)
+                bar.update(len(chunk))
             msg = can.Message(arbitration_id=FW_DATA_RX, data=chunk, is_extended_id=False)
             bus.send(msg)
+            if bar.n % 256 != 0 and bar.n != total_size:
+                continue
             code, offset = can_recv(bus)
-            if code == FW_CODE_UPDATE_SUCCESS and offset == f_offset:
+            if code == FW_CODE_UPDATE_SUCCESS and offset == bar.n:
                 break
             if code != FW_CODE_OFFSET:
-                raise BaseException(f"firmware upload error: code({code}), offset({f_offset}, {offset})")
+                raise BaseException(f"firmware upload error: code({code}), offset({bar.n}, {offset})")
 
         data = struct.pack('<2I', BOARD_CONFIRM, 0 if args.test else 1)
         msg = can.Message(arbitration_id=PLATFORM_RX, data=data, is_extended_id=False)
         bus.send(msg)
         code, offset = can_recv(bus, timeout=30)
         if code == FW_CODE_CONFIRM and offset == 0x55AA55AA:
-            print(f"Image {args.file} upload finished, board will reboot and upgrade, it will take about 90~150s")
+            print(f"Image {args.file} upload finished, Please reboot board for upgrade, it will take about 45~90s")
         elif code == FW_CODE_TRANFER_ERROR:
             print("Download Failed")
 
