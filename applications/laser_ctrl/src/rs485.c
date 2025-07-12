@@ -195,6 +195,17 @@ SYS_INIT(rs485_init, APPLICATION, 10);
 
 #ifdef CONFIG_SHELL
 #include <zephyr/shell/shell.h>
+
+static int cmd_rs485_on(const struct shell *ctx, size_t argc, char **argv)
+{
+	return laser_on();
+}
+
+static int cmd_rs485_mesure(const struct shell *ctx, size_t argc, char **argv)
+{
+	return laser_con_measure(50);
+}
+
 static int cmd_rs485_write(const struct shell *ctx, size_t argc, char **argv)
 {
 	rs485_send(argv[1], strlen(argv[1]));
@@ -202,6 +213,14 @@ static int cmd_rs485_write(const struct shell *ctx, size_t argc, char **argv)
 }
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_rs485_cmds,
+			       SHELL_CMD_ARG(on, NULL,
+					     "rs485 laser on\n"
+					     "Usage: on",
+					     cmd_rs485_on, 1, 0),
+			       SHELL_CMD_ARG(mesure, NULL,
+					     "rs485 laser mesure\n"
+					     "Usage: mesure",
+					     cmd_rs485_mesure, 1, 0),
 			       SHELL_CMD_ARG(send, NULL,
 					     "rs485 send\n"
 					     "Usage: send <strings>",
