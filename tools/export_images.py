@@ -16,6 +16,7 @@ args = parser.parse_args()
 
 TOP_DIR = Path(west_topdir())
 TOOL_DIR = TOP_DIR / 'apps/tools'
+DOCS_DIR = TOP_DIR / 'apps/docs'
 BUILD_DIR = TOP_DIR / args.build_dir
 LOAD_SIZE = 0x20000
 BOARD_NAME = 'daq_f407vet6'
@@ -76,6 +77,9 @@ elif BOARD_NAME in ('monv_f407vet6', 'laser_f103ret7') and APP_NAME == 'laser_ct
         (APP_SIGN_BIN, 'images', 'app_signed.bin'),
         (APP_HEX_BIN, 'images', 'app_signed.hex'),
         (TOOL_DIR / 'can_upgrade.py', 'tools', 'can_download.py'),
+        (DOCS_DIR/ '刷机.docx', 'docs', ''),
+        (DOCS_DIR/ '单点激光板测试.docx', 'docs', ''),
+        (DOCS_DIR/ '固件升级.docx', 'docs', ''),
     ]
 
     zip_files(files1, BUILD_DIR / f'{BOARD_NAME}_{APP_NAME}.zip')
