@@ -21,7 +21,7 @@ static const struct gpio_dt_spec rs485tx_gpios = GPIO_DT_SPEC_GET(USER_NODE, rs4
 #endif
 struct rx_buf {
 	uint32_t len;
-	uint8_t data[64];
+	uint8_t data[128];
 };
 K_MSGQ_DEFINE(laser_rs485_msgq, sizeof(struct rx_buf), 3, 4);
 static uint8_t id;
@@ -54,10 +54,10 @@ static void laser_msg_process_thread(void)
 
 	while (true) {
 		if (k_msgq_get(&laser_rs485_msgq, &buf, K_FOREVER) == 0) {
-			if (buf.data[0] != 'g' && buf.data[1] != id) return;
+			if (buf.data[0] != 'g' && buf.data[1] != id) continue;
 			if (buf.data[2] == 'h') { // Distance
 				buf.data[buf.len-2] = '\0';
-				int32_t distance = strtol(buf.data+3, NULL, 0);
+				int32_t distance = strtol(buf.data+3, NULL, 10);
 				LOG_DBG("distance: %d", distance);
 				if (!atomic_test_bit(&laser_status, LASER_WRITE_MODE) &&
 					!atomic_test_bit(&laser_status, LASER_FW_UPDATE) &&
@@ -70,6 +70,10 @@ static void laser_msg_process_thread(void)
 #if defined(CONFIG_BOARD_LASER_F103RET7)
 					int32_t encode1, encode2;
 					laser_get_encode_data(&encode1, &encode2);
+					frame.data_32[0] = (encode1 & 0xFFFFF) << 12 | (encode2 & 0xFFF00) >> 8;
+					frame.data_32[1] = (distance & 0xFFFFFF) << 12 | (encode2 & 0xFF) << 24;
+#else
+					int32_t encode1 = 0x1234, encode2 = 0x5678;
 					frame.data_32[0] = (encode1 & 0xFFFFF) << 12 | (encode2 & 0xFFF00) >> 8;
 					frame.data_32[1] = (distance & 0xFFFFFF) << 12 | (encode2 & 0xFF) << 24;
 #endif
@@ -86,7 +90,10 @@ static void laser_msg_process_thread(void)
 				uint16_t err_code = strtol(buf.data+4, NULL, 0);
 				LOG_ERR("laser error code: %s(%d)", get_error_desc(err_code), err_code);
 			} else if (buf.data[2] == '?') { // stop/clear
-				LOG_INF("stop/clear reply");
+				if (atomic_test_bit(&laser_status, LASER_ON))
+					LOG_INF("laser on reply");
+				else
+					LOG_INF("laser stop/clear reply");
 			}
 		}
 	}
@@ -99,14 +106,16 @@ static void uart_cb(const struct device *dev, void *user_data)
 
 	while (uart_irq_update(dev) && uart_irq_rx_ready(dev)) {
 		buf.len += uart_fifo_read(dev, buf.data + buf.len, sizeof(buf.data) - buf.len);
-		if (buf.len > 2) {
+		if (buf.len > sizeof(buf.data) - 4) {
+			memset(&buf, 0, sizeof(buf));
+		} else if (buf.len > 2) {
 			if (buf.data[buf.len-1] == 0x0A && buf.data[buf.len-2] == 0x0D) {
 				if (atomic_test_and_clear_bit(&laser_status, LASER_NEED_CLOSE)) {
 					laser_stopclear();
 				} else {
-				k_msgq_put(&laser_rs485_msgq, &buf, K_NO_WAIT);
-				memset(&buf, 0, sizeof(buf));
+					k_msgq_put(&laser_rs485_msgq, &buf, K_NO_WAIT);
 				}
+				memset(&buf, 0, sizeof(buf));
 			}
 		}
 	}
@@ -116,7 +125,6 @@ static void rs485_send(const uint8_t *data, size_t len)
 {
 #if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)
 	gpio_pin_set_dt(&rs485tx_gpios, 1);
-	k_busy_wait(30);
 #endif
 
 	for (size_t i = 0; i < len; i++) {
@@ -124,7 +132,7 @@ static void rs485_send(const uint8_t *data, size_t len)
 	}
 
 #if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)
-	k_busy_wait(30);
+	k_busy_wait(600);
 	gpio_pin_set_dt(&rs485tx_gpios, 0);
 #endif
 }
@@ -171,14 +179,16 @@ int laser_clear_err(void)
 
 static int rs485_init(void)
 {
-
 	struct uart_config uart_cfg = {.baudrate = 19200,
 				       .parity = UART_CFG_PARITY_EVEN,
 				       .stop_bits = UART_CFG_STOP_BITS_1,
 				       .data_bits = UART_CFG_DATA_BITS_7,
 				       .flow_ctrl = UART_CFG_FLOW_CTRL_NONE};
 
-	uart_configure(uart_dev, &uart_cfg);
+	if (uart_configure(uart_dev, &uart_cfg)) {
+		LOG_ERR("uart config error");
+		return -1;
+	}
 
 #if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)
 	gpio_pin_configure_dt(&rs485tx_gpios, GPIO_OUTPUT_INACTIVE);

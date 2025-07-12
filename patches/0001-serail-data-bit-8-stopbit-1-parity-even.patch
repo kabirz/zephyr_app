@@ -1,0 +1,36 @@
+From 175bc7341b5a2a443eca1e42e7a9127a40880466 Mon Sep 17 00:00:00 2001
+From: kabirz <jxwazxzhp@126.com>
+Date: Mon, 14 Jul 2025 00:39:52 +0800
+Subject: [PATCH] serail: data bit 8 stopbit 1, parity: even
+
+Signed-off-by: kabirz <jxwazxzhp@126.com>
+---
+ drivers/serial/uart_stm32.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/serial/uart_stm32.c b/drivers/serial/uart_stm32.c
+index 13c85a5066d..c5b70e3b714 100644
+--- a/drivers/serial/uart_stm32.c
++++ b/drivers/serial/uart_stm32.c
+@@ -406,7 +406,7 @@ static inline uint32_t uart_stm32_cfg2ll_databits(enum uart_config_data_bits db,
+ 		if (p == UART_CFG_PARITY_NONE) {
+ 			return LL_USART_DATAWIDTH_8B;
+ #ifdef LL_USART_DATAWIDTH_9B
+-		} else {
++		} else if (db == UART_CFG_DATA_BITS_8) {
+ 			return LL_USART_DATAWIDTH_9B;
+ #endif
+ 		}
+@@ -900,6 +900,9 @@ static void fifo_read_with_u8(USART_TypeDef *usart, void *rx_data, const int off
+ 	uint8_t *data = (uint8_t *)rx_data;
+ 
+ 	data[offset] = LL_USART_ReceiveData8(usart);
++	if (LL_USART_GetParity(usart) != LL_USART_PARITY_NONE &&
++		LL_USART_GetDataWidth(usart) == LL_USART_DATAWIDTH_8B)
++		data[offset] &= 0x7f;
+ }
+ 
+ static int uart_stm32_fifo_read(const struct device *dev, uint8_t *rx_data, const int size)
+-- 
+2.43.0
+

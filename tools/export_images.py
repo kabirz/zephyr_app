@@ -72,7 +72,6 @@ if BOARD_NAME == 'daq_f407vet6' and APP_NAME == 'data_collect':
 elif BOARD_NAME in ('monv_f407vet6', 'laser_f103ret7') and APP_NAME == 'laser_ctrl':
     files1: List[Tuple[Path, str, str]] = [
         (OUT_APP, 'images', ''),
-        (MCUBOOT_BIN, 'images', 'mcuboot.bin'),
         (MCUBOOT_HEX_BIN, 'images', 'mcuboot.hex'),
         (APP_SIGN_BIN, 'images', 'app_signed.bin'),
         (APP_HEX_BIN, 'images', 'app_signed.hex'),
