@@ -20,6 +20,7 @@ enum board_option {
 };
 
 enum {
+	LASER_DEVICE_STATUS,
 	LASER_WRITE_MODE,
 	LASER_NEED_CLOSE,
 	LASER_ON,

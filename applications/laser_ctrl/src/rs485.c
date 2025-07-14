@@ -61,7 +61,8 @@ static void laser_msg_process_thread(void)
 				LOG_DBG("distance: %d", distance);
 				if (!atomic_test_bit(&laser_status, LASER_WRITE_MODE) &&
 					!atomic_test_bit(&laser_status, LASER_FW_UPDATE) &&
-					atomic_test_bit(&laser_status, LASER_CON_MESURE)
+					atomic_test_bit(&laser_status, LASER_CON_MESURE) &&
+					atomic_test_bit(&laser_status, LASER_DEVICE_STATUS)
 				) {
 					struct can_frame frame = {
 						.id = 0x2E4,
@@ -70,12 +71,12 @@ static void laser_msg_process_thread(void)
 #if defined(CONFIG_BOARD_LASER_F103RET7)
 					int32_t encode1, encode2;
 					laser_get_encode_data(&encode1, &encode2);
-					frame.data_32[0] = (encode1 & 0xFFFFF) << 12 | (encode2 & 0xFFF00) >> 8;
-					frame.data_32[1] = (distance & 0xFFFFFF) << 12 | (encode2 & 0xFF) << 24;
+					frame.data_32[0] = ((uint32_t)encode1 & 0xFFFFF) << 12 | ((uint32_t)encode2 & 0xFFF00) >> 8;
+					frame.data_32[1] = (distance & 0xFFFFFF) | ((uint32_t)encode2 & 0xFF) << 24;
 #else
-					int32_t encode1 = 0x1234, encode2 = 0x5678;
+					uint32_t encode1 = 0x1234, encode2 = 0x5678;
 					frame.data_32[0] = (encode1 & 0xFFFFF) << 12 | (encode2 & 0xFFF00) >> 8;
-					frame.data_32[1] = (distance & 0xFFFFFF) << 12 | (encode2 & 0xFF) << 24;
+					frame.data_32[1] = (distance & 0xFFFFFF) | (encode2 & 0xFF) << 24;
 #endif
 					laser_can_send(&frame);
 				} else if (atomic_test_bit(&laser_status, LASER_FW_UPDATE)) {
@@ -86,9 +87,31 @@ static void laser_msg_process_thread(void)
 				}
 
 			} else if (buf.data[2] == '@' && buf.data[3] == 'E') { // Error code
+				struct can_frame frame = {
+					.id = 0x1E4,
+					.dlc = can_bytes_to_dlc(8),
+				};
+				static uint32_t device_old_status;
+				static uint16_t old_err_code;
+				uint32_t device_status = atomic_test_bit(&laser_status, LASER_DEVICE_STATUS);
 				buf.data[buf.len-2] = '\0';
-				uint16_t err_code = strtol(buf.data+4, NULL, 0);
+				uint16_t err_code = strtol(buf.data+4, NULL, 10);
 				LOG_ERR("laser error code: %s(%d)", get_error_desc(err_code), err_code);
+
+				uint16_t tmp = err_code;
+				for (size_t i = 0; i < 3; i++) {
+					frame.data[i] |= tmp % 10  + '0';
+					tmp /= 10;
+				}
+				frame.data_32[1] = device_status;
+				if (old_err_code != err_code) {
+					laser_can_send(&frame);
+					old_err_code = err_code;
+				} else if ( device_status != device_old_status) {
+					laser_can_send(&frame);
+				}
+
+				device_old_status = device_status;
 			} else if (buf.data[2] == '?') { // stop/clear
 				if (atomic_test_bit(&laser_status, LASER_ON))
 					LOG_INF("laser on reply");

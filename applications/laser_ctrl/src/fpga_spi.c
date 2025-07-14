@@ -106,8 +106,8 @@ int laser_get_encode_data(int32_t *encode1, int32_t *encode2)
 	if ((fpga_time_diff -local_time_diff) > 30) {
 		LOG_WRN("encode2: fpga diff: %d ms, local diff: %d ms", fpga_time_diff, local_time_diff);
 	}
-	*encode1 = encode_datas[1].single_num * 360 + encode_datas[1].mutli_num;
-	*encode2 = encode_datas[3].single_num * 360 + encode_datas[3].mutli_num;
+	*encode1 = (int32_t)encode_datas[1].single_num * 360 + (int32_t)encode_datas[1].mutli_num;
+	*encode2 = (int32_t)encode_datas[3].single_num * 360 + (int32_t)encode_datas[3].mutli_num;
 	return 0;
 }
 

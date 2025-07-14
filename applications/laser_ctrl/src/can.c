@@ -10,6 +10,8 @@ static const struct device *can_dev = DEVICE_DT_GET(DT_NODELABEL(can1));
 CAN_MSGQ_DEFINE(laser_can_msgq, 5);
 static struct k_work_delayable laser_delayed_work;
 uint64_t latest_fw_up_times;
+static uint32_t SystemStatus;
+int16_t gcXaxisInitValue, gcYaxisInitValue;
 
 static int cob_msg_send(uint32_t data1, uint32_t data2, uint32_t id)
 {
@@ -26,130 +28,134 @@ static int cob_msg_send(uint32_t data1, uint32_t data2, uint32_t id)
 	return laser_can_send(&frame);
 }
 
-static int laser_enable(bool enable)
-{
-	LOG_DBG("enable: %d", enable);
-	if (enable) {
-		laser_on();
-	} else {
-		if (atomic_test_bit(&laser_status, LASER_ON) &&
-				atomic_test_bit(&laser_status, LASER_CON_MESURE)) {
-			atomic_set_bit(&laser_status, LASER_NEED_CLOSE);
-			k_work_schedule(&laser_delayed_work, K_SECONDS(2));
-		} else {
-			laser_stopclear();
-		}
-	}
-	cob_msg_send(0x60416200, enable, COB_ID1_TX);
-	return 0;
-}
-
-static int laser_get_collectperiod(void)
-{
-	uint32_t val = 0;
-
-	// TODO
-	LOG_DBG("val: 0x%x", val);
-
-	cob_msg_send(0x60426200, val, COB_ID1_TX);
-	return 0;
-}
-
-static int laser_set_collectperiod(uint32_t val)
-{
-	laser_con_measure(val);
-	LOG_DBG("val: 0x%x", val);
-	cob_msg_send(0x60426200, 1, COB_ID1_TX);
-	return 0;
-}
-
-static int laser_mem_writemode(void)
-{
-	laser_flash_write_mode();
-	LOG_DBG("mem write mode");
-	uint32_t mode = atomic_test_bit(&laser_status, LASER_WRITE_MODE) ? 0x10 : 0x1;
-	cob_msg_send(mode, 0x22000000, COB_ID1_TX);
-	return 0;
-}
-
-static int laser_mem_readmode(void)
-{
-	laser_flash_read_mode();
-	LOG_DBG("mem read mode");
-	cob_msg_send(0x1, 0x40000000, COB_ID1_TX);
-	return 0;
-}
-
-static int laser_mem_writedata(uint16_t address, uint32_t val)
-{
-	int ret = laser_flash_write(address, val);
-
-	LOG_DBG("address: %d, val: 0x%x", address, val);
-
-	if (ret == 0) {
-		cob_msg_send(0x1, val, COB_ID2_TX);
-	} else {
-		cob_msg_send(0x12, ret, COB_ID2_TX);
-	}
-	return 0;
-}
-
-static int laser_mem_readdata(uint16_t address)
-{
-	uint32_t val;
-	int ret = laser_flash_read(address, &val);
-	uint32_t mode = atomic_test_bit(&laser_status, LASER_WRITE_MODE) ? 0x10 : 0x1;
-
-	LOG_DBG("address: %d, val: 0x%x", address, val);
-	if (ret == 0) {
-		cob_msg_send(mode, val, COB_ID2_TX);
-	} else {
-		cob_msg_send(0x2, ret, COB_ID2_TX);
-	}
-	return 0;
-}
-
 static void laser_canrx_msg_handler(struct can_frame *frame)
 {
+	uint32_t ack_cmd;
+	static uint32_t LaserPeriod = 0;
+
 	switch (frame->id) {
-		case COB_ID1_RX : {
-			if (frame->data[0] == 0x22) {
-				if (frame->data[1] == 0x0 && frame->data[2] == 0x0) {
-					laser_mem_writemode();
-				} else if (frame->data[1] == 0x41 && frame->data[2] == 0x62) {
-					if(sys_be32_to_cpu(frame->data_32[1]))
-						laser_enable(true);
-					else
-						laser_enable(false);
-				} else if (frame->data[1] == 0x42 && frame->data[2] == 0x62) {
-					laser_set_collectperiod(sys_be32_to_cpu(frame->data_32[1]));
-				}
-			} else if (frame->data[0] == 0x40) {
-				if (frame->data[1] == 0x0 && frame->data[2] == 0x0) {
-					laser_mem_readmode();
-				} else if (frame->data[1] == 0x42 && frame->data[2] == 0x62) {
-					laser_get_collectperiod();
-				}
-			}
-		}
+	case COB_ID1_RX : {
+		switch (sys_be32_to_cpu(frame->data_32[0])) {
+		case CANRECSDOREADCONWORD:
+			cob_msg_send(0x43406200, atomic_test_bit(&laser_status, LASER_DEVICE_STATUS), COB_ID1_TX);
 			break;
-		case COB_ID2_RX : {
-			if (frame->data[0] == 0x22) {
-				uint32_t address = frame->data[1] + frame->data[2] * 10;
-				laser_mem_writedata(address, sys_be32_to_cpu(frame->data_32[1]));
-			} else if (frame->data[0] == 0x40) {
-				uint32_t address = frame->data[1] + frame->data[2] * 10;
-				laser_mem_readdata(address);
+		case CANRECSDOWRITECONWORD:
+		case CANRECSDOWRITECONWORD_NEW:
+			if (sys_be32_to_cpu(frame->data_32[1])) {
+				atomic_set_bit(&laser_status, LASER_DEVICE_STATUS);
+			} else {
+				atomic_clear_bit(&laser_status, LASER_DEVICE_STATUS);
 			}
-		}
-		case PLATFORM_RX:
-		case FW_DATA_RX:
-			atomic_set_bit(&laser_status, LASER_FW_UPDATE);
-			latest_fw_up_times = k_uptime_get();
-			fw_update(frame);
+			cob_msg_send(0x60406200, sys_be32_to_cpu(frame->data_32[1]), COB_ID1_TX);
+			break;
+		case CANRECSDOREADYAXISREALVAL:
+		case CANRECSDOREADXAXISREALVAL: {
+#if defined(CONFIG_BOARD_LASER_F103RET7)
+			int32_t encode1, encode2;
+			laser_get_encode_data(&encode1, &encode2);
+#else
+			int32_t encode1 = 0x1234, encode2 = 0x1234;
+#endif
+			if (sys_be32_to_cpu(frame->data_32[0]) == CANRECSDOREADXAXISREALVAL)
+				cob_msg_send(0x43466200, encode1, COB_ID1_TX);
+			else
+				cob_msg_send(0x43486200, encode2, COB_ID1_TX);
+			}
+			break;
+		case CANRECSDOREADXAXIS:
+			cob_msg_send(0x43016200, gcXaxisInitValue, COB_ID1_TX);
+			break;
+		case CANRECSDOREADYAXIS:
+			cob_msg_send(0x43026200, gcYaxisInitValue, COB_ID1_TX);
+			break;
+		case CANRECSDOWRITEXAXIS:
+			gcXaxisInitValue = sys_be32_to_cpu(frame->data_32[1]) & 0xFFFF;
+			cob_msg_send(0x60016200, gcXaxisInitValue, COB_ID1_TX);
+			break;
+		case CANRECSDOWRITEYAXIS:
+			gcYaxisInitValue = sys_be32_to_cpu(frame->data_32[1]) & 0xFFFF;
+			cob_msg_send(0x60026200, gcYaxisInitValue, COB_ID1_TX);
+			break;
+		case CANREADSYSTEMSTATUS:
+			SystemStatus = SYSTEMSTATUSWORKING;
+			LOG_DBG("mem write mode");
+			laser_flash_read_mode();
+			cob_msg_send(SystemStatus, CANREADSYSTEMSTATUS, COB_ID1_TX);
+			break;
+		case CANWRITESYSTEMSTATUS:
+			SystemStatus = SYSTEMSTATUSEEPROM;
+			laser_flash_write_mode();
+			LOG_DBG("mem read mode");
+			cob_msg_send(SystemStatus, CANWRITESYSTEMSTATUS, COB_ID1_TX);
+			break;
+		case CANCMD_LASER_CTRL:
+			ack_cmd = (CANCMD_LASER_CTRL & CAN_HOST_MASK)|CAN_HOST_ACK_ID;
+			if (sys_be32_to_cpu(frame->data_32[1]) == CANCMD_LASER_CTRL_ENABLE) {
+				laser_on();
+				laser_con_measure(LaserPeriod);
+			} else if (sys_be32_to_cpu(frame->data_32[1]) == CANCMD_LASER_CTRL_DISABLE) {
+				if (atomic_test_bit(&laser_status, LASER_ON) &&
+					atomic_test_bit(&laser_status, LASER_CON_MESURE)) {
+					atomic_set_bit(&laser_status, LASER_NEED_CLOSE);
+					k_work_schedule(&laser_delayed_work, K_SECONDS(2));
+				} else {
+					laser_stopclear();
+				}
+			} else {
+				ack_cmd = (CANCMD_LASER_CTRL & CAN_HOST_MASK)|CAN_HOST_NOACK_ID;
+			}
+			cob_msg_send(ack_cmd, sys_be32_to_cpu(frame->data_32[1]), COB_ID1_TX);
+			break;
+		case CANCMD_LASER_PEROID_CONF:
+			ack_cmd = (CANCMD_LASER_PEROID_CONF & CAN_HOST_MASK)|CAN_HOST_ACK_ID;
+			LaserPeriod = sys_be32_to_cpu(frame->data_32[1]);
+			cob_msg_send(ack_cmd, sys_be32_to_cpu(frame->data_32[1]), COB_ID1_TX);
+			break;
+		case CANCMD_LASER_PEROID_GET:
+			ack_cmd = (CANCMD_LASER_PEROID_GET & CAN_HOST_MASK)|CAN_HOST_ACK_ID;
+			cob_msg_send(ack_cmd, sys_be32_to_cpu(frame->data_32[1]), COB_ID1_TX);
 			break;
 		default:
-			LOG_ERR("can frame id (0x%x) is not support", frame->id);
+			LOG_ERR("Unkown command: 0x%x", sys_be32_to_cpu(frame->data_32[0]));
+			break;
+		}
+	}
+		break;
+	case COB_ID2_RX : {
+		if (frame->data[0] == 0x22) {
+			uint32_t address = frame->data[1] + frame->data[2] * 10;
+			uint32_t val = frame->data_32[1];
+			int ret = laser_flash_write(address-1, val);
+
+			LOG_DBG("address: %d, val: 0x%x", address, val);
+			if (ret) {
+				cob_msg_send(SYSTEMSTATUSEEPROM, val, COB_ID2_TX);
+			} else {
+				cob_msg_send(2, ret, COB_ID2_TX);
+			}
+		} else if (frame->data[0] == 0x40) {
+			uint32_t address = frame->data[1] + frame->data[2] * 10;
+			uint32_t val;
+
+			int ret = laser_flash_read(address - 1, &val);
+
+			LOG_DBG("address: %d, val: 0x%x", address, val);
+			if (ret == 0) {
+				cob_msg_send(SYSTEMSTATUSEEPROM, val, COB_ID2_TX);
+			} else {
+				cob_msg_send(2, ret, COB_ID2_TX);
+			}
+		}
+	}
+		break;
+	case PLATFORM_RX:
+	case FW_DATA_RX:
+		atomic_set_bit(&laser_status, LASER_FW_UPDATE);
+		latest_fw_up_times = k_uptime_get();
+		fw_update(frame);
+		break;
+	default:
+		LOG_ERR("can frame id (0x%x) is not support", frame->id);
 	}
 }
 
