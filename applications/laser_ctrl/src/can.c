@@ -12,6 +12,7 @@ static struct k_work_delayable laser_delayed_work;
 uint64_t latest_fw_up_times;
 static uint32_t SystemStatus;
 int16_t gcXaxisInitValue, gcYaxisInitValue;
+atomic_t laser_status = ATOMIC_INIT(0);
 
 static int cob_msg_send(uint32_t data1, uint32_t data2, uint32_t id)
 {
