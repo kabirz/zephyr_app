@@ -24,6 +24,7 @@ BOARD_NAME = 'daq_f407vet6'
 with open(BUILD_DIR/'build_info.yml', 'r') as f:
     info = yaml.safe_load(f)
     BOARD_NAME = info['cmake']['board']['name']
+    QUALIFIERS = info['cmake']['board']['qualifiers']
     for vals in info['cmake']['images']:
         if vals['name'] == 'mcuboot':
             MCUBOOT_BIN = BUILD_DIR / 'mcuboot/zephyr/zephyr.bin'
@@ -59,7 +60,7 @@ def zip_files(files: List[Tuple[Path, str, str]], out_zip_file: Path) -> None:
 
 generate_app()
 
-if BOARD_NAME == 'daq_f407vet6' and APP_NAME == 'data_collect':
+if (BOARD_NAME == 'daq_f407vet6' or 'daq' in QUALIFIERS) and APP_NAME == 'data_collect':
     files0: List[Tuple[Path, str, str]] = [
         (OUT_APP, 'images', ''),
         (APP_SIGN_BIN, 'images', 'app_signed.bin'),
@@ -69,7 +70,8 @@ if BOARD_NAME == 'daq_f407vet6' and APP_NAME == 'data_collect':
         (TOOL_DIR / 'smp_upload.py', 'tools', ''),
     ]
     zip_files(files0, BUILD_DIR / f'{APP_NAME}.zip')
-elif BOARD_NAME in ('monv_f407vet6', 'laser_f103ret7') and APP_NAME == 'laser_ctrl':
+elif (BOARD_NAME in ('monv_f407vet6', 'laser_f103ret7') or 'monv' in QUALIFIERS)\
+    and APP_NAME == 'laser_ctrl':
     files1: List[Tuple[Path, str, str]] = [
         (OUT_APP, 'images', ''),
         (MCUBOOT_HEX_BIN, 'images', 'mcuboot.hex'),

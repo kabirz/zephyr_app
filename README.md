@@ -15,12 +15,16 @@ west update
 
 ## build data_collect
 
-support daq_f407vet6  and apollo_h743ii
+support f407vet6/stm32f407xx/daq and apollo_h743ii
 
 ## applay all patches
 ```shell
 # build
-west build -b daq_f407vet6/apollo_h743ii apps/applications/data_collect --sysbuild
+# f407vet6/stm32f407xx/daq
+west build -b f407vet6/stm32f407xx/daq apps/applications/data_collect --sysbuild
+
+# apollo_h743ii
+west build -b apollo_h743ii apps/applications/data_collect --sysbuild
 ```
 
 ## generate app

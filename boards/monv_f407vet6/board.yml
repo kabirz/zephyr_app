@@ -1,7 +1,0 @@
-board:
-  name: monv_f407vet6
-  full_name: monv STM32 F407VET6 data collect board
-  vendor: others
-  socs:
-    - name: stm32f407xx
-

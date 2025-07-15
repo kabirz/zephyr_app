@@ -1,4 +1,4 @@
-identifier: monv_f407vet6
+identifier: f407vet6/stm32f407xx/monv
 name: MONV STM32 F407VET6 Development Board
 type: mcu
 arch: arm

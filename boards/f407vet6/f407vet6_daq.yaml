@@ -1,5 +1,5 @@
-identifier: daq_f407vet6
-name: DAQ STM32 F407VET6 Development Board
+identifier: f407vet6/stm32f407xx/daq
+name: daq STM32 F407VET6 Development Board
 type: mcu
 arch: arm
 toolchain:
