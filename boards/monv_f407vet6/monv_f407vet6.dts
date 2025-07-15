@@ -14,8 +14,6 @@
 		zephyr,sram = &sram0;
 		zephyr,flash = &flash0;
 		zephyr,ccm = &ccm0;
-		zephyr,canbus = &can1;
-		zephyr,settings-partition = &cfg_partition;
 		zephyr,code-partition = &slot0_partition;
 		zephyr,rtc = &rtc;
 	};
@@ -28,9 +26,7 @@
 	};
 
 	aliases {
-		led0 = &heart_status;
 		rtc = &rtc;
-		mcuboot-led0 = &heart_status;
 	};
 };
 
@@ -99,7 +95,7 @@
 	cs-gpios = <&gpioc 13 GPIO_ACTIVE_LOW>;
 	w25q128jv: w25q128jv@0 {
 		compatible = "jedec,spi-nor";
-		reg = <0x0000000 DT_SIZE_M(16)>;
+		reg = <0x0>;
 		spi-max-frequency = <30000000>;
 		size = <0x8000000>;
 		jedec-id = [ef 40 18];

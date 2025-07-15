@@ -6,7 +6,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(laser_can, LOG_LEVEL_DBG);
 
-static const struct device *can_dev = DEVICE_DT_GET(DT_NODELABEL(can1));
+static const struct device *can_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_canbus));
 CAN_MSGQ_DEFINE(laser_can_msgq, 5);
 static struct k_work_delayable laser_delayed_work;
 uint64_t latest_fw_up_times;
@@ -42,8 +42,10 @@ static void laser_canrx_msg_handler(struct can_frame *frame)
 		case CANRECSDOWRITECONWORD:
 		case CANRECSDOWRITECONWORD_NEW:
 			if (sys_be32_to_cpu(frame->data_32[1])) {
+				LOG_DBG("device running");
 				atomic_set_bit(&laser_status, LASER_DEVICE_STATUS);
 			} else {
+				LOG_DBG("device not running");
 				atomic_clear_bit(&laser_status, LASER_DEVICE_STATUS);
 			}
 			cob_msg_send(0x60406200, sys_be32_to_cpu(frame->data_32[1]), COB_ID1_TX);
@@ -91,6 +93,7 @@ static void laser_canrx_msg_handler(struct can_frame *frame)
 		case CANCMD_LASER_CTRL:
 			ack_cmd = (CANCMD_LASER_CTRL & CAN_HOST_MASK)|CAN_HOST_ACK_ID;
 			if (sys_be32_to_cpu(frame->data_32[1]) == CANCMD_LASER_CTRL_ENABLE) {
+				LOG_DBG("laser on and measure");
 				laser_on();
 				laser_con_measure(LaserPeriod);
 			} else if (sys_be32_to_cpu(frame->data_32[1]) == CANCMD_LASER_CTRL_DISABLE) {
@@ -101,12 +104,14 @@ static void laser_canrx_msg_handler(struct can_frame *frame)
 				} else {
 					laser_stopclear();
 				}
+				LOG_DBG("laser stop");
 			} else {
 				ack_cmd = (CANCMD_LASER_CTRL & CAN_HOST_MASK)|CAN_HOST_NOACK_ID;
 			}
 			cob_msg_send(ack_cmd, sys_be32_to_cpu(frame->data_32[1]), COB_ID1_TX);
 			break;
 		case CANCMD_LASER_PEROID_CONF:
+			LOG_DBG("set period");
 			ack_cmd = (CANCMD_LASER_PEROID_CONF & CAN_HOST_MASK)|CAN_HOST_ACK_ID;
 			LaserPeriod = sys_be32_to_cpu(frame->data_32[1]);
 			cob_msg_send(ack_cmd, sys_be32_to_cpu(frame->data_32[1]), COB_ID1_TX);

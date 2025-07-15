@@ -10,11 +10,7 @@ LOG_MODULE_REGISTER(laser_rs485, LOG_LEVEL_INF);
 
 int laser_stopclear(void);
 #define USER_NODE DT_PATH(zephyr_user)
-#if defined(CONFIG_BOARD_MONV_F407VET6)
-static const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(usart3));
-#elif defined(CONFIG_BOARD_LASER_F103RET7)
-static const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(usart2));
-#endif
+static const struct device *uart_dev = DEVICE_DT_GET(DT_ALIAS(rs485));
 
 #if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)
 static const struct gpio_dt_spec rs485tx_gpios = GPIO_DT_SPEC_GET(USER_NODE, rs485_tx_gpios);
