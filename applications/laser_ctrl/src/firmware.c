@@ -23,6 +23,7 @@ int fw_update(struct can_frame *frame)
 
 	if (frame->id == PLATFORM_RX) {
 		if (frame->data_32[0] == BOARD_START_UPDATE) {
+			atomic_set_bit(&laser_status, LASER_FW_UPDATE);
 			if (size != 8) {
 				LOG_ERR("start update message size must 8");
 				fw_can_recevie(FW_CODE_FLASH_ERROR, 0);
@@ -52,7 +53,6 @@ int fw_update(struct can_frame *frame)
 			if (msg.total_size != flash_img_bytes_written(&msg.flash_img_ctx)) {
 				LOG_ERR("Download failed total: %d, %d", msg.total_size, flash_img_bytes_written(&msg.flash_img_ctx));
 				fw_can_recevie(FW_CODE_TRANFER_ERROR, msg.offset);
-				atomic_clear_bit(&laser_status, LASER_FW_UPDATE);
 				return -1;
 			} else {
 				LOG_INF("Download Finished, need reboot and finish system upgrade.");
@@ -74,10 +74,11 @@ int fw_update(struct can_frame *frame)
 		if (msg.offset == msg.total_size) {
 			LOG_INF("recived firmware: %d/%d", msg.offset, msg.total_size);
 			fw_can_recevie(FW_CODE_UPDATE_SUCCESS, msg.total_size);
+			atomic_clear_bit(&laser_status, LASER_FW_UPDATE);
 		} else {
 			if (msg.offset % 4096 == 0)
 				LOG_INF("recived firmware: %d/%d", msg.offset, msg.total_size);
-			if (msg.offset % 256 == 0)
+			if (msg.offset % 64 == 0)
 				fw_can_recevie(FW_CODE_OFFSET, msg.offset);
 		}
 	}

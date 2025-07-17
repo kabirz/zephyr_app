@@ -156,7 +156,6 @@ static void laser_canrx_msg_handler(struct can_frame *frame)
 		break;
 	case PLATFORM_RX:
 	case FW_DATA_RX:
-		atomic_set_bit(&laser_status, LASER_FW_UPDATE);
 		latest_fw_up_times = k_uptime_get();
 		fw_update(frame);
 		break;
