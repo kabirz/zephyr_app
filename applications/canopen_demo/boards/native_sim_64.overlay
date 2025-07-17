@@ -1,0 +1,15 @@
+/{
+	chosen {
+		zephyr,canbus = &can0;
+		zephyr,settings-partition = &storage_partition;
+	};
+};
+
+&can0 {
+	status = "okay";
+	can-transceiver {
+		min-bitrate = <15000>;
+		max-bitrate = <1000000>;
+	};
+};
+

@@ -21,6 +21,7 @@ manifest:
           - hal_stm32
           - mbedtls
           - mcuboot
+          - canopennode
 
   self:
     path: apps
