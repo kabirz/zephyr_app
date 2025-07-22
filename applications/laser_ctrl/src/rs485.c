@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/sys/byteorder.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <laser-common.h>
@@ -60,21 +61,18 @@ static void laser_msg_process_thread(void)
 					atomic_test_bit(&laser_status, LASER_CON_MESURE) &&
 					atomic_test_bit(&laser_status, LASER_DEVICE_STATUS)
 				) {
-					struct can_frame frame = {
-						.id = 0x2E4,
-						.dlc = can_bytes_to_dlc(8),
-					};
+					uint32_t can_data[2];
 #if defined(CONFIG_BOARD_LASER_F103RET7)
 					int32_t encode1, encode2;
 					laser_get_encode_data(&encode1, &encode2);
-					frame.data_32[0] = ((uint32_t)encode1 & 0xFFFFF) << 12 | ((uint32_t)encode2 & 0xFFF00) >> 8;
-					frame.data_32[1] = (distance & 0xFFFFFF) | ((uint32_t)encode2 & 0xFF) << 24;
+					can_data[0] = ((uint32_t)encode1 & 0xFFFFF) << 12 | ((uint32_t)encode2 & 0xFFF00) >> 8;
+					can_data[1] = (distance & 0xFFFFFF) | ((uint32_t)encode2 & 0xFF) << 24;
 #else
 					uint32_t encode1 = 0x1234, encode2 = 0x5678;
-					frame.data_32[0] = (encode1 & 0xFFFFF) << 12 | (encode2 & 0xFFF00) >> 8;
-					frame.data_32[1] = (distance & 0xFFFFFF) | (encode2 & 0xFF) << 24;
+					can_data[0] = (encode1 & 0xFFFFF) << 12 | (encode2 & 0xFFF00) >> 8;
+					can_data[1] = (distance & 0xFFFFFF) | (encode2 & 0xFF) << 24;
 #endif
-					laser_can_send(&frame);
+					cob_msg_send(can_data[0], can_data[1], 0x2E4);
 				} else if (atomic_test_bit(&laser_status, LASER_FW_UPDATE)) {
 					if (k_uptime_get() - latest_fw_up_times > 10000) {
 						atomic_clear_bit(&laser_status, LASER_FW_UPDATE);
@@ -83,12 +81,9 @@ static void laser_msg_process_thread(void)
 				}
 
 			} else if (buf.data[2] == '@' && buf.data[3] == 'E') { // Error code
-				struct can_frame frame = {
-					.id = 0x1E4,
-					.dlc = can_bytes_to_dlc(8),
-				};
 				static uint32_t device_old_status;
 				static uint16_t old_err_code;
+				uint32_t can_data[2] = {0};
 				uint32_t device_status = atomic_test_bit(&laser_status, LASER_DEVICE_STATUS);
 				buf.data[buf.len-2] = '\0';
 				uint16_t err_code = strtol(buf.data+4, NULL, 10);
@@ -96,15 +91,15 @@ static void laser_msg_process_thread(void)
 
 				uint16_t tmp = err_code;
 				for (size_t i = 0; i < 3; i++) {
-					frame.data[i] |= tmp % 10  + '0';
+					can_data[0] |= (tmp % 10  + '0') << 8;
 					tmp /= 10;
 				}
-				frame.data_32[1] = device_status;
+				can_data[1] = device_status;
 				if (old_err_code != err_code) {
-					laser_can_send(&frame);
+					cob_msg_send(can_data[0], can_data[1], 0x1E4);
 					old_err_code = err_code;
 				} else if ( device_status != device_old_status) {
-					laser_can_send(&frame);
+					cob_msg_send(can_data[0], can_data[1], 0x1E4);
 				}
 
 				device_old_status = device_status;
@@ -151,9 +146,10 @@ static void rs485_send(const uint8_t *data, size_t len)
 	}
 
 #if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)
-	k_busy_wait(600);
+	k_busy_wait(1000);
 	gpio_pin_set_dt(&rs485tx_gpios, 0);
 #endif
+	k_sleep(K_MSEC(100));
 }
 
 int laser_stopclear(void)
@@ -168,7 +164,7 @@ int laser_stopclear(void)
 
 int laser_on(void)
 {
-	int len = snprintf(tx_buf, sizeof(tx_buf), "s%do+1\r\n", id);
+	int len = snprintf(tx_buf, sizeof(tx_buf), "s%do\r\n", id);
 
 	rs485_send(tx_buf, len);
 
@@ -177,13 +173,44 @@ int laser_on(void)
 	return 0;
 }
 
+int laser_read_error(void)
+{
+	int len = snprintf(tx_buf, sizeof(tx_buf), "s%dre\r\n", id);
+	rs485_send(tx_buf, len);
+
+	return 0;
+}
+
+int laser_clear_error(void)
+{
+	int len = snprintf(tx_buf, sizeof(tx_buf), "s%dce\r\n", id);
+	rs485_send(tx_buf, len);
+
+	return 0;
+}
+
 int laser_con_measure(uint32_t val)
 {
+
+	laser_read_error();
+	laser_clear_error();
+
 	int len = snprintf(tx_buf, sizeof(tx_buf), "s%dh+%d\r\n", id, val);
 
 	rs485_send(tx_buf, len);
 	atomic_set_bit(&laser_status, LASER_CON_MESURE);
 
+	return 0;
+}
+
+int laser_setup(void)
+{
+	// stop
+	laser_stopclear();
+	// on
+	laser_on();
+
+	laser_con_measure(100);
 	return 0;
 }
 
@@ -232,12 +259,18 @@ static int cmd_rs485_on(const struct shell *ctx, size_t argc, char **argv)
 
 static int cmd_rs485_mesure(const struct shell *ctx, size_t argc, char **argv)
 {
-	return laser_con_measure(50);
+	return laser_con_measure(100);
 }
 
 static int cmd_rs485_write(const struct shell *ctx, size_t argc, char **argv)
 {
 	rs485_send(argv[1], strlen(argv[1]));
+	return 0;
+}
+
+static int cmd_rs485_setup(const struct shell *ctx, size_t argc, char **argv)
+{
+	laser_setup();
 	return 0;
 }
 
@@ -254,6 +287,10 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_rs485_cmds,
 					     "rs485 send\n"
 					     "Usage: send <strings>",
 					     cmd_rs485_write, 2, 0),
+			       SHELL_CMD_ARG(setup, NULL,
+					     "rs485 setup\n"
+					     "Usage: setup",
+					     cmd_rs485_setup, 1, 0),
 			       SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(rs485, &sub_rs485_cmds, "rs485 commands", NULL);

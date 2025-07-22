@@ -43,6 +43,7 @@ enum {
 #define SYSTEMSTATUSWRIERR         0x12    // writing eeprom error
 #define SYSTEMSTATUSREADERR        0x11    // reading eeprom error
 
+int cob_msg_send(uint32_t data1, uint32_t data2, uint32_t id);
 int laser_can_send(struct can_frame *frame);
 int cob_id664_process(struct can_frame *frame);
 int cob_id665_process(struct can_frame *frame);

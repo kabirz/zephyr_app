@@ -14,7 +14,7 @@ static uint32_t SystemStatus;
 int16_t gcXaxisInitValue, gcYaxisInitValue;
 atomic_t laser_status = ATOMIC_INIT(0);
 
-static int cob_msg_send(uint32_t data1, uint32_t data2, uint32_t id)
+int cob_msg_send(uint32_t data1, uint32_t data2, uint32_t id)
 {
 	struct can_frame frame = {
 		.data_32 = {
