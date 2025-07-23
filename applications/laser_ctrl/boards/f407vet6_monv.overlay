@@ -3,7 +3,7 @@
 		zephyr,canbus = &can1;
 	};
 	aliases {
-		rs485 = &usart3;
+		laser-serial = &usart3;
 	};
 };
 

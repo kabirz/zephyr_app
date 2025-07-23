@@ -8,7 +8,7 @@ project(laser_ctrl)
 target_include_directories(app PRIVATE include)
 target_sources(app PRIVATE
   src/main.c
-  src/rs485.c
+  src/laser_serial.c
   src/flash.c
   src/can.c
   src/firmware.c

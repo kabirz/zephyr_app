@@ -7,11 +7,11 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <laser-common.h>
-LOG_MODULE_REGISTER(laser_rs485, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(laser_serial, LOG_LEVEL_INF);
 
 int laser_stopclear(void);
 #define USER_NODE DT_PATH(zephyr_user)
-static const struct device *uart_dev = DEVICE_DT_GET(DT_ALIAS(rs485));
+static const struct device *uart_dev = DEVICE_DT_GET(DT_ALIAS(laser_serial));
 
 #if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)
 static const struct gpio_dt_spec rs485tx_gpios = GPIO_DT_SPEC_GET(USER_NODE, rs485_tx_gpios);
@@ -20,7 +20,7 @@ struct rx_buf {
 	uint32_t len;
 	uint8_t data[128];
 };
-K_MSGQ_DEFINE(laser_rs485_msgq, sizeof(struct rx_buf), 3, 4);
+K_MSGQ_DEFINE(laser_serial_msgq, sizeof(struct rx_buf), 3, 4);
 static uint8_t id;
 static uint8_t tx_buf[256];
 struct error_msg {
@@ -50,12 +50,12 @@ static void laser_msg_process_thread(void)
 	struct rx_buf buf;
 
 	while (true) {
-		if (k_msgq_get(&laser_rs485_msgq, &buf, K_FOREVER) == 0) {
+		if (k_msgq_get(&laser_serial_msgq, &buf, K_FOREVER) == 0) {
 			if (buf.data[0] != 'g' && buf.data[1] != id) continue;
 			if (buf.data[2] == 'h') { // Distance
 				buf.data[buf.len-2] = '\0';
 				int32_t distance = strtol(buf.data+3, NULL, 10);
-				LOG_DBG("distance: %d", distance);
+				LOG_INF("distance: %d", distance);
 				if (!atomic_test_bit(&laser_status, LASER_WRITE_MODE) &&
 					!atomic_test_bit(&laser_status, LASER_FW_UPDATE) &&
 					atomic_test_bit(&laser_status, LASER_CON_MESURE) &&
@@ -124,10 +124,11 @@ static void uart_cb(const struct device *dev, void *user_data)
 			memset(&buf, 0, sizeof(buf));
 		} else if (buf.len > 2) {
 			if (buf.data[buf.len-1] == 0x0A && buf.data[buf.len-2] == 0x0D) {
+				/* LOG_HEXDUMP_INF(buf.data, buf.len, "RX:"); */
 				if (atomic_test_and_clear_bit(&laser_status, LASER_NEED_CLOSE)) {
 					laser_stopclear();
 				} else {
-					k_msgq_put(&laser_rs485_msgq, &buf, K_NO_WAIT);
+					k_msgq_put(&laser_serial_msgq, &buf, K_NO_WAIT);
 				}
 				memset(&buf, 0, sizeof(buf));
 			}
@@ -135,7 +136,7 @@ static void uart_cb(const struct device *dev, void *user_data)
 	}
 }
 
-static void rs485_send(const uint8_t *data, size_t len)
+static void serial_send(const uint8_t *data, size_t len)
 {
 #if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)
 	gpio_pin_set_dt(&rs485tx_gpios, 1);
@@ -149,13 +150,14 @@ static void rs485_send(const uint8_t *data, size_t len)
 	k_busy_wait(1000);
 	gpio_pin_set_dt(&rs485tx_gpios, 0);
 #endif
+	LOG_HEXDUMP_INF(data, len, "TX:");
 	k_sleep(K_MSEC(100));
 }
 
 int laser_stopclear(void)
 {
 	int len = snprintf(tx_buf, sizeof(tx_buf), "s%dc\r\n", id);
-	rs485_send(tx_buf, len);
+	serial_send(tx_buf, len);
 	atomic_clear_bit(&laser_status, LASER_ON);
 	atomic_clear_bit(&laser_status, LASER_CON_MESURE);
 
@@ -166,7 +168,7 @@ int laser_on(void)
 {
 	int len = snprintf(tx_buf, sizeof(tx_buf), "s%do\r\n", id);
 
-	rs485_send(tx_buf, len);
+	serial_send(tx_buf, len);
 
 	atomic_set_bit(&laser_status, LASER_ON);
 
@@ -176,7 +178,7 @@ int laser_on(void)
 int laser_read_error(void)
 {
 	int len = snprintf(tx_buf, sizeof(tx_buf), "s%dre\r\n", id);
-	rs485_send(tx_buf, len);
+	serial_send(tx_buf, len);
 
 	return 0;
 }
@@ -184,7 +186,7 @@ int laser_read_error(void)
 int laser_clear_error(void)
 {
 	int len = snprintf(tx_buf, sizeof(tx_buf), "s%dce\r\n", id);
-	rs485_send(tx_buf, len);
+	serial_send(tx_buf, len);
 
 	return 0;
 }
@@ -197,20 +199,22 @@ int laser_con_measure(uint32_t val)
 
 	int len = snprintf(tx_buf, sizeof(tx_buf), "s%dh+%d\r\n", id, val);
 
-	rs485_send(tx_buf, len);
+	serial_send(tx_buf, len);
 	atomic_set_bit(&laser_status, LASER_CON_MESURE);
 
 	return 0;
 }
 
-int laser_setup(void)
+int laser_setup(uint32_t val)
 {
 	// stop
 	laser_stopclear();
 	// on
 	laser_on();
 
-	laser_con_measure(100);
+	laser_con_measure(val);
+
+	atomic_set_bit(&laser_status, LASER_DEVICE_STATUS);
 	return 0;
 }
 
@@ -218,12 +222,12 @@ int laser_clear_err(void)
 {
 	int len = snprintf(tx_buf, sizeof(tx_buf), "s%dre\r\n", id);
 
-	rs485_send(tx_buf, len);
+	serial_send(tx_buf, len);
 
 	return 0;
 }
 
-static int rs485_init(void)
+static int laser_serial_init(void)
 {
 	struct uart_config uart_cfg = {.baudrate = 19200,
 				       .parity = UART_CFG_PARITY_EVEN,
@@ -240,58 +244,58 @@ static int rs485_init(void)
 	gpio_pin_configure_dt(&rs485tx_gpios, GPIO_OUTPUT_INACTIVE);
 	gpio_pin_set_dt(&rs485tx_gpios, 0);
 #endif
-
+	/* laser_setup(); */
 	uart_irq_callback_set(uart_dev, uart_cb);
 	uart_irq_rx_enable(uart_dev);
 
 	return 0;
 }
 
-SYS_INIT(rs485_init, APPLICATION, 10);
+SYS_INIT(laser_serial_init, APPLICATION, 10);
 
 #ifdef CONFIG_SHELL
 #include <zephyr/shell/shell.h>
 
-static int cmd_rs485_on(const struct shell *ctx, size_t argc, char **argv)
+static int cmd_laser_on(const struct shell *ctx, size_t argc, char **argv)
 {
 	return laser_on();
 }
 
-static int cmd_rs485_mesure(const struct shell *ctx, size_t argc, char **argv)
+static int cmd_laser_mesure(const struct shell *ctx, size_t argc, char **argv)
 {
 	return laser_con_measure(100);
 }
 
-static int cmd_rs485_write(const struct shell *ctx, size_t argc, char **argv)
+static int cmd_laser_write(const struct shell *ctx, size_t argc, char **argv)
 {
-	rs485_send(argv[1], strlen(argv[1]));
+	serial_send(argv[1], strlen(argv[1]));
 	return 0;
 }
 
-static int cmd_rs485_setup(const struct shell *ctx, size_t argc, char **argv)
+static int cmd_laser_setup(const struct shell *ctx, size_t argc, char **argv)
 {
-	laser_setup();
+	laser_setup(strtoul(argv[1], NULL, 0));
 	return 0;
 }
 
-SHELL_STATIC_SUBCMD_SET_CREATE(sub_rs485_cmds,
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_serial_cmds,
 			       SHELL_CMD_ARG(on, NULL,
-					     "rs485 laser on\n"
+					     "laser on\n"
 					     "Usage: on",
-					     cmd_rs485_on, 1, 0),
+					     cmd_laser_on, 1, 0),
 			       SHELL_CMD_ARG(mesure, NULL,
-					     "rs485 laser mesure\n"
+					     "laser mesure\n"
 					     "Usage: mesure",
-					     cmd_rs485_mesure, 1, 0),
+					     cmd_laser_mesure, 1, 0),
 			       SHELL_CMD_ARG(send, NULL,
-					     "rs485 send\n"
+					     "serial send\n"
 					     "Usage: send <strings>",
-					     cmd_rs485_write, 2, 0),
+					     cmd_laser_write, 2, 0),
 			       SHELL_CMD_ARG(setup, NULL,
-					     "rs485 setup\n"
-					     "Usage: setup",
-					     cmd_rs485_setup, 1, 0),
+					     "setup\n"
+					     "Usage: setup <period>",
+					     cmd_laser_setup, 2, 0),
 			       SHELL_SUBCMD_SET_END);
 
-SHELL_CMD_REGISTER(rs485, &sub_rs485_cmds, "rs485 commands", NULL);
+SHELL_CMD_REGISTER(laser, &sub_serial_cmds, "laser commands", NULL);
 #endif
