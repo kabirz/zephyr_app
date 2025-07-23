@@ -19,16 +19,15 @@ static const struct spi_dt_spec spi_spec =
 
 struct encode_msg {
 	uint8_t reg;
-  	uint32_t single_num:17;
-  	uint32_t mutli_num:15;
-  	uint32_t timecount;
+  	uint64_t timecount:31;
+  	int64_t single_num:17;
+  	int64_t mutli_num:16;
 } __PACKED;
 
 struct encode_data {
 	uint64_t timestamp;
 	uint32_t timecount;
-	uint32_t single_num;
-	uint32_t mutli_num;
+	uint32_t postion;
 };
 static struct encode_data encode_datas[4];
 
@@ -84,10 +83,14 @@ static int encode_data_get(uint8_t reg, struct encode_msg *rx)
 	return 0;
 }
 
-int laser_get_encode_data(int32_t *encode1, int32_t *encode2)
+int laser_get_encode_data(struct laser_encode_data *encode)
 {
-	uint32_t fpga_time_diff, local_time_diff;
 
+	encode->encode1 = encode_datas[1].postion;
+	encode->encode2 = encode_datas[3].postion;
+	return 0;
+#if 0
+	uint32_t fpga_time_diff, local_time_diff;
 	if (encode_datas[1].timecount < encode_datas[0].timecount)
 		fpga_time_diff = UINT32_MAX - encode_datas[0].timecount + encode_datas[1].timecount;
 	else
@@ -96,9 +99,9 @@ int laser_get_encode_data(int32_t *encode1, int32_t *encode2)
 	local_time_diff = encode_datas[1].timestamp - encode_datas[0].timestamp;
 	if ((fpga_time_diff -local_time_diff) > 800) {
 		LOG_WRN("encode1: fpga diff: %d ms, local diff: %d ms", fpga_time_diff, local_time_diff);
-		*encode1 = 0;
+		encode->encode1 = 0;
 	} else {
-		*encode1 = (int32_t)encode_datas[1].single_num * 360 + (int32_t)encode_datas[1].mutli_num;
+		encode->encode1 = encode_datas[1].postion;
 	}
 
 	if (encode_datas[3].timecount < encode_datas[2].timecount)
@@ -108,11 +111,12 @@ int laser_get_encode_data(int32_t *encode1, int32_t *encode2)
 	local_time_diff = encode_datas[3].timestamp - encode_datas[2].timestamp;
 	if ((fpga_time_diff -local_time_diff) > 800) {
 		LOG_WRN("encode2: fpga diff: %d ms, local diff: %d ms", fpga_time_diff, local_time_diff);
-		*encode2 = 0;
+		encode->encode2 = 0;
 	} else {
-		*encode2 = (int32_t)encode_datas[3].single_num * 360 + (int32_t)encode_datas[3].mutli_num;
+		encode->encode2 = encode_datas[3].postion;
 	}
 	return 0;
+#endif
 }
 
 static void encode_process_thread(void)
@@ -133,29 +137,17 @@ static void encode_process_thread(void)
 			!atomic_test_bit(&laser_status, LASER_FW_UPDATE)) {
 			encode_data_get(ENCODE1_GET_REG, &msg[0]);
 			encode_data_get(ENCODE2_GET_REG, &msg[1]);
+			int postion = msg[0].mutli_num > 0 ? msg[0].mutli_num : msg[0].mutli_num + 1;
 			encode_datas[0] = encode_datas[1];
 			encode_datas[1].timecount = msg[0].timecount;
 			encode_datas[1].timestamp = k_uptime_get();
-			if (msg[0].single_num & BIT(16)) // nagetive
-				encode_datas[1].single_num = - (msg[0].single_num & BIT_MASK(16));
-			else
-				encode_datas[1].single_num = msg[0].single_num;
-			if (msg[0].mutli_num & BIT(14)) // nagetive
-				encode_datas[1].mutli_num = - (msg[0].mutli_num & BIT_MASK(14));
-			else
-				encode_datas[1].mutli_num = msg[0].mutli_num;
+			encode_datas[1].postion = postion * BIT(17) + msg[0].single_num;
 
+			postion = msg[1].mutli_num > 0 ? msg[1].mutli_num : msg[1].mutli_num + 1;
 			encode_datas[2] = encode_datas[3];
 			encode_datas[3].timecount = msg[1].timecount;
 			encode_datas[3].timestamp = k_uptime_get();
-			if (msg[0].single_num & BIT(16)) // nagetive
-				encode_datas[3].single_num = - (msg[1].single_num & BIT_MASK(16));
-			else
-				encode_datas[3].single_num = msg[1].single_num;
-			if (msg[0].mutli_num & BIT(14)) // nagetive
-				encode_datas[3].mutli_num = - (msg[1].mutli_num & BIT_MASK(14));
-			else
-				encode_datas[3].mutli_num = msg[1].mutli_num;
+			encode_datas[3].postion = postion * BIT(17) + msg[1].single_num;
 
 			k_sleep(K_MSEC(10));
 		} else {
@@ -195,19 +187,10 @@ static int shell_encode_get(const struct shell *ctx, size_t argc, char **argv)
 		return -1;
 	}
 	if (encode_data_get(reg, &rx_msg) == 0) {
-		int32_t single_num, mutli_num;
-		if (rx_msg.single_num & BIT(16)) // nagetive
-			single_num = - (rx_msg.single_num & BIT_MASK(16));
-		else
-			single_num = rx_msg.single_num;
-		if (rx_msg.mutli_num & BIT(14)) // nagetive
-			mutli_num = - (rx_msg.mutli_num & BIT_MASK(14));
-		else
-			mutli_num = rx_msg.mutli_num;
-		shell_print(ctx, "timestamp: %d ms, single num: %d, mutil num: %d, (0x%x, 0x%x, 0x%x)",
-			rx_msg.timecount, single_num, mutli_num,
-			rx_msg.timecount, rx_msg.single_num, rx_msg.mutli_num);
-		shell_print(ctx, "TX:");
+		int postion = rx_msg.mutli_num > 0 ? rx_msg.mutli_num : rx_msg.mutli_num + 1;
+		shell_print(ctx, "timestamp: %d ms, single num: %d, mutil num: %d, postion: %ld",
+			rx_msg.timecount, rx_msg.single_num, rx_msg.mutli_num, postion * BIT(17) + rx_msg.single_num);
+		shell_print(ctx, "RX:");
 	      	shell_hexdump(ctx, (void *)&rx_msg, sizeof(rx_msg));
 	}
 	return 0;
@@ -226,4 +209,3 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_fpga_cmds,
 
 SHELL_CMD_REGISTER(fpage_encode, &sub_fpga_cmds, "fpga encode commands", NULL);
 #endif
-

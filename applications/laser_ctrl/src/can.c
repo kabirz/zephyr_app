@@ -53,16 +53,10 @@ static void laser_canrx_msg_handler(struct can_frame *frame)
 			break;
 		case CANRECSDOREADYAXISREALVAL:
 		case CANRECSDOREADXAXISREALVAL: {
-#if defined(CONFIG_BOARD_LASER_F103RET7)
-			int32_t encode1, encode2;
-			laser_get_encode_data(&encode1, &encode2);
-#else
-			int32_t encode1 = 0x1234, encode2 = 0x1234;
-#endif
 			if (sys_be32_to_cpu(frame->data_32[0]) == CANRECSDOREADXAXISREALVAL)
-				cob_msg_send(0x43466200, encode1, COB_ID1_TX);
+				cob_msg_send(0x43466200, 0x1234, COB_ID1_TX);
 			else
-				cob_msg_send(0x43486200, encode2, COB_ID1_TX);
+				cob_msg_send(0x43486200, 0x1234, COB_ID1_TX);
 			}
 			break;
 		case CANRECSDOREADXAXIS:

@@ -61,18 +61,20 @@ static void laser_msg_process_thread(void)
 					atomic_test_bit(&laser_status, LASER_CON_MESURE) &&
 					atomic_test_bit(&laser_status, LASER_DEVICE_STATUS)
 				) {
-					uint32_t can_data[2];
+					struct laser_encode_data laser_data;
+					struct can_frame frame = {
+						.id = 0x2E4,
+						.dlc = can_bytes_to_dlc(8),
+					};
 #if defined(CONFIG_BOARD_LASER_F103RET7)
-					int32_t encode1, encode2;
-					laser_get_encode_data(&encode1, &encode2);
-					can_data[0] = ((uint32_t)encode1 & 0xFFFFF) << 12 | ((uint32_t)encode2 & 0xFFF00) >> 8;
-					can_data[1] = (distance & 0xFFFFFF) | ((uint32_t)encode2 & 0xFF) << 24;
+					laser_get_encode_data(&laser_data);
 #else
-					uint32_t encode1 = 0x1234, encode2 = 0x5678;
-					can_data[0] = (encode1 & 0xFFFFF) << 12 | (encode2 & 0xFFF00) >> 8;
-					can_data[1] = (distance & 0xFFFFFF) | (encode2 & 0xFF) << 24;
+					laser_data.encode1 = 0x12345;
+					laser_data.encode2 = 0x67899;
 #endif
-					cob_msg_send(can_data[0], can_data[1], 0x2E4);
+					laser_data.laser_val = distance;
+					memcpy(frame.data, &laser_data, 8);
+					laser_can_send(&frame);
 				} else if (atomic_test_bit(&laser_status, LASER_FW_UPDATE)) {
 					if (k_uptime_get() - latest_fw_up_times > 10000) {
 						atomic_clear_bit(&laser_status, LASER_FW_UPDATE);
@@ -229,7 +231,7 @@ int laser_clear_err(void)
 
 static int laser_serial_init(void)
 {
-	struct uart_config uart_cfg = {.baudrate = 19200,
+	struct uart_config uart_cfg = {.baudrate = 115200,
 				       .parity = UART_CFG_PARITY_EVEN,
 				       .stop_bits = UART_CFG_STOP_BITS_1,
 				       .data_bits = UART_CFG_DATA_BITS_7,
@@ -244,7 +246,6 @@ static int laser_serial_init(void)
 	gpio_pin_configure_dt(&rs485tx_gpios, GPIO_OUTPUT_INACTIVE);
 	gpio_pin_set_dt(&rs485tx_gpios, 0);
 #endif
-	/* laser_setup(); */
 	uart_irq_callback_set(uart_dev, uart_cb);
 	uart_irq_rx_enable(uart_dev);
 

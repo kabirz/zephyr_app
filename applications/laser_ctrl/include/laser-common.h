@@ -29,7 +29,14 @@ enum {
 };
 extern atomic_t laser_status;
 extern uint64_t latest_fw_up_times;
-int laser_get_encode_data(int32_t *encode1, int32_t *encode2);
+
+struct laser_encode_data {
+	int64_t encode1: 20;
+	int64_t encode2: 20;
+	int64_t laser_val: 24;
+} __PACKED;
+
+int laser_get_encode_data(struct laser_encode_data *val);
 
 
 #endif
