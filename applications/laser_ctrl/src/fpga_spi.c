@@ -24,13 +24,6 @@ struct encode_msg {
   	int64_t mutli_num:16;
 } __PACKED;
 
-struct encode_data {
-	uint64_t timestamp;
-	uint32_t timecount;
-	uint32_t postion;
-};
-static struct encode_data encode_datas[4];
-
 static int spi_tranfer(void *tx_buffer, void *rx_buffer, size_t size)
 {
 	const struct spi_buf tx_buffers = {.buf = tx_buffer, .len = size};
@@ -60,7 +53,7 @@ uint32_t fpga_uint32_set(uint8_t reg, uint32_t val)
 {
 	uint8_t rx_buf[5] = {0}, tx_buf[5] = {0};
 
-	tx_buf[0] = VERSION_GET_REG;
+	tx_buf[0] = reg;
 	*(uint32_t *)(tx_buf+1) = val;
 
 	if (spi_tranfer(tx_buf, rx_buf, sizeof(rx_buf))) {
@@ -85,77 +78,64 @@ static int encode_data_get(uint8_t reg, struct encode_msg *rx)
 
 int laser_get_encode_data(struct laser_encode_data *encode)
 {
+	static uint64_t local_previous_time = 0;
+	static uint32_t fpga_previous_time1 = 0;
+	static uint32_t fpga_previous_time2 = 0;
+	uint32_t diff_l, diff_f;
+	struct encode_msg msg1, msg2;
+	int postion;
+	uint64_t timestamp = k_uptime_get();
 
-	encode->encode1 = encode_datas[1].postion;
-	encode->encode2 = encode_datas[3].postion;
-	return 0;
-#if 0
-	uint32_t fpga_time_diff, local_time_diff;
-	if (encode_datas[1].timecount < encode_datas[0].timecount)
-		fpga_time_diff = UINT32_MAX - encode_datas[0].timecount + encode_datas[1].timecount;
+	// get encode data
+	encode_data_get(ENCODE1_GET_REG, &msg1);
+	encode_data_get(ENCODE2_GET_REG, &msg2);
+
+	// local time
+	if (local_previous_time == 0)
+		diff_l = 0;
+	else if (timestamp  < local_previous_time)
+		diff_l = timestamp + (UINT64_MAX - local_previous_time);
 	else
-		fpga_time_diff = encode_datas[1].timecount - encode_datas[0].timecount;
+		diff_l = timestamp - local_previous_time;
 
-	local_time_diff = encode_datas[1].timestamp - encode_datas[0].timestamp;
-	if ((fpga_time_diff -local_time_diff) > 800) {
-		LOG_WRN("encode1: fpga diff: %d ms, local diff: %d ms", fpga_time_diff, local_time_diff);
+	// encode1 time
+	if (fpga_previous_time1 == 0)
+		diff_f = 0;
+	else if (msg2.timecount < fpga_previous_time1)
+		diff_f = msg2.timecount + (BIT(31) - 1 - fpga_previous_time1);
+	else
+		diff_f = msg2.timecount - fpga_previous_time1;
+
+	postion = msg1.mutli_num > 0 ? msg1.mutli_num : msg1.mutli_num + 1;
+	postion = postion * BIT(17) + msg1.single_num;
+
+	if (diff_l > diff_f && (diff_l - diff_f) > 1000)
 		encode->encode1 = 0;
-	} else {
-		encode->encode1 = encode_datas[1].postion;
-	}
-
-	if (encode_datas[3].timecount < encode_datas[2].timecount)
-		fpga_time_diff = UINT32_MAX - encode_datas[2].timecount + encode_datas[3].timecount;
 	else
-		fpga_time_diff = encode_datas[3].timecount - encode_datas[2].timecount;
-	local_time_diff = encode_datas[3].timestamp - encode_datas[2].timestamp;
-	if ((fpga_time_diff -local_time_diff) > 800) {
-		LOG_WRN("encode2: fpga diff: %d ms, local diff: %d ms", fpga_time_diff, local_time_diff);
+		encode->encode1 = postion;
+
+	// encode2 time
+	if (fpga_previous_time2 == 0)
+		diff_f = 0;
+	else if (msg2.timecount < fpga_previous_time2)
+		diff_f = msg2.timecount + (BIT(31) - 1 - fpga_previous_time2);
+	else
+		diff_f = msg2.timecount - fpga_previous_time2;
+
+	postion = msg2.mutli_num > 0 ? msg2.mutli_num : msg2.mutli_num + 1;
+	postion = postion * BIT(17) + msg2.single_num;
+
+	if (diff_l > diff_f && (diff_l - diff_f) > 1000)
 		encode->encode2 = 0;
-	} else {
-		encode->encode2 = encode_datas[3].postion;
-	}
+	else
+		encode->encode2 = postion;
+
+	fpga_previous_time1 = msg1.timecount;
+	fpga_previous_time2 = msg2.timecount;
+	local_previous_time = timestamp;
+
 	return 0;
-#endif
 }
-
-static void encode_process_thread(void)
-{
-	struct encode_msg msg[2];
-	uint32_t version, timestamp;
-
-	// FGPA reset
-	fpga_uint32_set(FPGA_RESET, 0xA5);
-	k_sleep(K_MSEC(20));
-
-	// timestamp, version
-	fpga_uint32_get(TIMESTAMP_REG, &timestamp);
-	fpga_uint32_get(VERSION_GET_REG, &version);
-	LOG_INF("FPAG Version: 0x%x, timestamp: %d ms", version, timestamp);
-	while (true) {
-		if (!atomic_test_bit(&laser_status, LASER_WRITE_MODE) &&
-			!atomic_test_bit(&laser_status, LASER_FW_UPDATE)) {
-			encode_data_get(ENCODE1_GET_REG, &msg[0]);
-			encode_data_get(ENCODE2_GET_REG, &msg[1]);
-			int postion = msg[0].mutli_num > 0 ? msg[0].mutli_num : msg[0].mutli_num + 1;
-			encode_datas[0] = encode_datas[1];
-			encode_datas[1].timecount = msg[0].timecount;
-			encode_datas[1].timestamp = k_uptime_get();
-			encode_datas[1].postion = postion * BIT(17) + msg[0].single_num;
-
-			postion = msg[1].mutli_num > 0 ? msg[1].mutli_num : msg[1].mutli_num + 1;
-			encode_datas[2] = encode_datas[3];
-			encode_datas[3].timecount = msg[1].timecount;
-			encode_datas[3].timestamp = k_uptime_get();
-			encode_datas[3].postion = postion * BIT(17) + msg[1].single_num;
-
-			k_sleep(K_MSEC(10));
-		} else {
-			k_sleep(K_MSEC(300));
-		}
-	}
-}
-K_THREAD_DEFINE(encode_msg, 1024, encode_process_thread, NULL, NULL, NULL, 13, 0, 0);
 
 #ifdef CONFIG_SHELL
 #include <zephyr/shell/shell.h>

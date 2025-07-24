@@ -56,7 +56,7 @@ static void laser_msg_process_thread(void)
 			if (buf.data[2] == 'h') { // Distance
 				buf.data[buf.len-2] = '\0';
 				int32_t distance = strtol(buf.data+3, NULL, 10);
-				LOG_INF("distance: %d", distance);
+				LOG_DBG("distance: %d", distance);
 				if (!atomic_test_bit(&laser_status, LASER_WRITE_MODE) &&
 					!atomic_test_bit(&laser_status, LASER_FW_UPDATE) &&
 					atomic_test_bit(&laser_status, LASER_CON_MESURE) &&
