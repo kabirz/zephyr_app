@@ -4,7 +4,11 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(laser_flash, LOG_LEVEL_INF);
 
+#ifdef CONFIG_BOARD_NATIVE_SIM
+#define CFG_PARTITION    storage_partition
+#else
 #define CFG_PARTITION    cfg_partition
+#endif
 #define CFG_PARTITION_ID FIXED_PARTITION_ID(CFG_PARTITION)
 
 static const struct flash_area *fa;

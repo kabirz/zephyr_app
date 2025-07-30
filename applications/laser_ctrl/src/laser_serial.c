@@ -6,6 +6,7 @@
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <stdio.h>
 #include <laser-common.h>
 LOG_MODULE_REGISTER(laser_serial, LOG_LEVEL_INF);
 
@@ -237,9 +238,12 @@ static int laser_serial_init(void)
 				       .data_bits = UART_CFG_DATA_BITS_7,
 				       .flow_ctrl = UART_CFG_FLOW_CTRL_NONE};
 
-	if (uart_configure(uart_dev, &uart_cfg)) {
-		LOG_ERR("uart config error");
-		return -1;
+	int ret;
+	if ((ret = uart_configure(uart_dev, &uart_cfg))) {
+		if (ret != -ENOSYS && ret != -ENOTSUP) {
+			LOG_ERR("uart config error: %d", ret);
+			return -1;
+		}
 	}
 
 #if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)

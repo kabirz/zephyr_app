@@ -6,6 +6,9 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/app_version.h>
+#ifndef CONFIG_FLASH_SIZE
+#define CONFIG_FLASH_SIZE 0x1000
+#endif
 
 int main(void)
 {

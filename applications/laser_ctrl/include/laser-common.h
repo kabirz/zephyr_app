@@ -34,7 +34,7 @@ struct laser_encode_data {
 	int64_t encode1: 20;
 	int64_t encode2: 20;
 	int64_t laser_val: 24;
-} __PACKED;
+};
 
 int laser_get_encode_data(struct laser_encode_data *val);
 

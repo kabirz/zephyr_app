@@ -7,7 +7,7 @@
 LOG_MODULE_REGISTER(laser_can, LOG_LEVEL_DBG);
 
 static const struct device *can_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_canbus));
-CAN_MSGQ_DEFINE(laser_can_msgq, 5);
+CAN_MSGQ_DEFINE(laser_can_msgq, 8);
 static struct k_work_delayable laser_delayed_work;
 uint64_t latest_fw_up_times;
 static uint32_t SystemStatus;
