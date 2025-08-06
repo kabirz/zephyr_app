@@ -8,7 +8,6 @@ LOG_MODULE_REGISTER(laser_can, LOG_LEVEL_INF);
 
 static const struct device *can_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_canbus));
 CAN_MSGQ_DEFINE(laser_can_msgq, 8);
-static struct k_work_delayable laser_delayed_work;
 uint64_t latest_fw_up_times;
 static uint32_t SystemStatus;
 int16_t gcXaxisInitValue, gcYaxisInitValue;
@@ -92,13 +91,7 @@ static void laser_canrx_msg_handler(struct can_frame *frame)
 				laser_on();
 				laser_con_measure(LaserPeriod);
 			} else if (sys_be32_to_cpu(frame->data_32[1]) == CANCMD_LASER_CTRL_DISABLE) {
-				if (atomic_test_bit(&laser_status, LASER_ON) &&
-					atomic_test_bit(&laser_status, LASER_CON_MESURE)) {
-					atomic_set_bit(&laser_status, LASER_NEED_CLOSE);
-					k_work_schedule(&laser_delayed_work, K_SECONDS(2));
-				} else {
-					laser_stopclear();
-				}
+				laser_stopclear();
 				LOG_DBG("laser stop");
 			} else {
 				ack_cmd = (CANCMD_LASER_CTRL & CAN_HOST_MASK)|CAN_HOST_NOACK_ID;
@@ -169,13 +162,6 @@ static void laser_cantx_callback(const struct device *dev, int error, void *user
 	}
 }
 
-static void laser_stop_work_handler(struct k_work *work)
-{
-	if (atomic_test_and_clear_bit(&laser_status, LASER_NEED_CLOSE)) {
-		laser_stopclear();
-	}
-}
-
 int laser_can_send(struct can_frame *frame)
 {
 	static uint32_t frame_count = 0;
@@ -243,9 +229,6 @@ void laser_can_process_thread(void)
 		return;
 	}
 
-	k_work_init_delayable(&laser_delayed_work, laser_stop_work_handler);
-	k_work_schedule(&laser_delayed_work, K_SECONDS(2));
-
 	while (true) {
 		if (k_msgq_get(&laser_can_msgq, &frame, K_FOREVER) == 0)
 			laser_canrx_msg_handler(&frame);
@@ -253,4 +236,3 @@ void laser_can_process_thread(void)
 }
 
 K_THREAD_DEFINE(laser_can, 1024, laser_can_process_thread, NULL, NULL, NULL, 12, 0, 0);
-

@@ -10,13 +10,8 @@
 #include <laser-common.h>
 LOG_MODULE_REGISTER(laser_serial, LOG_LEVEL_INF);
 
-int laser_stopclear(void);
-#define USER_NODE DT_PATH(zephyr_user)
 static const struct device *uart_dev = DEVICE_DT_GET(DT_ALIAS(laser_serial));
 
-#if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)
-static const struct gpio_dt_spec rs485tx_gpios = GPIO_DT_SPEC_GET(USER_NODE, rs485_tx_gpios);
-#endif
 struct rx_buf {
 	uint32_t len;
 	uint8_t data[128];
@@ -127,12 +122,7 @@ static void uart_cb(const struct device *dev, void *user_data)
 			memset(&buf, 0, sizeof(buf));
 		} else if (buf.len > 2) {
 			if (buf.data[buf.len-1] == 0x0A && buf.data[buf.len-2] == 0x0D) {
-				/* LOG_HEXDUMP_INF(buf.data, buf.len, "RX:"); */
-				if (atomic_test_and_clear_bit(&laser_status, LASER_NEED_CLOSE)) {
-					laser_stopclear();
-				} else {
-					k_msgq_put(&laser_serial_msgq, &buf, K_NO_WAIT);
-				}
+				k_msgq_put(&laser_serial_msgq, &buf, K_NO_WAIT);
 				memset(&buf, 0, sizeof(buf));
 			}
 		}
@@ -141,20 +131,12 @@ static void uart_cb(const struct device *dev, void *user_data)
 
 static void serial_send(const uint8_t *data, size_t len)
 {
-#if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)
-	gpio_pin_set_dt(&rs485tx_gpios, 1);
-#endif
 
 	for (size_t i = 0; i < len; i++) {
 		uart_poll_out(uart_dev, data[i]);
 	}
 
-#if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)
-	k_busy_wait(1000);
-	gpio_pin_set_dt(&rs485tx_gpios, 0);
-#endif
-	LOG_HEXDUMP_INF(data, len, "TX:");
-	k_sleep(K_MSEC(100));
+	k_msleep(100);
 }
 
 int laser_stopclear(void)
