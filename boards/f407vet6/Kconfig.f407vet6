@@ -1,3 +1,0 @@
-config BOARD_F407VET6
-	select SOC_STM32F407XE
-

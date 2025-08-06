@@ -1,4 +1,4 @@
-identifier: f407vet6/stm32f407xx/daq
+identifier: stm32f407/stm32f407xx/daq
 name: daq STM32 F407VET6 Development Board
 type: mcu
 arch: arm
@@ -6,7 +6,7 @@ toolchain:
   - zephyr
   - gnuarmemb
   - xtools
-ram: 128
+ram: 192
 flash: 512
 supported:
   - can

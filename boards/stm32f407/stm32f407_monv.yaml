@@ -6,7 +6,7 @@ toolchain:
   - zephyr
   - gnuarmemb
   - xtools
-ram: 128
+ram: 192
 flash: 512
 supported:
   - can

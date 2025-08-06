@@ -1,10 +1,11 @@
 board:
-  name: f407vet6
-  full_name: STM32 F407VET6 data collect board
+  name: stm32f407
+  full_name: STM32 F407 board
   vendor: others
   socs:
     - name: stm32f407xx
       variants:
       - name: "daq"
       - name: "monv"
+      - name: "xinxin"
 
