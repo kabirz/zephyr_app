@@ -106,7 +106,7 @@ int laser_get_encode_data(struct laser_encode_data *encode)
 	else
 		diff_f = msg2.timecount - fpga_previous_time1;
 
-	postion = msg1.mutli_num > 0 ? msg1.mutli_num : msg1.mutli_num + 1;
+	postion = msg1.mutli_num >= 0 ? msg1.mutli_num : msg1.mutli_num + 1;
 	postion = postion * BIT(17) + msg1.single_num;
 
 	if (diff_l > diff_f && (diff_l - diff_f) > 1000)
@@ -122,7 +122,7 @@ int laser_get_encode_data(struct laser_encode_data *encode)
 	else
 		diff_f = msg2.timecount - fpga_previous_time2;
 
-	postion = msg2.mutli_num > 0 ? msg2.mutli_num : msg2.mutli_num + 1;
+	postion = msg2.mutli_num >= 0 ? msg2.mutli_num : msg2.mutli_num + 1;
 	postion = postion * BIT(17) + msg2.single_num;
 
 	if (diff_l > diff_f && (diff_l - diff_f) > 1000)
@@ -167,7 +167,7 @@ static int shell_encode_get(const struct shell *ctx, size_t argc, char **argv)
 		return -1;
 	}
 	if (encode_data_get(reg, &rx_msg) == 0) {
-		int postion = rx_msg.mutli_num > 0 ? rx_msg.mutli_num : rx_msg.mutli_num + 1;
+		int postion = rx_msg.mutli_num >= 0 ? rx_msg.mutli_num : rx_msg.mutli_num + 1;
 		shell_print(ctx, "timestamp: %d ms, single num: %d, mutil num: %d, postion: %ld",
 			rx_msg.timecount, rx_msg.single_num, rx_msg.mutli_num, postion * BIT(17) + rx_msg.single_num);
 		shell_print(ctx, "RX:");

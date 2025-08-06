@@ -4,7 +4,7 @@
 #include <laser-flash.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(laser_can, LOG_LEVEL_DBG);
+LOG_MODULE_REGISTER(laser_can, LOG_LEVEL_INF);
 
 static const struct device *can_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_canbus));
 CAN_MSGQ_DEFINE(laser_can_msgq, 8);
