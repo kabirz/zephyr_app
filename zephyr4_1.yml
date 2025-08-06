@@ -19,6 +19,7 @@ manifest:
         name-allowlist:
           - cmsis
           - hal_stm32
+          - zcbor
           - mbedtls
           - mcuboot
           - canopennode

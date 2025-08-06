@@ -17,6 +17,8 @@ git -C ../zephyr am `pwd`/patches/0001-serail-data-bit-8-stopbit-1-parity-even.p
 
 ```shell
 west build -b laser_f103ret7 apps/applications/laser_ctrl --sysbuild
+# enable mcumgr shell download
+west build -b laser_f103ret7 apps/applications/laser_ctrl --sysbuild -Dlaser_ctrl_SNIPPET=imgmgr-shell
 ```
 
 
