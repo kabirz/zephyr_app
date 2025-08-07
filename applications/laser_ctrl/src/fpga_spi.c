@@ -187,5 +187,5 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_fpga_cmds,
 					     shell_encode_get, 2, 0),
 			       SHELL_SUBCMD_SET_END);
 
-SHELL_CMD_REGISTER(fpage_encode, &sub_fpga_cmds, "fpga encode commands", NULL);
+SHELL_CMD_REGISTER(fpga_encode, &sub_fpga_cmds, "fpga encode commands", NULL);
 #endif
