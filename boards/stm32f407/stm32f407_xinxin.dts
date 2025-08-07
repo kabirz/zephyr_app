@@ -36,6 +36,9 @@
 	aliases {
 		rtc = &rtc;
 	};
+	zephyr,user {
+            	ethreset-gpios = <&gpioe 2 GPIO_ACTIVE_HIGH>;
+	};
 };
 
 &clk_lsi {
@@ -136,3 +139,8 @@
 	status = "okay";
 };
 
+&mac {
+	status = "okay";
+	pinctrl-0 = <&eth_mdc_pc1 &eth_rxd0_pc4 &eth_rxd1_pc5 &eth_ref_clk_pa1 &eth_mdio_pa2 &eth_crs_dv_pa7 &eth_tx_en_pg11 &eth_txd0_pg13 &eth_txd1_pg14>;
+	pinctrl-names = "default";
+};
