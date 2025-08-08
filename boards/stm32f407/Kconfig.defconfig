@@ -6,5 +6,9 @@ config SPI_STM32_INTERRUPT
 	default y
 	depends on SPI
 
+ZEPHYR_USER := zephyr,user
+config ETH_RESET_ENABLE
+	bool "enable ethernet reset"
+	default y if $(dt_node_has_prop,/$(ZEPHYR_USER),ethreset-gpios)
 endif # BOARD_STM32F407
 
