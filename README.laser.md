@@ -3,14 +3,14 @@
 ## source
 
 ```shell
-west init -m <this_git_url> app --mf zephyr4_1.yml
+west init -m <this_git_url> app --mf zephyr4_2.yml
 cd app
 west update
 ```
 
 ## apply patches
 ```shell
-git -C ../zephyr am `pwd`/patches/0001-serail-data-bit-8-stopbit-1-parity-even.patch
+git -C ../zephyr am `pwd`/patches/zephyr_*
 ```
 
 ## build
