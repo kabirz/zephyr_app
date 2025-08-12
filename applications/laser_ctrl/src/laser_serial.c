@@ -43,6 +43,7 @@ static char *get_error_desc(uint16_t code)
 
 static void laser_msg_process_thread(void)
 {
+	int32_t distance;
 	struct rx_buf buf;
 
 	while (true) {
@@ -50,62 +51,44 @@ static void laser_msg_process_thread(void)
 			if (buf.data[0] != 'g' && buf.data[1] != id) continue;
 			if (buf.data[2] == 'h') { // Distance
 				buf.data[buf.len-2] = '\0';
-				int32_t distance = strtol(buf.data+3, NULL, 10);
+				distance = strtol(buf.data+3, NULL, 10);
 				LOG_DBG("distance: %d", distance);
-				if (!atomic_test_bit(&laser_status, LASER_WRITE_MODE) &&
-					!atomic_test_bit(&laser_status, LASER_FW_UPDATE) &&
-					atomic_test_bit(&laser_status, LASER_CON_MESURE) &&
-					atomic_test_bit(&laser_status, LASER_DEVICE_STATUS)
-				) {
-					struct laser_encode_data laser_data;
-					struct can_frame frame = {
-						.id = 0x2E4,
-						.dlc = can_bytes_to_dlc(8),
-					};
-#if defined(CONFIG_BOARD_LASER_F103RET7)
-					laser_get_encode_data(&laser_data);
-#else
-					laser_data.encode1 = 0x12345;
-					laser_data.encode2 = 0x67899;
-#endif
-					laser_data.laser_val = distance;
-					memcpy(frame.data, &laser_data, 8);
-					laser_can_send(&frame);
-				} else if (atomic_test_bit(&laser_status, LASER_FW_UPDATE)) {
-					if (k_uptime_get() - latest_fw_up_times > 10000) {
-						atomic_clear_bit(&laser_status, LASER_FW_UPDATE);
-						LOG_INF("Cancel Firmware upgrade status due to timeout 10s");
-					}
-				}
-
 			} else if (buf.data[2] == '@' && buf.data[3] == 'E') { // Error code
-				static uint32_t device_old_status;
-				static uint16_t old_err_code;
-				uint32_t can_data[2] = {0};
-				uint32_t device_status = atomic_test_bit(&laser_status, LASER_DEVICE_STATUS);
 				buf.data[buf.len-2] = '\0';
 				uint16_t err_code = strtol(buf.data+4, NULL, 10);
 				LOG_ERR("laser error code: %s(%d)", get_error_desc(err_code), err_code);
-
-				uint16_t tmp = err_code;
-				for (size_t i = 0; i < 3; i++) {
-					can_data[0] |= (tmp % 10  + '0') << 8;
-					tmp /= 10;
-				}
-				can_data[1] = device_status;
-				if (old_err_code != err_code) {
-					cob_msg_send(can_data[0], can_data[1], 0x1E4);
-					old_err_code = err_code;
-				} else if ( device_status != device_old_status) {
-					cob_msg_send(can_data[0], can_data[1], 0x1E4);
-				}
-
-				device_old_status = device_status;
+				distance = 0;
 			} else if (buf.data[2] == '?') { // stop/clear
 				if (atomic_test_bit(&laser_status, LASER_ON))
 					LOG_INF("laser on reply");
 				else
 					LOG_INF("laser stop/clear reply");
+				continue;
+			} else continue;
+			if (!atomic_test_bit(&laser_status, LASER_WRITE_MODE) &&
+				!atomic_test_bit(&laser_status, LASER_FW_UPDATE) &&
+				atomic_test_bit(&laser_status, LASER_CON_MESURE) &&
+				atomic_test_bit(&laser_status, LASER_DEVICE_STATUS)
+			) {
+				struct laser_encode_data laser_data;
+				struct can_frame frame = {
+					.id = 0x2E4,
+					.dlc = can_bytes_to_dlc(8),
+				};
+#if defined(CONFIG_BOARD_LASER_F103RET7)
+				laser_get_encode_data(&laser_data);
+#else
+				laser_data.encode1 = 0x12345;
+				laser_data.encode2 = 0x67899;
+#endif
+				laser_data.laser_val = distance;
+				memcpy(frame.data, &laser_data, 8);
+				laser_can_send(&frame);
+			} else if (atomic_test_bit(&laser_status, LASER_FW_UPDATE)) {
+				if (k_uptime_get() - latest_fw_up_times > 10000) {
+					atomic_clear_bit(&laser_status, LASER_FW_UPDATE);
+					LOG_INF("Cancel Firmware upgrade status due to timeout 10s");
+				}
 			}
 		}
 	}
