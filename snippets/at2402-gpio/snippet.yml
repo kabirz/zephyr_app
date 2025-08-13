@@ -1,0 +1,4 @@
+name: at2402-gpio
+append:
+  EXTRA_CONF_FILE: at2402-gpio.conf
+  EXTRA_DTC_OVERLAY_FILE: at2402-gpio.overlay

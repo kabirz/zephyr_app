@@ -1,0 +1,4 @@
+name: at2402-i2c
+append:
+  EXTRA_CONF_FILE: at2402-i2c.conf
+  EXTRA_DTC_OVERLAY_FILE: at2402-i2c.overlay
