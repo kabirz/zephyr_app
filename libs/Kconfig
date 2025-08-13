@@ -1,0 +1,5 @@
+
+config HW_TEST
+	bool "enable hw test"
+	help
+	  build same extra code hw test
