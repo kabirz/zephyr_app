@@ -2,7 +2,6 @@
 /dts-v1/;
 #include <st/f4/stm32f407Xg.dtsi>
 #include <st/f4/stm32f407z(e-g)tx-pinctrl.dtsi>
-#include <stm32f407_fsmc.dtsi>
 #include <zephyr/dt-bindings/input/input-event-codes.h>
 
 / {
@@ -17,7 +16,6 @@
 		zephyr,ccm = &ccm0;
 		zephyr,code-partition = &slot0_partition;
 		zephyr,rtc = &rtc;
-		zephyr,display = &ili9341;
 	};
 	leds {
 		compatible = "gpio-leds";
