@@ -22,6 +22,7 @@ manifest:
           - hal_stm32
           - zcbor
           - mbedtls
+          - fatfs
           - mcuboot
           - canopennode
 
