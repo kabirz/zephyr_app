@@ -39,6 +39,7 @@ typedef enum {
 } holding_idx;
 
 #include <zephyr/kernel.h>
+#include <time.h>
 
 #define DI_TYPE 1
 #define AI_TYPE 2

@@ -13,7 +13,7 @@ manifest:
 
   projects:
     - name: zephyr
-      revision: 1a633609a0d2b386cfd1d43940c98a38d6bf3690
+      revision: v4.2.0
       path: zephyr
       import:
         name-allowlist:
@@ -21,6 +21,7 @@ manifest:
           - zcbor
           - mbedtls
           - cmsis
+          - cmsis_6
           - fatfs
           - littlefs
           - segger

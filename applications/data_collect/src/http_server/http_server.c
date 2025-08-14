@@ -52,12 +52,12 @@ static struct fw_data {
 #define FLASH_SUCCESS "{\"status\": \"success\"}\r\n"
 #define FLASH_FAILED  "{\"status\": \"failed\"}\r\n"
 static int fw_upgrade_handler(struct http_client_ctx *client, enum http_data_status status,
-			      uint8_t *buffer, size_t len, struct http_response_ctx *response_ctx,
-			      void *user_data)
+					  const struct http_request_ctx *request_ctx,
+					  struct http_response_ctx *response_ctx, void *user_data)
 {
 	struct fw_data *f_data = user_data;
 
-	__ASSERT_NO_MSG(buffer != NULL);
+	__ASSERT_NO_MSG(request_ctx->data!= NULL);
 
 	if (status == HTTP_SERVER_DATA_ABORTED) {
 		LOG_DBG("Transaction aborted after %zd bytes.", f_data->offset);
@@ -66,14 +66,14 @@ static int fw_upgrade_handler(struct http_client_ctx *client, enum http_data_sta
 	}
 	if (!f_data->found) {
 		uint8_t *data;
-		if ((!f_data->had_first) && strstr(buffer, "\r\n")) {
-			buffer[len] = '\0';
-			memcpy(f_data->first_line, buffer,
-			       MIN((uint8_t *)strstr(buffer, "\r\n") - buffer,
+		if ((!f_data->had_first) && strstr(request_ctx->data, "\r\n")) {
+			request_ctx->data[request_ctx->data_len] = '\0';
+			memcpy(f_data->first_line, request_ctx->data,
+			       MIN((uint8_t *)strstr(request_ctx->data, "\r\n") - request_ctx->data,
 				   sizeof(f_data->first_line)));
 			f_data->had_first = true;
 		}
-		data = strstr(buffer, "\r\n\r\n");
+		data = strstr(request_ctx->data, "\r\n\r\n");
 		if (data) {
 			data += 4;
 			if (flash_area_open(SLOT1_PARTITION_ID, &f_data->fa)) {
@@ -84,25 +84,26 @@ static int fw_upgrade_handler(struct http_client_ctx *client, enum http_data_sta
 			flash_area_erase(f_data->fa, 0, f_data->fa->fa_size);
 			LOG_INF("starting upgrade firmware, size: %d", f_data->fa->fa_size);
 			if (flash_area_write(f_data->fa, f_data->offset, data,
-					     len - (data - buffer))) {
+					     request_ctx->data_len - (data - request_ctx->data))) {
 				memset(f_data, 0, sizeof(struct fw_data));
 				LOG_ERR("flash area write failed");
 				return -1;
 			}
 			f_data->found = true;
-			f_data->offset = len - (data - buffer);
+			f_data->offset = request_ctx->data_len - (data - request_ctx->data);
 		}
 	} else {
-		int _len = f_data->offset + len - f_data->fa->fa_size;
+		int _len = f_data->offset + request_ctx->data_len - f_data->fa->fa_size;
+		int len = 0;
 		if (_len > 0) {
-			uint8_t *off = (uint8_t *)strstr(buffer + len - _len, f_data->first_line);
+			uint8_t *off = (uint8_t *)strstr(request_ctx->data+ request_ctx->data_len - _len, f_data->first_line);
 			if (off) {
-				len = off - buffer - 2;
+				len = off - request_ctx->data - 2;
 			} else {
 				LOG_ERR("file not right");
 			}
 		}
-		if (flash_area_write(f_data->fa, f_data->offset, buffer, len)) {
+		if (flash_area_write(f_data->fa, f_data->offset, request_ctx->data, request_ctx->data_len)) {
 			LOG_ERR("flash area write failed");
 			memset(f_data, 0, sizeof(struct fw_data));
 			return -1;
@@ -141,8 +142,8 @@ static struct http_resource_detail_dynamic fw_upgrade_resource_detail = {
 };
 
 static int get_version_handler(struct http_client_ctx *client, enum http_data_status status,
-			       uint8_t *buffer, size_t len, struct http_response_ctx *response_ctx,
-			       void *user_data)
+			       const struct http_request_ctx *request_ctx,
+			       struct http_response_ctx *response_ctx, void *user_data)
 {
 	int ret;
 	static uint8_t ver_buf[64];
@@ -196,8 +197,8 @@ static struct http_resource_detail_static_fs fs_resource_detail = {
 #include <zephyr/posix/unistd.h>
 
 static int files_handler(struct http_client_ctx *client, enum http_data_status status,
-			 uint8_t *buffer, size_t len, struct http_response_ctx *response_ctx,
-			 void *user_data)
+			 const struct http_request_ctx *request_ctx,
+			 struct http_response_ctx *response_ctx, void *user_data)
 {
 	uint8_t buf[128];
 
@@ -260,7 +261,7 @@ static struct http_resource_detail_dynamic filelists_resource_detail = {
 #endif
 
 static uint16_t test_http_service_port = 80;
-HTTP_SERVICE_DEFINE(test_http_service, NULL, &test_http_service_port, 1, 10, NULL);
+HTTP_SERVICE_DEFINE(test_http_service, NULL, &test_http_service_port, 1, 10, NULL, NULL);
 
 HTTP_RESOURCE_DEFINE(index_html_gz_resource, test_http_service, "/",
 		     &index_html_gz_resource_detail);

@@ -17,7 +17,7 @@
 &adc1 {
 	pinctrl-0 = < &adc1_inp19_pa5 &adc1_inp3_pa6>;
 	pinctrl-names = "default";
-	st,adc-clock-source = <SYNC>;
+	st,adc-clock-source = "SYNC";
 	st,adc-prescaler = <4>;
 	status = "okay";
 	#address-cells = <1>;

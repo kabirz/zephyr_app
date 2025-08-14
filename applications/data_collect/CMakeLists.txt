@@ -19,3 +19,4 @@ add_subdirectory_ifdef(CONFIG_MODBUS src/modbus)
 add_subdirectory_ifdef(CONFIG_HTTP_SERVER src/http_server)
 add_subdirectory_ifdef(CONFIG_FTP_SERVER src/ftp_server)
 
+target_compile_options(app PRIVATE -U_POSIX_C_SOURCE -D_POSIX_C_SOURCE=200809L)

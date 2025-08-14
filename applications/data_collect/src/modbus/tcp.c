@@ -24,7 +24,7 @@ static int server_iface;
 static bool link_down;
 
 #ifdef CONFIG_NET_MGMT_EVENT
-static void net_event_handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event, struct net_if *iface)
+static void net_event_handler(struct net_mgmt_event_callback *cb, uint64_t mgmt_event, struct net_if *iface)
 {
 	if (mgmt_event == NET_EVENT_IF_DOWN) {
 		update_holding_reg(HOLDING_DO_IDX, 0);
