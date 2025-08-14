@@ -29,7 +29,6 @@
 		compatible = "st,stm32-fmc-nor-psram";
 		#address-cells = <1>;
 		#size-cells = <0>;
-		status = "okay";
 		bank@3 {
 			reg = <0x3>;
 			st,control = <STM32_FMC_DATA_ADDRESS_MUX_DISABLE
@@ -70,7 +69,6 @@
 
 			fmc-mipi-dbi {
 				compatible = "st,stm32-fmc-mipi-dbi";
-				status = "okay";
 				#address-cells = <1>;
 				#size-cells = <0>;
 				reset-gpios = <&gpiof 10 GPIO_ACTIVE_LOW>;

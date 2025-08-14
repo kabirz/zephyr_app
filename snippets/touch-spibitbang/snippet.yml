@@ -1,0 +1,4 @@
+name: touch-spibitbang
+append:
+  EXTRA_CONF_FILE: touch-spibitbang.conf
+  EXTRA_DTC_OVERLAY_FILE: touch-spibitbang.overlay

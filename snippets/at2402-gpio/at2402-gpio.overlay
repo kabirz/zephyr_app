@@ -4,7 +4,6 @@
 / {
 	gpio_i2c {
 		compatible = "gpio-i2c";
-		status = "okay";
 		scl-gpios = <&gpiob 8 GPIO_OPEN_DRAIN>;
 		sda-gpios = <&gpiob 9 GPIO_OPEN_DRAIN>;
 		clock-frequency = <I2C_BITRATE_STANDARD>;
@@ -14,7 +13,6 @@
 		eeprom0: eeprom@50 {
 			compatible = "atmel,at24";
 			reg = <0x50>;
-			status = "okay";
 			size = <256>;
 			pagesize = <8>;
 			address-width = <8>;

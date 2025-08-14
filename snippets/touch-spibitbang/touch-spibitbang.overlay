@@ -1,0 +1,37 @@
+#include <zephyr/dt-bindings/i2c/i2c.h>
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	chosen {
+		zephyr,touch = &xpt2046;
+	};
+
+	spibb0: spibb0 {
+		compatible = "zephyr,spi-bitbang";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		clk-gpios = <&gpioa 5 GPIO_ACTIVE_HIGH>;
+		mosi-gpios = <&gpiob 1 GPIO_ACTIVE_HIGH>;
+		miso-gpios = <&gpiob 2 GPIO_ACTIVE_HIGH>;
+		cs-gpios = <&gpiob 0 GPIO_ACTIVE_LOW>;
+		xpt2046: xpt2046@0 {
+			compatible = "xptek,xpt2046";
+			spi-max-frequency = <DT_FREQ_M(30)>;
+			reg = <0x0>;
+			int-gpios = <&gpiof 11 GPIO_ACTIVE_HIGH>;
+			z-threshold = <30>;
+			reads = <5>;
+			touchscreen-size-x = <240>;
+			touchscreen-size-y = <320>;
+			min-x = <3>;
+			min-y = <3>;
+			max-x = <239>;
+			max-y = <319>;
+		};
+	};
+	lvgl_pointer {
+		compatible = "zephyr,lvgl-pointer-input";
+		input = <&xpt2046>;
+	};
+};
+

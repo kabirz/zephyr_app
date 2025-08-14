@@ -3,6 +3,7 @@
 #include <st/f4/stm32f407Xg.dtsi>
 #include <st/f4/stm32f407z(e-g)tx-pinctrl.dtsi>
 #include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/lvgl/lvgl.h>
 
 / {
 	model = "xinxin_f407zgt6 board";
@@ -33,11 +34,41 @@
 		};
 	};
 
+	buttons: gpio_keys {
+		compatible = "gpio-keys";
+		up_key: up_key {
+			label = "UP_KEY";
+			gpios = <&gpiof 7 GPIO_PULL_UP>;
+			zephyr,code = <INPUT_KEY_UP>;
+		};
+		down_key: down_key {
+			label = "DOWN_KEY";
+			gpios = <&gpiof 9 GPIO_PULL_UP>;
+			zephyr,code = <INPUT_KEY_DOWN>;
+		};
+		left_key: left_key {
+			label = "LEFT_KEY";
+			gpios = <&gpiof 6 GPIO_PULL_UP>;
+			zephyr,code = <INPUT_KEY_LEFT>;
+		};
+		right_key: right_key {
+			label = "RIGHT_KEY";
+			gpios = <&gpiof 8 GPIO_PULL_UP>;
+			zephyr,code = <INPUT_KEY_RIGHT>;
+		};
+	};
+
 	aliases {
 		rtc = &rtc;
 	};
 	zephyr,user {
             	ethreset-gpios = <&gpioe 2 GPIO_ACTIVE_HIGH>;
+	};
+	keypad {
+		compatible = "zephyr,lvgl-keypad-input";
+		input = <&buttons>;
+		input-codes = <INPUT_KEY_RIGHT INPUT_KEY_LEFT INPUT_KEY_UP INPUT_KEY_DOWN>;
+		lvgl-codes =  <LV_KEY_RIGHT LV_KEY_LEFT LV_KEY_UP LV_KEY_DOWN>;
 	};
 };
 
