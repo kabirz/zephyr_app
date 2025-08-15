@@ -1,5 +1,8 @@
 
 /{
+	zephyr,user {
+		rs485_tx-gpios = <&gpioa 1 GPIO_ACTIVE_HIGH>;
+	};
 	chosen {
 		zephyr,canbus = &can1;
 	};
