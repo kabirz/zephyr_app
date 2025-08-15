@@ -25,8 +25,8 @@ extern u16 BACK_COLOR;
 #define CMD_BASE  ((u32)(0x6C000000 | 0x00001FFE))
 #define DATA_BASE ((u32)(0x6C000000 | 0x00002000))
 
-#define LCD_CMD  (*(vu16 *)CMD_BASE)
-#define LCD_DATA (*(vu16 *)DATA_BASE)
+#define LCD_CMD  (uintptr_t)CMD_BASE
+#define LCD_DATA (uintptr_t)DATA_BASE
 
 #define L2R_U2D 0
 #define L2R_D2U 1

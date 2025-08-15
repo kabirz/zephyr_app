@@ -1,6 +1,4 @@
 
-cmake_minimum_required(VERSION 3.13.1)
-
 if (CONFIG_HW_TEST)
 zephyr_sources(
   LCD/lcd.c

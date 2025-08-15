@@ -1,5 +1,7 @@
 #include "lcd.h"
 #include "cfont.h"
+#include "zephyr/arch/common/sys_io.h"
+#include <zephyr/sys/sys_io.h>
 #include <zephyr/kernel.h>
 u16 BRUSH_COLOR = BLACK;
 u16 BACK_COLOR = WHITE;
@@ -37,23 +39,23 @@ struct ili9341_regs {
 
 void LCD_WriteReg(u16 LCD_Reg, u16 LCD_Value)
 {
-	LCD_CMD = LCD_Reg;
-	LCD_DATA = LCD_Value;
+	sys_write16(LCD_Reg, LCD_CMD);
+	sys_write16(LCD_Value, LCD_DATA);
 }
 
 void LCD_WriteRegs(struct ili9341_regs *reg)
 {
-	LCD_CMD = reg->reg;
+	sys_write16(reg->reg, LCD_CMD);
 	for (int i = 0; i < reg->len; i++) {
-		LCD_DATA = reg->vals[i];
+		sys_write16(reg->vals[i], LCD_DATA);
 	}
 }
 
 u16 LCD_ReadReg(u16 LCD_Reg)
 {
-	LCD_CMD = LCD_Reg;
+	sys_write16(LCD_Reg, LCD_CMD);
 	k_busy_wait(5);
-	return LCD_DATA;
+	return sys_read16(LCD_DATA);
 }
 
 void lcdm_delay(u8 i)
@@ -79,14 +81,14 @@ u16 LCD_GetPoint(u16 x, u16 y)
 		return 0;
 	}
 	LCD_SetCursor(x, y);
-	LCD_CMD = ILI9XXX_RAMRD;
-	if (LCD_DATA) {
+	sys_write16(ILI9XXX_RAMRD, LCD_CMD);
+	if (sys_read16(LCD_DATA)) {
 		r = 0;
 	}
 	lcdm_delay(2);
-	r = LCD_DATA;
+	r = sys_read16(LCD_DATA);
 	lcdm_delay(2);
-	b = LCD_DATA;
+	b = sys_read16(LCD_DATA);
 	g = r & 0XFF;
 	g <<= 8;
 	return (((r >> 11) << 11) | ((g >> 10) << 5) | (b >> 11));
@@ -94,22 +96,22 @@ u16 LCD_GetPoint(u16 x, u16 y)
 
 void LCD_DisplayOn(void)
 {
-	LCD_CMD = ILI9XXX_DISPON;
+	sys_write16(ILI9XXX_DISPON, LCD_CMD);
 }
 
 void LCD_DisplayOff(void)
 {
-	LCD_CMD = ILI9XXX_DISPOFF;
+	sys_write16(ILI9XXX_DISPOFF, LCD_CMD);
 }
 
 void LCD_SetCursor(u16 Xaddr, u16 Yaddr)
 {
-	LCD_CMD = ILI9XXX_CASET;
-	LCD_DATA = (Xaddr >> 8);
-	LCD_DATA = (Xaddr & 0XFF);
-	LCD_CMD = ILI9XXX_PASET;
-	LCD_DATA = (Yaddr >> 8);
-	LCD_DATA = (Yaddr & 0XFF);
+	sys_write16(ILI9XXX_CASET, LCD_CMD);
+	sys_write16(Xaddr >> 8, LCD_DATA);
+	sys_write16(Xaddr & 0xFF, LCD_DATA);
+	sys_write16(ILI9XXX_PASET, LCD_CMD);
+	sys_write16(Yaddr >> 8, LCD_DATA);
+	sys_write16(Yaddr & 0xFF, LCD_DATA);
 }
 
 void LCD_AUTOScan_Dir(u8 dir)
@@ -184,16 +186,17 @@ void LCD_AUTOScan_Dir(u8 dir)
 			lcd_height = temp;
 		}
 	}
-	LCD_CMD = ILI9XXX_CASET;
-	LCD_DATA = 0;
-	LCD_DATA = 0;
-	LCD_DATA = (lcd_width - 1) >> 8;
-	LCD_DATA = (lcd_width - 1) & 0XFF;
-	LCD_CMD = ILI9XXX_PASET;
-	LCD_DATA = 0;
-	LCD_DATA = 0;
-	LCD_DATA = (lcd_height - 1) >> 8;
-	LCD_DATA = (lcd_height - 1) & 0XFF;
+	sys_write16(ILI9XXX_CASET, LCD_CMD);
+	sys_write16(0, LCD_DATA);
+	sys_write16(0, LCD_DATA);
+	sys_write16((lcd_width - 1) >> 8, LCD_DATA);
+	sys_write16((lcd_width - 1) & 0XFF, LCD_DATA);
+
+	sys_write16(ILI9XXX_PASET, LCD_CMD);
+	sys_write16(0, LCD_DATA);
+	sys_write16(0, LCD_DATA);
+	sys_write16((lcd_height - 1) >> 8, LCD_DATA);
+	sys_write16((lcd_height - 1) & 0XFF, LCD_DATA);
 }
 
 void LCD_Display_Dir(u8 dir)
@@ -207,20 +210,22 @@ void LCD_Display_Dir(u8 dir)
 void LCD_DrawPoint(u16 x, u16 y)
 {
 	LCD_SetCursor(x, y);
-	LCD_CMD = ILI9XXX_RAMWR;
-	LCD_DATA = BRUSH_COLOR;
+	sys_write16(ILI9XXX_RAMWR, LCD_CMD);
+	sys_write16(BRUSH_COLOR, LCD_DATA);
 }
 
 void LCD_Color_DrawPoint(u16 x, u16 y, u16 color)
 {
-	LCD_CMD = ILI9XXX_CASET;
-	LCD_DATA = (x >> 8);
-	LCD_DATA = (x & 0XFF);
-	LCD_CMD = ILI9XXX_PASET;
-	LCD_DATA = (y >> 8);
-	LCD_DATA = (y & 0XFF);
-	LCD_CMD = ILI9XXX_RAMWR;
-	LCD_DATA = color;
+	sys_write16(ILI9XXX_CASET, LCD_CMD);
+	sys_write16(x>>8, LCD_DATA);
+	sys_write16(x&0xFF, LCD_DATA);
+
+	sys_write16(ILI9XXX_PASET, LCD_CMD);
+	sys_write16(y>>8, LCD_DATA);
+	sys_write16(y&0xFF, LCD_DATA);
+
+	sys_write16(ILI9XXX_RAMWR, LCD_CMD);
+	sys_write16(color, LCD_DATA);
 }
 
 void LCD_Set_Window(u16 sx, u16 sy, u16 width, u16 height)
@@ -228,16 +233,17 @@ void LCD_Set_Window(u16 sx, u16 sy, u16 width, u16 height)
 	width = sx + width - 1;
 	height = sy + height - 1;
 
-	LCD_CMD = ILI9XXX_CASET;
-	LCD_DATA = (sx >> 8);
-	LCD_DATA = (sx & 0XFF);
-	LCD_DATA = (width >> 8);
-	LCD_DATA = (width & 0XFF);
-	LCD_CMD = ILI9XXX_PASET;
-	LCD_DATA = (sy >> 8);
-	LCD_DATA = (sy & 0XFF);
-	LCD_DATA = (height >> 8);
-	LCD_DATA = (height & 0XFF);
+	sys_write16(ILI9XXX_CASET, LCD_CMD);
+	sys_write16(sx>>8, LCD_DATA);
+	sys_write16(sx&0xff, LCD_DATA);
+	sys_write16(width >> 8, LCD_DATA);
+	sys_write16(width & 0XFF, LCD_DATA);
+
+	sys_write16(ILI9XXX_PASET, LCD_CMD);
+	sys_write16(sy>>8, LCD_DATA);
+	sys_write16(sy&0xff, LCD_DATA);
+	sys_write16(height >> 8, LCD_DATA);
+	sys_write16(height & 0XFF, LCD_DATA);
 }
 
 void LCD_Init(void)
@@ -249,9 +255,9 @@ void LCD_Init(void)
 		LCD_WriteRegs(&regs[i]);
 	}
 
-	LCD_CMD = ILI9XXX_SLPOUT;
+	sys_write16(ILI9XXX_SLPOUT, LCD_CMD);
 	k_msleep(50);
-	LCD_CMD = ILI9XXX_DISPON;
+	sys_write16(ILI9XXX_DISPON, LCD_CMD);
 	LCD_Display_Dir(0);
 	LCD_Clear(WHITE);
 }
@@ -263,9 +269,9 @@ void LCD_Clear(u16 color)
 
 	pointnum = lcd_width * lcd_height;
 	LCD_SetCursor(0x00, 0x00);
-	LCD_CMD = ILI9XXX_RAMWR;
+	sys_write16(ILI9XXX_RAMWR, LCD_CMD);
 	for (i = 0; i < pointnum; i++) {
-		LCD_DATA = color;
+		sys_write16(color, LCD_DATA);
 	}
 }
 
@@ -277,9 +283,9 @@ void LCD_Fill_onecolor(u16 sx, u16 sy, u16 ex, u16 ey, u16 color)
 	nlen = ex - sx + 1;
 	for (i = sy; i <= ey; i++) {
 		LCD_SetCursor(sx, i);
-		LCD_CMD = ILI9XXX_RAMWR;
+		sys_write16(ILI9XXX_RAMWR, LCD_CMD);
 		for (j = 0; j < nlen; j++) {
-			LCD_DATA = color;
+			sys_write16(color, LCD_DATA);
 		}
 	}
 }
