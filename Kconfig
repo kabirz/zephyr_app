@@ -1,1 +1,2 @@
 rsource "libs/Kconfig"
+rsource "drivers/Kconfig"

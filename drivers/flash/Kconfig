@@ -1,0 +1,14 @@
+config FLASH_FS
+	bool "access file use flash api"
+	depends on FLASH
+	depends on FILE_SYSTEM_LITTLEFS || FAT_FILESYSTEM_ELM
+	help
+	  access file use flash api
+
+config SPI_NOR_INIT_PRIORITY
+	int "Init priority"
+	depends on FLASH_FS
+	default 80
+	help
+	  Device driver initialization priority.
+
