@@ -9,7 +9,7 @@ LOG_MODULE_REGISTER(laser_can, LOG_LEVEL_INF);
 static const struct device *can_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_canbus));
 CAN_MSGQ_DEFINE(laser_can_msgq, 8);
 uint64_t latest_fw_up_times;
-static uint32_t SystemStatus;
+static uint32_t SystemStatus = SYSTEMSTATUSWORKING;
 int16_t gcXaxisInitValue, gcYaxisInitValue;
 atomic_t laser_status = ATOMIC_INIT(0);
 
@@ -31,7 +31,7 @@ int cob_msg_send(uint32_t data1, uint32_t data2, uint32_t id)
 static void laser_canrx_msg_handler(struct can_frame *frame)
 {
 	uint32_t ack_cmd;
-	static uint32_t LaserPeriod = 0;
+	static uint32_t LaserPeriod = 100;
 
 	switch (frame->id) {
 	case COB_ID1_RX : {
@@ -74,14 +74,14 @@ static void laser_canrx_msg_handler(struct can_frame *frame)
 			break;
 		case CANREADSYSTEMSTATUS:
 			SystemStatus = SYSTEMSTATUSWORKING;
-			LOG_DBG("mem write mode");
+			LOG_DBG("mem read mode");
 			laser_flash_read_mode();
 			cob_msg_send(SystemStatus, CANREADSYSTEMSTATUS, COB_ID1_TX);
 			break;
 		case CANWRITESYSTEMSTATUS:
 			SystemStatus = SYSTEMSTATUSEEPROM;
+			LOG_DBG("mem write mode");
 			laser_flash_write_mode();
-			LOG_DBG("mem read mode");
 			cob_msg_send(SystemStatus, CANWRITESYSTEMSTATUS, COB_ID1_TX);
 			break;
 		case CANCMD_LASER_CTRL:
@@ -99,14 +99,15 @@ static void laser_canrx_msg_handler(struct can_frame *frame)
 			cob_msg_send(ack_cmd, sys_be32_to_cpu(frame->data_32[1]), COB_ID1_TX);
 			break;
 		case CANCMD_LASER_PEROID_CONF:
-			LOG_DBG("set period");
 			ack_cmd = (CANCMD_LASER_PEROID_CONF & CAN_HOST_MASK)|CAN_HOST_ACK_ID;
 			LaserPeriod = sys_be32_to_cpu(frame->data_32[1]);
+			LOG_DBG("set period: %d", LaserPeriod);
 			cob_msg_send(ack_cmd, sys_be32_to_cpu(frame->data_32[1]), COB_ID1_TX);
 			break;
 		case CANCMD_LASER_PEROID_GET:
+			LOG_DBG("get period: %d", LaserPeriod);
 			ack_cmd = (CANCMD_LASER_PEROID_GET & CAN_HOST_MASK)|CAN_HOST_ACK_ID;
-			cob_msg_send(ack_cmd, sys_be32_to_cpu(frame->data_32[1]), COB_ID1_TX);
+			cob_msg_send(ack_cmd, LaserPeriod, COB_ID1_TX);
 			break;
 		default:
 			LOG_ERR("Unkown command: 0x%x", sys_be32_to_cpu(frame->data_32[0]));
@@ -117,26 +118,29 @@ static void laser_canrx_msg_handler(struct can_frame *frame)
 	case COB_ID2_RX : {
 		if (frame->data[0] == 0x22) {
 			uint32_t address = frame->data[1] + frame->data[2] * 10;
-			uint32_t val = frame->data_32[1];
+			uint32_t val = sys_be32_to_cpu(frame->data_32[1]);
+			if (address == 0) address = 1;
 			int ret = laser_flash_write(address-1, val);
 
 			LOG_DBG("address: %d, val: 0x%x", address, val);
 			if (ret) {
-				cob_msg_send(SYSTEMSTATUSEEPROM, val, COB_ID2_TX);
+				cob_msg_send(SYSTEMSTATUSEEPROM, 0, COB_ID2_TX);
 			} else {
-				cob_msg_send(2, ret, COB_ID2_TX);
+				cob_msg_send(1, val, COB_ID2_TX);
 			}
 		} else if (frame->data[0] == 0x40) {
 			uint32_t address = frame->data[1] + frame->data[2] * 10;
 			uint32_t val;
 
+			if (address == 0) address = 1;
+
 			int ret = laser_flash_read(address - 1, &val);
 
 			LOG_DBG("address: %d, val: 0x%x", address, val);
-			if (ret == 0) {
-				cob_msg_send(SYSTEMSTATUSEEPROM, val, COB_ID2_TX);
+			if (ret) {
+				cob_msg_send(2, 0, COB_ID2_TX);
 			} else {
-				cob_msg_send(2, ret, COB_ID2_TX);
+				cob_msg_send(SystemStatus, val, COB_ID2_TX);
 			}
 		}
 	}

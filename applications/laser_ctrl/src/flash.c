@@ -54,19 +54,23 @@ int laser_flash_write_mode(void)
 
 int laser_flash_write(uint16_t address, uint32_t val)
 {
-	if (atomic_test_bit(&laser_status, LASER_WRITE_MODE) &&
-		!atomic_test_bit(&laser_status, LASER_FW_UPDATE)) {
+	if (!atomic_test_bit(&laser_status, LASER_WRITE_MODE) ||
+		atomic_test_bit(&laser_status, LASER_FW_UPDATE)) {
 		LOG_ERR("Please enable write mode first");
 		return -1;
 	}
-	if (address < 50) {
+	if (address >= 50) {
+		LOG_ERR("only support 50 regs");
+		return -1;
+	}
+	if (laser_regs[address] != val) {
 		laser_regs[address] = val;
-	}
-	if (flash_area_flatten(fa, 0, 4096) == 0) {
-		if (flash_area_write(fa, 0, laser_regs, sizeof(laser_regs)) == 0) {
-			return 0;
+		if (flash_area_flatten(fa, 0, 4096) == 0) {
+			if (flash_area_write(fa, 0, laser_regs, sizeof(laser_regs)) == 0) {
+				return 0;
+			}
 		}
-	}
+	} else return 0;
 	LOG_ERR("flash write failed");
 
 	return -1;
@@ -78,9 +82,11 @@ int laser_flash_read(uint16_t address, uint32_t *val)
 		LOG_ERR("%s: flash error", __FUNCTION__);
 		return -1;
 	}
-	if (address < 50) {
-		*val = laser_regs[address];
+	if (address >= 50) {
+		LOG_ERR("only support 50 regs");
+		return -1;
 	}
+	*val = laser_regs[address];
 	return 0;
 }
 
