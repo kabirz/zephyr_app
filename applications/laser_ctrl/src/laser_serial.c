@@ -23,6 +23,7 @@ struct rx_buf {
 };
 K_MSGQ_DEFINE(laser_serial_msgq, sizeof(struct rx_buf), 3, 4);
 static uint8_t id;
+static bool enable_log;
 static uint8_t tx_buf[256];
 struct error_msg {
 	uint16_t code;
@@ -53,17 +54,26 @@ static void laser_msg_process_thread(void)
 
 	while (true) {
 		if (k_msgq_get(&laser_serial_msgq, &buf, K_FOREVER) == 0) {
-			if (buf.data[0] != 'g' && buf.data[1] != id) continue;
-			if (buf.data[2] == 'h') { // Distance
+			int i = 0;
+			for (int j = 0; j < buf.len; j++) {
+				if (buf.data[j] == 'g') {
+					i = j;
+				} else if (j == (buf.len - 1)) {
+					LOG_ERR("Invalid uart frame!");
+					continue;;
+				}
+			}
+			if (buf.data[i] != 'g' && buf.data[i+1] != id) continue;
+			if (buf.data[i+2] == 'h') { // Distance
 				buf.data[buf.len-2] = '\0';
-				distance = strtol(buf.data+3, NULL, 10);
+				distance = strtol(buf.data+3+i, NULL, 10);
 				LOG_DBG("distance: %d", distance);
-			} else if (buf.data[2] == '@' && buf.data[3] == 'E') { // Error code
+			} else if (buf.data[i+2] == '@' && buf.data[i+3] == 'E') { // Error code
 				buf.data[buf.len-2] = '\0';
-				uint16_t err_code = strtol(buf.data+4, NULL, 10);
+				uint16_t err_code = strtol(buf.data+4+i, NULL, 10);
 				LOG_ERR("laser error code: %s(%d)", get_error_desc(err_code), err_code);
 				distance = 0;
-			} else if (buf.data[2] == '?') { // stop/clear
+			} else if (buf.data[i+2] == '?') { // stop/clear
 				if (atomic_test_bit(&laser_status, LASER_ON))
 					LOG_INF("laser on reply");
 				else
@@ -107,9 +117,13 @@ static void uart_cb(const struct device *dev, void *user_data)
 	while (uart_irq_update(dev) && uart_irq_rx_ready(dev)) {
 		buf.len += uart_fifo_read(dev, buf.data + buf.len, sizeof(buf.data) - buf.len);
 		if (buf.len > sizeof(buf.data) - 4) {
+			LOG_WRN("too more laser data");
+			LOG_HEXDUMP_INF(buf.data, buf.len, "RX:");
 			memset(&buf, 0, sizeof(buf));
 		} else if (buf.len > 2) {
 			if (buf.data[buf.len-1] == 0x0A && buf.data[buf.len-2] == 0x0D) {
+			if (enable_log)
+				LOG_HEXDUMP_INF(buf.data, buf.len, "RX:");
 
 #if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)
 				if (atomic_test_and_clear_bit(&laser_status, LASER_NEED_CLOSE)) {
@@ -140,6 +154,8 @@ static void serial_send(const uint8_t *data, size_t len)
 	gpio_pin_set_dt(&rs485tx_gpios, 0);
 #endif
 	k_msleep(100);
+	if (enable_log)
+		LOG_HEXDUMP_INF(data, len, "TX:");
 }
 
 int laser_stopclear(void)
@@ -251,6 +267,18 @@ static int cmd_laser_on(const struct shell *ctx, size_t argc, char **argv)
 	return laser_on();
 }
 
+static int cmd_enable_log(const struct shell *ctx, size_t argc, char **argv)
+{
+	if (strcmp(argv[1], "on") == 0) {
+		enable_log = true;
+		shell_print(ctx, "Enable laser data dump");
+	} else if (strcmp(argv[1], "off") == 0) {
+		enable_log = false;
+		shell_print(ctx, "Disable laser data dump");
+	}
+	return 0;
+}
+
 static int cmd_laser_mesure(const struct shell *ctx, size_t argc, char **argv)
 {
 	return laser_con_measure(100);
@@ -273,6 +301,10 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_serial_cmds,
 					     "laser on\n"
 					     "Usage: on",
 					     cmd_laser_on, 1, 0),
+			       SHELL_CMD_ARG(log, NULL,
+					     "laser on\n"
+					     "Usage: log <on/off>",
+					     cmd_enable_log, 2, 0),
 			       SHELL_CMD_ARG(mesure, NULL,
 					     "laser mesure\n"
 					     "Usage: mesure",

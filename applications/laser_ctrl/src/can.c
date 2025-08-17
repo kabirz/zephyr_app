@@ -137,7 +137,7 @@ static void laser_canrx_msg_handler(struct can_frame *frame)
 
 			LOG_DBG("address: %d, val: 0x%x", address, val);
 			if (ret) {
-				cob_msg_send(SYSTEMSTATUSEEPROM, 0, COB_ID2_TX);
+				cob_msg_send(0x12, val, COB_ID2_TX);
 			} else {
 				cob_msg_send(1, val, COB_ID2_TX);
 			}
@@ -151,9 +151,9 @@ static void laser_canrx_msg_handler(struct can_frame *frame)
 
 			LOG_DBG("address: %d, val: 0x%x", address, val);
 			if (ret) {
-				cob_msg_send(2, 0, COB_ID2_TX);
+				cob_msg_send(0x11, val, COB_ID2_TX);
 			} else {
-				cob_msg_send(SystemStatus, val, COB_ID2_TX);
+				cob_msg_send(1, val, COB_ID2_TX);
 			}
 		}
 	}
