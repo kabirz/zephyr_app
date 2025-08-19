@@ -1,0 +1,4 @@
+name: f407-mac
+append:
+  EXTRA_CONF_FILE: f407-mac.conf
+  EXTRA_DTC_OVERLAY_FILE: f407-mac.overlay

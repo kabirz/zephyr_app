@@ -10,5 +10,7 @@ ZEPHYR_USER := zephyr,user
 config ETH_RESET_ENABLE
 	bool "enable ethernet reset"
 	default y if $(dt_node_has_prop,/$(ZEPHYR_USER),ethreset-gpios)
+
+source "samples/subsys/usb/common/Kconfig.sample_usbd"
 endif # BOARD_STM32F407
 

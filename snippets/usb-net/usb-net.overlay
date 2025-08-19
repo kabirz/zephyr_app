@@ -1,0 +1,17 @@
+#include <zephyr/dt-bindings/i2c/i2c.h>
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	chosen {
+		zephyr,uart-mcumgr = &cdc_acm_uart0;
+	};
+};
+
+&usbotg_hs {
+	status = "okay";
+	pinctrl-0 = <&usb_otg_hs_dm_pb14 &usb_otg_hs_dp_pb15>;
+	pinctrl-names = "default";
+	cdc_acm_uart0: cdc_acm_uart0 {
+		compatible = "zephyr,cdc-acm-uart";
+	};
+};
