@@ -35,7 +35,7 @@ static int spi_tranfer(void *tx_buffer, void *rx_buffer, size_t size)
 	return spi_transceive_dt(&spi_spec, &tx_buf_set, &rx_buf_set);
 }
 
-uint32_t fpga_uint32_get(uint8_t reg, uint32_t *val)
+uint32_t fpga_uint32_version(void)
 {
 	uint8_t rx_buf[5] = {0}, tx_buf[5] = {0};
 
@@ -44,9 +44,8 @@ uint32_t fpga_uint32_get(uint8_t reg, uint32_t *val)
 		LOG_ERR("spi tranfer error");
 		return -1;
 	}
-	*val = *(uint32_t *)(rx_buf+1);
 
-	return 0;
+	return *(uint32_t *)(rx_buf+1);
 }
 
 uint32_t fpga_uint32_set(uint8_t reg, uint32_t val)
@@ -135,16 +134,22 @@ int laser_get_encode_data(struct laser_encode_data *encode)
 	return 0;
 }
 
+static int fpga_spi_init(void)
+{
+	LOG_INF("fpge version: 0x%x", fpga_uint32_version());
+
+	return 0;
+}
+
+SYS_INIT(fpga_spi_init, APPLICATION, 10);
+
 #ifdef CONFIG_SHELL
 #include <zephyr/shell/shell.h>
 #include <stdlib.h>
 static int shell_version_get(const struct shell *ctx, size_t argc, char **argv)
 {
-	uint32_t version;
+	shell_print(ctx, "fpge version: 0x%x", fpga_uint32_version());
 
-	fpga_uint32_get(VERSION_GET_REG, &version);
-
-	shell_print(ctx, "fpge version: 0x%x", version);
 	return 0;
 }
 

@@ -89,11 +89,13 @@ static void laser_canrx_msg_handler(struct can_frame *frame)
 			cob_msg_send(SystemStatus, CANWRITESYSTEMSTATUS, COB_ID1_TX);
 			break;
 		case CANCMD_LASER_CTRL:
-			ack_cmd = (CANCMD_LASER_CTRL & CAN_HOST_MASK)|CAN_HOST_ACK_ID;
+			ack_cmd = (CANCMD_LASER_CTRL & CAN_HOST_MASK)|CAN_HOST_NOACK_ID;
 			if (sys_be32_to_cpu(frame->data_32[1]) == CANCMD_LASER_CTRL_ENABLE) {
 				LOG_DBG("laser on and measure");
-				laser_on();
-				laser_con_measure(LaserPeriod);
+				if (laser_on() == 0) {
+					if (laser_con_measure(LaserPeriod) == 0)
+						ack_cmd = (CANCMD_LASER_CTRL & CAN_HOST_MASK)|CAN_HOST_ACK_ID;
+				}
 			} else if (sys_be32_to_cpu(frame->data_32[1]) == CANCMD_LASER_CTRL_DISABLE) {
 #if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)
 				if (atomic_test_bit(&laser_status, LASER_ON) &&
@@ -103,11 +105,10 @@ static void laser_canrx_msg_handler(struct can_frame *frame)
 				} else
 #endif
 				{
-					laser_stopclear();
+					if (laser_stopclear() == 0)
+						ack_cmd = (CANCMD_LASER_CTRL & CAN_HOST_MASK)|CAN_HOST_ACK_ID;
 				}
 				LOG_DBG("laser stop");
-			} else {
-				ack_cmd = (CANCMD_LASER_CTRL & CAN_HOST_MASK)|CAN_HOST_NOACK_ID;
 			}
 			cob_msg_send(ack_cmd, sys_be32_to_cpu(frame->data_32[1]), COB_ID1_TX);
 			break;
@@ -266,4 +267,4 @@ void laser_can_process_thread(void)
 	}
 }
 
-K_THREAD_DEFINE(laser_can, 1024, laser_can_process_thread, NULL, NULL, NULL, 12, 0, 0);
+K_THREAD_DEFINE(laser_can, 2048, laser_can_process_thread, NULL, NULL, NULL, 11, 0, 0);

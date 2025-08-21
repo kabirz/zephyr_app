@@ -22,7 +22,13 @@ struct rx_buf {
 	uint8_t data[128];
 };
 K_MSGQ_DEFINE(laser_serial_msgq, sizeof(struct rx_buf), 3, 4);
+static K_EVENT_DEFINE(laser_event);
+#define EVENT_LASER_STOP_ON BIT(0)
+#define EVENT_LASER_ERROR   BIT(1)
+#define EVENT_LASER_MSG     BIT(2)
+#define EVENT_LASER_OTHER   BIT(3)
 static uint8_t id;
+static bool first_on;
 static bool enable_log;
 static uint8_t tx_buf[256];
 struct error_msg {
@@ -58,28 +64,43 @@ static void laser_msg_process_thread(void)
 			for (int j = 0; j < buf.len; j++) {
 				if (buf.data[j] == 'g') {
 					i = j;
+					break;
 				} else if (j == (buf.len - 1)) {
 					LOG_ERR("Invalid uart frame!");
-					continue;;
+					continue;
 				}
 			}
 			if (buf.data[i] != 'g' && buf.data[i+1] != id) continue;
 			if (buf.data[i+2] == 'h') { // Distance
 				buf.data[buf.len-2] = '\0';
 				distance = strtol(buf.data+3+i, NULL, 10);
-				LOG_DBG("distance: %d", distance);
+				if (enable_log)
+					LOG_INF("distance: %d", distance);
+				if (first_on) {
+					first_on = false;
+					k_event_set(&laser_event, EVENT_LASER_MSG);
+				}
 			} else if (buf.data[i+2] == '@' && buf.data[i+3] == 'E') { // Error code
 				buf.data[buf.len-2] = '\0';
 				uint16_t err_code = strtol(buf.data+4+i, NULL, 10);
 				LOG_ERR("laser error code: %s(%d)", get_error_desc(err_code), err_code);
 				distance = 0;
+				if (!atomic_test_bit(&laser_status, LASER_CON_MESURE))
+					k_event_set(&laser_event, EVENT_LASER_ERROR);
 			} else if (buf.data[i+2] == '?') { // stop/clear
-				if (atomic_test_bit(&laser_status, LASER_ON))
+				if (!atomic_test_bit(&laser_status, LASER_CON_MESURE)) {
+					first_on = true;
 					LOG_INF("laser on reply");
-				else
+				} else {
+					first_on = false;
 					LOG_INF("laser stop/clear reply");
+				}
+				k_event_set(&laser_event, EVENT_LASER_STOP_ON);
 				continue;
-			} else continue;
+			} else {
+				k_event_set(&laser_event, EVENT_LASER_OTHER);
+				continue;
+			};
 			if (!atomic_test_bit(&laser_status, LASER_WRITE_MODE) &&
 				!atomic_test_bit(&laser_status, LASER_FW_UPDATE) &&
 				atomic_test_bit(&laser_status, LASER_CON_MESURE) &&
@@ -110,13 +131,14 @@ static void laser_msg_process_thread(void)
 }
 K_THREAD_DEFINE(laser_msg, 2048, laser_msg_process_thread, NULL, NULL, NULL, 12, 0, 0);
 
+#ifdef CONFIG_UART_INTERRUPT_DRIVEN
 static void uart_cb(const struct device *dev, void *user_data)
 {
 	static struct rx_buf buf;
 
 	while (uart_irq_update(dev) && uart_irq_rx_ready(dev)) {
 		buf.len += uart_fifo_read(dev, buf.data + buf.len, sizeof(buf.data) - buf.len);
-		if (buf.len > sizeof(buf.data) - 4) {
+		if (buf.len >= sizeof(buf.data)) {
 			LOG_WRN("too more laser data");
 			LOG_HEXDUMP_INF(buf.data, buf.len, "RX:");
 			memset(&buf, 0, sizeof(buf));
@@ -138,9 +160,43 @@ static void uart_cb(const struct device *dev, void *user_data)
 		}
 	}
 }
-
-static void serial_send(const uint8_t *data, size_t len)
+#else
+static void laser_uart_process_thread(void)
 {
+	static struct rx_buf buf = {0};
+	int ret;
+
+	while (true) {
+		ret = uart_poll_in(uart_dev, buf.data + buf.len);
+		if (ret == -1) {
+			k_msleep(1);
+			continue;
+		}
+		buf.len += 1;
+		if (buf.len >= sizeof(buf.data)) {
+			LOG_WRN("too more laser data");
+			LOG_HEXDUMP_INF(buf.data, buf.len, "RX:");
+			memset(&buf, 0, sizeof(buf));
+		} else if (buf.len > 2) {
+			if (buf.data[buf.len-1] == 0x0A && buf.data[buf.len-2] == 0x0D) {
+				if (enable_log)
+					LOG_HEXDUMP_INF(buf.data, buf.len, "RX:");
+
+				k_msgq_put(&laser_serial_msgq, &buf, K_NO_WAIT);
+				memset(&buf, 0, sizeof(buf));
+			} else if (buf.data[0] == 0xea) {
+				memset(&buf, 0, sizeof(buf));
+			}
+		}
+	}
+}
+K_THREAD_DEFINE(laser_uart_poll, 2048, laser_uart_process_thread, NULL, NULL, NULL, 13, 0, 0);
+#endif
+
+static bool serial_send(const uint8_t *data, size_t len, uint32_t event)
+{
+	int ret = 0;
+
 #if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)
 	gpio_pin_set_dt(&rs485tx_gpios, 1);
 #endif
@@ -153,15 +209,19 @@ static void serial_send(const uint8_t *data, size_t len)
 	k_busy_wait(1000);
 	gpio_pin_set_dt(&rs485tx_gpios, 0);
 #endif
-	k_msleep(100);
 	if (enable_log)
 		LOG_HEXDUMP_INF(data, len, "TX:");
+
+	ret = k_event_wait(&laser_event, event, true, K_MSEC(1000));
+	if (ret == 0) LOG_ERR("serial without receive ack");
+	return ret == event;
 }
 
 int laser_stopclear(void)
 {
 	int len = snprintf(tx_buf, sizeof(tx_buf), "s%dc\r\n", id);
-	serial_send(tx_buf, len);
+
+	if (!serial_send(tx_buf, len, EVENT_LASER_STOP_ON)) return -1;
 	atomic_clear_bit(&laser_status, LASER_ON);
 	atomic_clear_bit(&laser_status, LASER_CON_MESURE);
 
@@ -172,61 +232,48 @@ int laser_on(void)
 {
 	int len = snprintf(tx_buf, sizeof(tx_buf), "s%do\r\n", id);
 
-	serial_send(tx_buf, len);
+	if (!serial_send(tx_buf, len, EVENT_LASER_STOP_ON)) return -1;
 
 	atomic_set_bit(&laser_status, LASER_ON);
 
 	return 0;
 }
 
-int laser_read_error(void)
+static bool laser_read_error(void)
 {
 	int len = snprintf(tx_buf, sizeof(tx_buf), "s%dre\r\n", id);
-	serial_send(tx_buf, len);
 
-	return 0;
+	return serial_send(tx_buf, len, EVENT_LASER_OTHER);
 }
 
-int laser_clear_error(void)
+static bool laser_clear_error(void)
 {
 	int len = snprintf(tx_buf, sizeof(tx_buf), "s%dce\r\n", id);
-	serial_send(tx_buf, len);
 
-	return 0;
+	return serial_send(tx_buf, len, EVENT_LASER_OTHER);
 }
 
 int laser_con_measure(uint32_t val)
 {
-
-	laser_read_error();
-	laser_clear_error();
+	if (!laser_read_error()) return -1;
+	if (!laser_clear_error()) return -1;
 
 	int len = snprintf(tx_buf, sizeof(tx_buf), "s%dh+%d\r\n", id, val);
 
-	serial_send(tx_buf, len);
+	if (!serial_send(tx_buf, len, EVENT_LASER_MSG)) return -1;
 	atomic_set_bit(&laser_status, LASER_CON_MESURE);
-
-	return 0;
-}
-
-int laser_setup(uint32_t val)
-{
-	// stop
-	laser_stopclear();
-	// on
-	laser_on();
-
-	laser_con_measure(val);
-
 	atomic_set_bit(&laser_status, LASER_DEVICE_STATUS);
 	return 0;
 }
 
-int laser_clear_err(void)
+static int laser_setup(uint32_t val)
 {
-	int len = snprintf(tx_buf, sizeof(tx_buf), "s%dre\r\n", id);
+	// stop
+	if (laser_stopclear()) return -1;
+	// on
+	if (laser_on()) return -1;
 
-	serial_send(tx_buf, len);
+	if (laser_con_measure(val)) return -1;
 
 	return 0;
 }
@@ -251,8 +298,10 @@ static int laser_serial_init(void)
 	gpio_pin_configure_dt(&rs485tx_gpios, GPIO_OUTPUT_INACTIVE);
 	gpio_pin_set_dt(&rs485tx_gpios, 0);
 #endif
+#ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	uart_irq_callback_set(uart_dev, uart_cb);
 	uart_irq_rx_enable(uart_dev);
+#endif
 
 	return 0;
 }
@@ -264,7 +313,20 @@ SYS_INIT(laser_serial_init, APPLICATION, 10);
 
 static int cmd_laser_on(const struct shell *ctx, size_t argc, char **argv)
 {
-	return laser_on();
+	if (laser_on()) {
+		shell_error(ctx, "laser on error!");
+		return -1;
+	};
+	return 0;
+}
+
+static int cmd_laser_stop(const struct shell *ctx, size_t argc, char **argv)
+{
+	if (laser_stopclear()) {
+		shell_error(ctx, "laser stop error!");
+		return -1;
+	};
+	return 0;
 }
 
 static int cmd_enable_log(const struct shell *ctx, size_t argc, char **argv)
@@ -281,18 +343,28 @@ static int cmd_enable_log(const struct shell *ctx, size_t argc, char **argv)
 
 static int cmd_laser_mesure(const struct shell *ctx, size_t argc, char **argv)
 {
-	return laser_con_measure(100);
+	if (laser_con_measure(100)) {
+		shell_error(ctx, "laser start measure error!");
+		return -1;
+	}
+	return 0;
 }
 
 static int cmd_laser_write(const struct shell *ctx, size_t argc, char **argv)
 {
-	serial_send(argv[1], strlen(argv[1]));
+	int len = snprintf(tx_buf, sizeof(tx_buf), "%s\r\n", argv[1]);
+
+	serial_send(tx_buf, len, 0xf);
+
 	return 0;
 }
 
 static int cmd_laser_setup(const struct shell *ctx, size_t argc, char **argv)
 {
-	laser_setup(strtoul(argv[1], NULL, 0));
+	if (laser_setup(strtoul(argv[1], NULL, 0))) {
+		shell_error(ctx, "laser setup error!");
+		return -1;
+	};
 	return 0;
 }
 
@@ -301,6 +373,10 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_serial_cmds,
 					     "laser on\n"
 					     "Usage: on",
 					     cmd_laser_on, 1, 0),
+			       SHELL_CMD_ARG(stop, NULL,
+					     "laser stop\n"
+					     "Usage: stop",
+					     cmd_laser_stop, 1, 0),
 			       SHELL_CMD_ARG(log, NULL,
 					     "laser on\n"
 					     "Usage: log <on/off>",
