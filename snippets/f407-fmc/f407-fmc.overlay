@@ -30,6 +30,8 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 		bank@3 {
+			#address-cells = <1>;
+			#size-cells = <1>;
 			reg = <0x3>;
 			st,control = <STM32_FMC_DATA_ADDRESS_MUX_DISABLE
 				STM32_FMC_MEMORY_TYPE_SRAM
@@ -46,6 +48,13 @@
 				STM32_FMC_WRITE_FIFO_DISABLE
 				STM32_FMC_PAGE_SIZE_NONE>;
 			st,timing = <0 0 8 0 0 0 STM32_FMC_ACCESS_MODE_A>;
+
+			psram1: psram@68000000 {
+				compatible = "zephyr,memory-region";
+				device_type = "memory";
+				reg = <0x68000000 DT_SIZE_M(1)>;
+				zephyr,memory-region = "PSRAM";
+			};
 		};
 
 		bank@4 {

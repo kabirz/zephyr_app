@@ -1,0 +1,12 @@
+
+#if DT_NODE_HAS_STATUS(DT_NODELABEL(psram1), okay)
+
+GROUP_START(PSRAM)
+	SECTION_DATA_PROLOGUE(.psram,(NOLOAD),) {
+	#ifdef CONFIG_LV_Z_VDB_CUSTOM_SECTION
+		KEEP(*(.lvgl_buf*))
+	#endif
+	} GROUP_LINK_IN(PSRAM)
+
+GROUP_END(PSRAM)
+#endif
