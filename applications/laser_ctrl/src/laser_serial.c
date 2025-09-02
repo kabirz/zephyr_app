@@ -23,6 +23,12 @@ struct rx_buf {
 };
 K_MSGQ_DEFINE(laser_serial_msgq, sizeof(struct rx_buf), 3, 4);
 static K_EVENT_DEFINE(laser_event);
+static struct k_work_poll laser_work;
+static struct k_poll_event msgq_events[] = {
+	K_POLL_EVENT_STATIC_INITIALIZER(K_POLL_TYPE_MSGQ_DATA_AVAILABLE,
+					K_POLL_MODE_NOTIFY_ONLY,
+					&laser_serial_msgq, 0)
+};
 #define EVENT_LASER_STOP_ON BIT(0)
 #define EVENT_LASER_ERROR   BIT(1)
 #define EVENT_LASER_MSG     BIT(2)
@@ -53,83 +59,81 @@ static char *get_error_desc(uint16_t code)
 	return "Unkown error";
 }
 
-static void laser_msg_process_thread(void)
+static void laser_msg_process_handler(struct k_work *work)
 {
 	int32_t distance;
 	struct rx_buf buf;
 
-	while (true) {
-		if (k_msgq_get(&laser_serial_msgq, &buf, K_FOREVER) == 0) {
-			int i = 0;
-			for (int j = 0; j < buf.len; j++) {
-				if (buf.data[j] == 'g') {
-					i = j;
-					break;
-				} else if (j == (buf.len - 1)) {
-					LOG_ERR("Invalid uart frame!");
-					continue;
-				}
+	if (k_msgq_get(&laser_serial_msgq, &buf, K_NO_WAIT) == 0) {
+		int i = 0;
+		for (int j = 0; j < buf.len; j++) {
+			if (buf.data[j] == 'g') {
+				i = j;
+				break;
+			} else if (j == (buf.len - 1)) {
+				LOG_ERR("Invalid uart frame!");
+				continue;
 			}
-			if (buf.data[i] != 'g' && buf.data[i+1] != id) continue;
-			if (buf.data[i+2] == 'h') { // Distance
-				buf.data[buf.len-2] = '\0';
-				distance = strtol(buf.data+3+i, NULL, 10);
-				if (enable_log)
-					LOG_INF("distance: %d", distance);
-				if (first_on) {
-					first_on = false;
-					k_event_set(&laser_event, EVENT_LASER_MSG);
-				}
-			} else if (buf.data[i+2] == '@' && buf.data[i+3] == 'E') { // Error code
-				buf.data[buf.len-2] = '\0';
-				uint16_t err_code = strtol(buf.data+4+i, NULL, 10);
-				LOG_ERR("laser error code: %s(%d)", get_error_desc(err_code), err_code);
-				distance = 0;
-				if (!atomic_test_bit(&laser_status, LASER_CON_MESURE))
-					k_event_set(&laser_event, EVENT_LASER_ERROR);
-			} else if (buf.data[i+2] == '?') { // stop/clear
-				if (!atomic_test_bit(&laser_status, LASER_CON_MESURE)) {
-					first_on = true;
-					LOG_INF("laser on reply");
-				} else {
-					first_on = false;
-					LOG_INF("laser stop/clear reply");
-				}
-				k_event_set(&laser_event, EVENT_LASER_STOP_ON);
-				continue;
+		}
+		if (buf.data[i] != 'g' && buf.data[i+1] != id) return;
+		if (buf.data[i+2] == 'h') { // Distance
+			buf.data[buf.len-2] = '\0';
+			distance = strtol(buf.data+3+i, NULL, 10);
+			if (enable_log)
+				LOG_INF("distance: %d", distance);
+			if (first_on) {
+				first_on = false;
+				k_event_set(&laser_event, EVENT_LASER_MSG);
+			}
+		} else if (buf.data[i+2] == '@' && buf.data[i+3] == 'E') { // Error code
+			buf.data[buf.len-2] = '\0';
+			uint16_t err_code = strtol(buf.data+4+i, NULL, 10);
+			LOG_ERR("laser error code: %s(%d)", get_error_desc(err_code), err_code);
+			distance = 0;
+			if (!atomic_test_bit(&laser_status, LASER_CON_MESURE))
+				k_event_set(&laser_event, EVENT_LASER_ERROR);
+		} else if (buf.data[i+2] == '?') { // stop/clear
+			if (!atomic_test_bit(&laser_status, LASER_CON_MESURE)) {
+				first_on = true;
+				LOG_INF("laser on reply");
 			} else {
-				k_event_set(&laser_event, EVENT_LASER_OTHER);
-				continue;
+				first_on = false;
+				LOG_INF("laser stop/clear reply");
+			}
+			k_event_set(&laser_event, EVENT_LASER_STOP_ON);
+			return;
+		} else {
+			k_event_set(&laser_event, EVENT_LASER_OTHER);
+			return;
+		};
+		if (!atomic_test_bit(&laser_status, LASER_WRITE_MODE) &&
+			!atomic_test_bit(&laser_status, LASER_FW_UPDATE) &&
+			atomic_test_bit(&laser_status, LASER_CON_MESURE) &&
+			atomic_test_bit(&laser_status, LASER_DEVICE_STATUS)
+		) {
+			struct laser_encode_data laser_data;
+			struct can_frame frame = {
+				.id = 0x2E4,
+				.dlc = can_bytes_to_dlc(8),
 			};
-			if (!atomic_test_bit(&laser_status, LASER_WRITE_MODE) &&
-				!atomic_test_bit(&laser_status, LASER_FW_UPDATE) &&
-				atomic_test_bit(&laser_status, LASER_CON_MESURE) &&
-				atomic_test_bit(&laser_status, LASER_DEVICE_STATUS)
-			) {
-				struct laser_encode_data laser_data;
-				struct can_frame frame = {
-					.id = 0x2E4,
-					.dlc = can_bytes_to_dlc(8),
-				};
 #if defined(CONFIG_BOARD_LASER_F103RET7)
-				laser_get_encode_data(&laser_data);
+			laser_get_encode_data(&laser_data);
 #else
-				laser_data.encode1 = 0x12345;
-				laser_data.encode2 = 0x67899;
+			laser_data.encode1 = 0x12345;
+			laser_data.encode2 = 0x67899;
 #endif
-				laser_data.laser_val = distance;
-				memcpy(frame.data, &laser_data, 8);
-				laser_can_send(&frame);
-			} else if (atomic_test_bit(&laser_status, LASER_FW_UPDATE)) {
-				if (k_uptime_get() - latest_fw_up_times > 10000) {
-					atomic_clear_bit(&laser_status, LASER_FW_UPDATE);
-					LOG_INF("Cancel Firmware upgrade status due to timeout 10s");
-				}
+			laser_data.laser_val = distance;
+			memcpy(frame.data, &laser_data, 8);
+			laser_can_send(&frame);
+		} else if (atomic_test_bit(&laser_status, LASER_FW_UPDATE)) {
+			if (k_uptime_get() - latest_fw_up_times > 10000) {
+				atomic_clear_bit(&laser_status, LASER_FW_UPDATE);
+				LOG_INF("Cancel Firmware upgrade status due to timeout 10s");
 			}
 		}
 	}
+	k_work_poll_submit(&laser_work, msgq_events, ARRAY_SIZE(msgq_events), K_FOREVER);
 }
-K_THREAD_DEFINE(laser_msg, 2048, laser_msg_process_thread, NULL, NULL, NULL, 12, 0, 0);
 
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 static void uart_cb(const struct device *dev, void *user_data)
@@ -302,8 +306,13 @@ static int laser_serial_init(void)
 	uart_irq_callback_set(uart_dev, uart_cb);
 	uart_irq_rx_enable(uart_dev);
 #endif
+	k_work_poll_init(&laser_work, laser_msg_process_handler);
 
-	return 0;
+	ret = k_work_poll_submit(&laser_work, msgq_events, ARRAY_SIZE(msgq_events), K_FOREVER);
+	if (ret) {
+		LOG_ERR("work poll submit error");
+	}
+	return ret;
 }
 
 SYS_INIT(laser_serial_init, APPLICATION, 10);
