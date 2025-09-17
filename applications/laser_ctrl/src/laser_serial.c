@@ -103,7 +103,6 @@ static void laser_msg_process_thread(void)
 			};
 			if (!atomic_test_bit(&laser_status, LASER_WRITE_MODE) &&
 				!atomic_test_bit(&laser_status, LASER_FW_UPDATE) &&
-				atomic_test_bit(&laser_status, LASER_CON_MESURE) &&
 				atomic_test_bit(&laser_status, LASER_DEVICE_STATUS)
 			) {
 				struct laser_encode_data laser_data;
