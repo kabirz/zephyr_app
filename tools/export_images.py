@@ -70,8 +70,7 @@ if (BOARD_NAME == 'daq_f407vet6' or 'daq' in QUALIFIERS) and APP_NAME == 'data_c
         (TOOL_DIR / 'smp_upload.py', 'tools', ''),
     ]
     zip_files(files0, BUILD_DIR / f'{APP_NAME}.zip')
-elif (BOARD_NAME in ('monv_f407vet6', 'laser_f103ret7') or 'monv' in QUALIFIERS)\
-    and APP_NAME == 'laser_ctrl':
+elif APP_NAME == 'laser_ctrl':
     files1: List[Tuple[Path, str, str]] = [
         (OUT_APP, 'images', ''),
         (MCUBOOT_HEX_BIN, 'images', 'mcuboot.hex'),

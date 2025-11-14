@@ -1,0 +1,54 @@
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build-and-release:
+    name: Build zephyr image
+    runs-on: ubuntu-latest
+
+
+    steps:
+      - name: test
+        shell: bash
+        run: |
+          echo "key: ${{ secrets.RELEASE_TOKEN }}, ${{ secrets.GITHUB_TOKEN }}, tag: ${{ github.ref }}"
+      - name: Checkout
+        uses: actions/checkout@v5.0.0
+        with:
+          path: workspace/apps
+
+      - name: Setup Python
+        uses: actions/setup-python@v6.0.0
+        with:
+          python-version: 3.12
+
+      - name: Setup Zephyr
+        uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          base-path: workspace
+          app-path: apps
+          toolchains: arm-zephyr-eabi
+          manifest-file-name: zephyr4_2.yml
+
+      - name: Build Firmware
+        working-directory: workspace
+        shell: bash
+        run: |
+          west build -b laser_f103ret7 apps/applications/laser_ctrl -d output_f103ret7 --sysbuild -Dlaser_ctrl_SNIPPET=imgmgr-shell && apps/tools/export_images.py output_f103ret7
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v5.0.0
+        with:
+          name: laser_f103ret7_laser_ctrl.zip
+          path: workspace/output_f103ret7/laser_f103ret7_laser_ctrl.zip
+
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2.4.2
+        with:
+          files: workspace/output_f103ret7/laser_f103ret7_laser_ctrl.zip
