@@ -1,7 +1,6 @@
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [ main ]
 
 permissions:
   contents: write
@@ -32,6 +31,14 @@ jobs:
           toolchains: arm-zephyr-eabi
           manifest-file-name: zephyr4_2.yml
 
+      - name: Apply Patches
+        working-directory: workspace/zephyr
+        shell: bash
+        run: |
+          git config user.email "github@github.com"
+          git config user.name "root"
+          git am ../apps/patches/*
+
       - name: Build Firmware
         working-directory: workspace
         shell: bash
@@ -45,12 +52,14 @@ jobs:
           path: workspace/output_f103ret7/laser_f103ret7_laser_ctrl.zip
 
       - name: GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2.4.2
         id: release
         with:
           files: workspace/output_f103ret7/laser_f103ret7_laser_ctrl.zip
 
       - name: Send Email
+        if: startsWith(github.ref, 'refs/tags/')
         uses: dawidd6/action-send-mail@v6
         with:
           server_address: smtp.126.com
