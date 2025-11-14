@@ -50,5 +50,25 @@ jobs:
 
       - name: GitHub Release
         uses: softprops/action-gh-release@v2.4.2
+        id: release
         with:
           files: workspace/output_f103ret7/laser_f103ret7_laser_ctrl.zip
+
+      - name: Send Email
+        uses: dawidd6/action-send-mail@v6
+        with:
+          server_address: smtp.126.com
+          server_port: 465
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: Github Release zephyr APP ${{ github.ref_name }}
+          body: |
+            zephyr app Release: ${{ steps.release.outputs.url }}
+
+            - Repository: ${{ github.repository }}
+            - Workflow: ${{ github.workflow }}
+
+          to: jxwazxzhp@126.com
+          from: GitHub Actions
+          attachments: workspace/output_f103ret7/laser_f103ret7_laser_ctrl.zip
+          content_type: text/html
