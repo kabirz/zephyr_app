@@ -1,32 +1,32 @@
-From b9c2af03f1a5228691a0e54692c2897a3225fc43 Mon Sep 17 00:00:00 2001
+From 203379d169ea79fefc5c7cbdd5b50edf28e457a0 Mon Sep 17 00:00:00 2001
 From: kabirz <jxwazxzhp@126.com>
-Date: Mon, 11 Aug 2025 12:45:48 +0800
-Subject: [PATCH 2/2] f407: add fsmc support
+Date: Sun, 16 Nov 2025 00:01:07 +0800
+Subject: [PATCH 2/2] f407: fsmc issue
 
 Signed-off-by: kabirz <jxwazxzhp@126.com>
 ---
  drivers/memc/Kconfig.stm32            |  1 +
  drivers/memc/memc_stm32_nor_psram.c   | 14 +++++++++++++-
- drivers/mipi_dbi/mipi_dbi_stm32_fmc.c |  7 +++++--
- 3 files changed, 19 insertions(+), 3 deletions(-)
+ drivers/mipi_dbi/mipi_dbi_stm32_fmc.c |  6 +++++-
+ 3 files changed, 19 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/memc/Kconfig.stm32 b/drivers/memc/Kconfig.stm32
-index b9e5fb02158..0ee0b476a34 100644
+index d6ed5ca3634..760285f0041 100644
 --- a/drivers/memc/Kconfig.stm32
 +++ b/drivers/memc/Kconfig.stm32
-@@ -25,6 +25,7 @@ config MEMC_STM32_NOR_PSRAM
+@@ -17,6 +17,7 @@ config MEMC_STM32_SDRAM
  	default y
- 	depends on DT_HAS_ST_STM32_FMC_NOR_PSRAM_ENABLED
+ 	depends on DT_HAS_ST_STM32_FMC_SDRAM_ENABLED
  	select USE_STM32_LL_FMC
 +	select USE_STM32_LL_FSMC
- 	select USE_STM32_HAL_NOR
- 	select USE_STM32_HAL_SRAM
+ 	select USE_STM32_HAL_SDRAM
  	help
+ 	  Enable STM32 FMC SDRAM controller.
 diff --git a/drivers/memc/memc_stm32_nor_psram.c b/drivers/memc/memc_stm32_nor_psram.c
-index 023e71f5d4c..ade5c957162 100644
+index 5ec7a5055f1..7edfa355dcf 100644
 --- a/drivers/memc/memc_stm32_nor_psram.c
 +++ b/drivers/memc/memc_stm32_nor_psram.c
-@@ -13,6 +13,18 @@
+@@ -11,6 +11,18 @@
  #include <zephyr/logging/log.h>
  LOG_MODULE_REGISTER(memc_stm32_nor_psram, CONFIG_MEMC_LOG_LEVEL);
  
@@ -42,10 +42,10 @@ index 023e71f5d4c..ade5c957162 100644
 +#ifndef FMC_MEMORY_TYPE_SRAM
 +#define FMC_MEMORY_TYPE_SRAM FSMC_MEMORY_TYPE_SRAM
 +#endif
- /** SRAM base register offset, see FMC_Bank1_R_BASE */
- #define SRAM_OFFSET 0x0000UL
- /** SRAM extended mode register offset, see FMC_Bank1E_R_BASE */
-@@ -124,7 +136,7 @@ end:
+ /** FMC NOR/PSRAM controller bank configuration fields. */
+ struct memc_stm32_nor_psram_bank_config {
+ 	FMC_NORSRAM_InitTypeDef init;
+@@ -113,7 +125,7 @@ static int memc_stm32_nor_psram_init(const struct device *dev)
  /** SDRAM bank/s configuration initialization macro. */
  #define BANK_CONFIG(node_id)                                                    \
  	{ .init = {                                                             \
@@ -55,24 +55,24 @@ index 023e71f5d4c..ade5c957162 100644
  	    .MemoryType = DT_PROP_BY_IDX(node_id, st_control, 1),               \
  	    .MemoryDataWidth = DT_PROP_BY_IDX(node_id, st_control, 2),          \
 diff --git a/drivers/mipi_dbi/mipi_dbi_stm32_fmc.c b/drivers/mipi_dbi/mipi_dbi_stm32_fmc.c
-index 2c061e62f13..0938d6bfee3 100644
+index 31741cb7c3b..99f78947bc8 100644
 --- a/drivers/mipi_dbi/mipi_dbi_stm32_fmc.c
 +++ b/drivers/mipi_dbi/mipi_dbi_stm32_fmc.c
-@@ -177,9 +177,12 @@ static DEVICE_API(mipi_dbi, mipi_dbi_stm32_fmc_driver_api) = {
- 	.command_write = mipi_dbi_stm32_fmc_command_write,
+@@ -185,9 +185,13 @@ static DEVICE_API(mipi_dbi, mipi_dbi_stm32_fmc_driver_api) = {
  	.write_display = mipi_dbi_stm32_fmc_write_display,
  };
--
+ 
 +#ifdef CONFIG_USE_STM32_LL_FSMC
 +#define MIPI_DBI_FMC_GET_ADDRESS(n) _CONCAT(NOR_MEMORY_ADRESS, DT_REG_ADDR_RAW(DT_INST_PARENT(n)))
 +#else
- #define MIPI_DBI_FMC_GET_ADDRESS(n) _CONCAT(FMC_BANK1_,                                            \
- 					UTIL_INC(DT_REG_ADDR_RAW(DT_INST_PARENT(n))))
+ #define MIPI_DBI_FMC_GET_ADDRESS(n)                                                                \
+ 	DT_INST_PROP_OR(n, bank_address,                                                           \
+ 			_CONCAT(FMC_BANK1_, UTIL_INC(DT_REG_ADDR_RAW(DT_INST_PARENT(n)))))
 +#endif
  
  #define MIPI_DBI_FMC_GET_DATA_ADDRESS(n)                                                           \
  	MIPI_DBI_FMC_GET_ADDRESS(n) + (1 << (DT_INST_PROP(n, register_select_pin) + 1))
-@@ -188,7 +191,7 @@ static DEVICE_API(mipi_dbi, mipi_dbi_stm32_fmc_driver_api) = {
+@@ -196,7 +200,7 @@ static DEVICE_API(mipi_dbi, mipi_dbi_stm32_fmc_driver_api) = {
  	static const struct mipi_dbi_stm32_fmc_config mipi_dbi_stm32_fmc_config_##n = {            \
  		.reset = GPIO_DT_SPEC_INST_GET_OR(n, reset_gpios, {}),                             \
  		.power = GPIO_DT_SPEC_INST_GET_OR(n, power_gpios, {}),                             \
@@ -82,5 +82,5 @@ index 2c061e62f13..0938d6bfee3 100644
  		.fmc_address_setup_time = DT_PROP_BY_IDX(DT_INST_PARENT(n), st_timing, 0),         \
  		.fmc_data_setup_time = DT_PROP_BY_IDX(DT_INST_PARENT(n), st_timing, 2),            \
 -- 
-2.43.0
+2.39.5 (Apple Git-154)
 

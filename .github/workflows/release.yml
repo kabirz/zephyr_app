@@ -32,7 +32,7 @@ jobs:
           base-path: workspace
           app-path: apps
           toolchains: arm-zephyr-eabi
-          manifest-file-name: zephyr4_2.yml
+          manifest-file-name: zephyr4_3.yml
 
       - name: Apply Patches
         working-directory: workspace/zephyr

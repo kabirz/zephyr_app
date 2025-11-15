@@ -15,7 +15,7 @@ enum {
 };
 
 static const struct spi_dt_spec spi_spec =
-	SPI_DT_SPEC_GET(DT_NODELABEL(spi_laser_fpga), SPI_WORD_SET(8), 0);
+	SPI_DT_SPEC_GET(DT_NODELABEL(spi_laser_fpga), SPI_WORD_SET(8));
 
 struct encode_msg {
 	uint8_t reg;

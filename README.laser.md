@@ -3,7 +3,7 @@
 ## source
 
 ```shell
-west init -m <this_git_url> app --mf zephyr4_2.yml
+west init -m <this_git_url> app --mf zephyr4_3.yml
 cd app
 west update
 ```
