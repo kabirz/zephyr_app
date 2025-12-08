@@ -1,10 +1,15 @@
 import can
-from can.typechecking import CanFilterExtended
-import argparse
 import os
 import struct
 import sys
+from can.typechecking import CanFilterExtended
 import tqdm
+from pydantic_settings import (
+    CliApp, BaseSettings,
+    CliSubCommand, CliPositionalArg,
+    CliImplicitFlag, SettingsConfigDict
+)
+from pydantic import Field, AliasChoices
 
 FW_CODE_OFFSET = 0
 FW_CODE_UPDATE_SUCCESS = 1
@@ -21,6 +26,30 @@ BOARD_START_UPDATE = 0
 BOARD_CONFIRM = 1
 BOARD_VERSION = 2
 BOARD_REBOOT = 3
+
+if sys.platform.startswith('win'):
+    interface, channel = 'pcan', 'PCAN_USBBUS1'
+else:
+    interface, channel = 'socketcan', 'can0'
+
+
+class FlashCommand(BaseSettings):
+    file: CliPositionalArg[str] = Field(description='signed image firmware file name')
+    test: CliImplicitFlag[bool] = Field(False, description='upgrade only for test, will revert next reboot')
+
+
+class BoardCommand(BaseSettings):
+    reboot: CliImplicitFlag[bool] = Field(False, description='reboot board', validation_alias=AliasChoices('r', 'reboot'))
+    version: CliImplicitFlag[bool] = Field(False, description='get board version', validation_alias=AliasChoices('v', 'version'))
+
+
+class Settings(BaseSettings):
+    '''tools for can upgrade'''
+    model_config= SettingsConfigDict(cli_prog_name=sys.argv[0])
+    channel: str=Field(default=channel, description='can bus channel name', validation_alias=AliasChoices('c', 'channel'))
+    flash: CliSubCommand[FlashCommand] = Field(description='Flash command')
+    board: CliSubCommand[BoardCommand] = Field(description='board command')
+
 
 def can_recv(bus: can.BusABC, timeout: int = 5):
     while True:
@@ -82,31 +111,18 @@ def board_reboot(bus: can.BusABC):
     bus.send(msg)
 
 if __name__ == "__main__":
-    if sys.platform.startswith('win'):
-        interface, channel = 'pcan', 'PCAN_USBBUS1'
-    else:
-        interface, channel = 'socketcan', 'can0'
-    parser = argparse.ArgumentParser("can tool")
-    parser.add_argument('-c', '--channel', type=str, default=channel, help='can bus channel name')
-    subparser = parser.add_subparsers(dest='command')
-    flash_parser = subparser.add_parser('flash', help='firmware upgrade')
-    flash_parser.add_argument('file', help='signed image firmware file name')
-    flash_parser.add_argument('-t', '--test', action='store_true', help='upgrade only for test, will revert next reboot')
-    board_parser = subparser.add_parser('board', help='board opt')
-    board_parser.add_argument('-r', '--reboot', action='store_true', help='reboot board')
-    board_parser.add_argument('-v', '--version', action='store_true', help='get board version')
-    args = parser.parse_args()
+    args = CliApp.run(Settings)
     bus = can.interface.Bus(interface=interface, channel=args.channel, bitrate=250000)
 
     filter = CanFilterExtended(can_id=PLATFORM_TX, can_mask=0x10f, extended=False)
     bus.set_filters([filter])
 
-    if args.command == 'flash':
-        firmware_upgrade(bus, args.file, test=args.test)
-    elif args.command == 'board':
-        if args.reboot:
+    if flash:=args.flash:
+        firmware_upgrade(bus, flash.file, test=flash.test)
+    elif board:=args.board:
+        if board.reboot:
             board_reboot(bus)
-        elif args.version:
+        elif board.version:
             firmware_version(bus)
 
     bus.shutdown()
