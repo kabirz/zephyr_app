@@ -101,10 +101,7 @@ static void laser_msg_process_thread(void)
 				k_event_set(&laser_event, EVENT_LASER_OTHER);
 				continue;
 			};
-			if (!atomic_test_bit(&laser_status, LASER_WRITE_MODE) &&
-				!atomic_test_bit(&laser_status, LASER_FW_UPDATE) &&
-				atomic_test_bit(&laser_status, LASER_DEVICE_STATUS)
-			) {
+			if (true) {
 				struct laser_encode_data laser_data;
 				struct can_frame frame = {
 					.id = 0x2E4,
@@ -310,6 +307,12 @@ SYS_INIT(laser_serial_init, APPLICATION, 10);
 #ifdef CONFIG_SHELL
 #include <zephyr/shell/shell.h>
 
+static int cmd_laser_status(const struct shell *ctx, size_t argc, char **argv)
+{
+	shell_print(ctx, "status: 0x%lx", laser_status);
+	return 0;
+}
+
 static int cmd_laser_on(const struct shell *ctx, size_t argc, char **argv)
 {
 	if (laser_on()) {
@@ -368,6 +371,10 @@ static int cmd_laser_setup(const struct shell *ctx, size_t argc, char **argv)
 }
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_serial_cmds,
+			       SHELL_CMD_ARG(status, NULL,
+					     "laser status\n"
+					     "Usage: status",
+					     cmd_laser_status, 1, 0),
 			       SHELL_CMD_ARG(on, NULL,
 					     "laser on\n"
 					     "Usage: on",
@@ -377,7 +384,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_serial_cmds,
 					     "Usage: stop",
 					     cmd_laser_stop, 1, 0),
 			       SHELL_CMD_ARG(log, NULL,
-					     "laser on\n"
+					     "laser log\n"
 					     "Usage: log <on/off>",
 					     cmd_enable_log, 2, 0),
 			       SHELL_CMD_ARG(mesure, NULL,
