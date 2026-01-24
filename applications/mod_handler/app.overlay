@@ -1,0 +1,31 @@
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+    	aliases {
+        	sw0 = &button0;
+    	};
+	chosen {
+		zephyr,canbus = &can1;
+	};
+        buttons {
+        	compatible = "gpio-keys";
+        	button0: button_0 {
+			gpios = <&gpioc 13 GPIO_ACTIVE_HIGH>;
+			label = "User button";
+        	};
+    	};
+
+};
+
+&usart2 {
+	pinctrl-0 = <&usart2_tx_pa2 &usart2_rx_pa3>;
+	pinctrl-names = "default";
+	current-speed = <19200>;
+	status = "okay";
+};
+
+&can1 {
+	pinctrl-0 = <&can_rx_pa11 &can_tx_pa12>;
+	pinctrl-names = "default";
+	status = "okay";
+};
