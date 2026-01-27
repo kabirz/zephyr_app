@@ -8,6 +8,7 @@ enum {
 	PLATFORM_RX   = 0x101,
 	PLATFORM_TX   = 0x102,
 	FW_DATA_RX    = 0x103,
+	COBID_HEATBEAT = 0x763,
 };
 
 enum fw_error_code {
@@ -34,6 +35,8 @@ enum {
 	LASER_CON_MESURE,
 	LASER_FW_UPDATE,
 };
+
+#define CAN_HEART_TIME 400
 
 #include <zephyr/dfu/flash_img.h>
 #include <zephyr/dfu/mcuboot.h>

@@ -7,23 +7,13 @@ LOG_MODULE_REGISTER(mod_can, LOG_LEVEL_INF);
 static const struct device *can_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_canbus));
 CAN_MSGQ_DEFINE(mod_can_msgq, 8);
 
-int cob_msg_send(uint32_t data1, uint32_t data2, uint32_t id)
-{
-	struct can_frame frame = {
-		.data_32 = {
-			sys_cpu_to_be32(data1),
-			sys_cpu_to_be32(data2),
-		},
-		.id = id,
-		.dlc = can_bytes_to_dlc(8),
-	};
-
-
-	return mod_can_send(&frame);
-}
+static K_SEM_DEFINE(heart_wake_sem, 1, 1);
+static atomic_t heart_send_success = ATOMIC_INIT(0);
 
 static void mod_canrx_msg_handler(struct can_frame *frame)
 {
+	k_sem_give(&heart_wake_sem);
+
 	switch (frame->id) {
 	case PLATFORM_RX:
 	case FW_DATA_RX:
@@ -31,6 +21,13 @@ static void mod_canrx_msg_handler(struct can_frame *frame)
 		break;
 	default:
 		LOG_ERR("can frame id (0x%x) is not support", frame->id);
+	}
+}
+
+static void heart_tx_callback(const struct device *dev, int error, void *user_data)
+{
+	if (error == 0) {
+		atomic_set(&heart_send_success, 1);
 	}
 }
 
@@ -112,3 +109,46 @@ void mod_can_process_thread(void)
 }
 
 K_THREAD_DEFINE(mod_can, 2048, mod_can_process_thread, NULL, NULL, NULL, 11, 0, 0);
+
+void mod_heart_thread(void)
+{
+	struct can_frame frame = {
+		.data[0] = 5,
+		.id = COBID_HEATBEAT,
+		.dlc = can_bytes_to_dlc(1),
+	};
+	int fail_count = 0, ret;
+
+	while (true) {
+		k_sem_take(&heart_wake_sem, K_FOREVER);
+
+		while (true) {
+			uint32_t t1 = k_uptime_get_32();
+
+			atomic_set(&heart_send_success, 0);
+
+			ret = can_send(can_dev, &frame, K_MSEC(100), heart_tx_callback, NULL);
+
+			k_sleep(K_MSEC(50));
+
+			if (atomic_get(&heart_send_success) || ret == 0) {
+				fail_count = 0;
+			} else {
+				fail_count++;
+				LOG_WRN("heartbeat send failed, count: %d", fail_count);
+			}
+
+			if (fail_count >= 3) {
+				LOG_WRN("heartbeat failed 3 times, sleeping...");
+				k_sem_reset(&heart_wake_sem);
+				break;
+			}
+			uint32_t diff = k_uptime_get_32() - t1;
+
+			k_sleep(K_MSEC(CAN_HEART_TIME - diff));
+		}
+	}
+
+}
+
+K_THREAD_DEFINE(can_heart, 1024, mod_heart_thread, NULL, NULL, NULL, 11, 0, 0);
