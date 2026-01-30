@@ -1,5 +1,3 @@
-#include <zephyr/dt-bindings/gpio/gpio.h>
-
 / {
     	aliases {
         	sw0 = &button0;
@@ -15,12 +13,23 @@
         	};
     	};
 
+	zephyr,user {
+		canpower-gpios = <&gpioc 7 GPIO_ACTIVE_HIGH>;
+		dispower-gpios = <&gpioc 8 GPIO_ACTIVE_HIGH>;
+		lorapower-gpios = <&gpioc 9 GPIO_ACTIVE_HIGH>;
+		power-gpios = <&gpioa 8 GPIO_ACTIVE_HIGH>;
+
+		hostwake-gpios = <&gpioa 0 GPIO_ACTIVE_HIGH>;
+		lorawake-gpios = <&gpioa 1 GPIO_ACTIVE_HIGH>;
+		lorareset-gpios = <&gpiob 3 GPIO_ACTIVE_HIGH>;
+		loralink-gpios = <&gpiod 2 GPIO_ACTIVE_HIGH>;
+	};
 };
 
 &usart2 {
 	pinctrl-0 = <&usart2_tx_pa2 &usart2_rx_pa3>;
 	pinctrl-names = "default";
-	current-speed = <19200>;
+	current-speed = <9600>;
 	status = "okay";
 };
 
