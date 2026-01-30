@@ -11,6 +11,7 @@ sdk version: zephyr-sdk-0.16.8
 west init -m <this_git_url> app
 cd app
 west update
+west package pip --install
 ```
 
 ## build data_collect

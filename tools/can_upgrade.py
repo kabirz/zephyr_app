@@ -1,5 +1,5 @@
 import can
-from can.typechecking import CanFilterExtended
+from can.typechecking import CanFilter
 import argparse
 import os
 import struct
@@ -98,7 +98,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     bus = can.interface.Bus(interface=interface, channel=args.channel, bitrate=250000)
 
-    filter = CanFilterExtended(can_id=PLATFORM_TX, can_mask=0x10f, extended=False)
+    filter = CanFilter(can_id=PLATFORM_TX, can_mask=0x10f, extended=False)
     bus.set_filters([filter])
 
     if args.command == 'flash':
