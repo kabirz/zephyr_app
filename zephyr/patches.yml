@@ -1,0 +1,14 @@
+patches:
+  - path: zephyr_serail-data-bit-7-stopbit-1-parity-even.patch
+    sha256sum: 08f9b677fa7591a85852b01667e9f7d66fa1df742a2f26b1a2c6c0cc9af8478a
+    module: zephyr
+    author: kabirz
+    email: jxwazxzhp@126.com
+    date: 2025-08-11
+
+  - path: zephyr_f407-fsmc-issue.patch
+    sha256sum: e1d67d4c8935468c32739f462920135b50a52f4d80108a95837291deac3665f3
+    module: zephyr
+    author: kabirz
+    email: jxwazxzhp@126.com
+    date: 2025-11-16

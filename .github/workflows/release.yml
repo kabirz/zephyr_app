@@ -35,12 +35,10 @@ jobs:
           manifest-file-name: zephyr4_3.yml
 
       - name: Apply Patches
-        working-directory: workspace/zephyr
+        working-directory: workspace
         shell: bash
         run: |
-          git config user.email "github@github.com"
-          git config user.name "root"
-          git am ../apps/patches/*
+          west patch apply
 
       - name: Build Firmware
         working-directory: workspace
