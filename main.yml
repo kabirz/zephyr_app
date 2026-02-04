@@ -1,0 +1,28 @@
+# The west manifest file for Zephyr project.
+#
+
+manifest:
+  defaults:
+    remote: zephyr_site
+
+  remotes:
+    - name: zephyr_site
+      url-base: https://github.com/zephyrproject-rtos
+
+  projects:
+    - name: zephyr
+      revision: main
+      path: zephyr
+      import:
+        name-allowlist:
+          - cmsis
+          - cmsis_6
+          - hal_stm32
+          - zcbor
+          - mbedtls
+          - fatfs
+          - mcuboot
+          - canopennode
+
+  self:
+    path: apps

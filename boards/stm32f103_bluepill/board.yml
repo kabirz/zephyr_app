@@ -1,5 +1,6 @@
 board:
   name: stm32f103_bluepill
+  full_name: stm32f103 bluepill
   vendor: st
   socs:
     - name: stm32f103xb

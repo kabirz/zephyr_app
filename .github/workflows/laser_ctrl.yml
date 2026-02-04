@@ -2,7 +2,11 @@ on:
   push:
     branches: [ main ]
     tags:
-      - "v*"
+      - "v*.laser"
+    paths:
+      - boards/laser_f103ret7
+      - applications/laser_ctrl
+      - zephyr4_3.yml
   workflow_dispatch:
 
 permissions:

@@ -44,7 +44,8 @@ print(f'board:{BOARD_NAME}, app: {APP_NAME}, LOAD_SIZE is 0x{LOAD_SIZE:x}')
 def generate_app() -> None:
     with OUT_APP.open(mode='wb') as f:
         f.write(MCUBOOT_BIN.read_bytes())
-        f.seek(LOAD_SIZE, os.SEEK_SET)
+        current_size = f.tell()
+        f.write(b'\xff' * (LOAD_SIZE - current_size))
         f.write(APP_SIGN_BIN.read_bytes())
 
 
