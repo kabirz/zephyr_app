@@ -3,3 +3,4 @@ build
 compile_commands.json
 out
 *.raw
+__pycache__

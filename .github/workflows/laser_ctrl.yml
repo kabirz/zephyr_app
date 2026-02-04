@@ -47,8 +47,9 @@ jobs:
       - name: Build Firmware
         working-directory: workspace
         shell: bash
-        run: |
-          west build -b laser_f103ret7 apps/applications/laser_ctrl -d output_f103ret7 --sysbuild -Dlaser_ctrl_SNIPPET=imgmgr-shell && apps/tools/export_images.py output_f103ret7
+        run: >
+          west build -b laser_f103ret7 apps/applications/laser_ctrl -d output_f103ret7 --sysbuild -Dlaser_ctrl_SNIPPET=imgmgr-shell &&
+          west archive --no-rebuild --extra-file docs/{刷机.docx,单点激光板测试.docx,固件升级.docx}
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v5.0.0
