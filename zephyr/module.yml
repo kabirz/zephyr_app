@@ -8,3 +8,8 @@ build:
     board_root: .
     snippet_root: .
     dts_root: .
+
+package-managers:
+  pip:
+    requirement-files:
+      - zephyr/requirements.txt

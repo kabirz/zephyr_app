@@ -2,7 +2,7 @@ import can
 import os
 import struct
 import sys
-from can.typechecking import CanFilterExtended
+from can.typechecking import CanFilter
 import tqdm
 from pydantic_settings import (
     CliApp, BaseSettings,
@@ -129,7 +129,7 @@ class Settings(BaseSettings):
     def cli_cmd(self):
         global bus
         bus = can.interface.Bus(interface=interface, channel=self.channel, bitrate=250000)
-        filter = CanFilterExtended(can_id=PLATFORM_TX, can_mask=0x10f, extended=False)
+        filter = CanFilter(can_id=PLATFORM_TX, can_mask=0x10f, extended=False)
         bus.set_filters([filter])
         CliApp.run_subcommand(self)
         bus.shutdown()

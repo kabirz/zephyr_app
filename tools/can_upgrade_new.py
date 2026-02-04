@@ -2,7 +2,7 @@ import can
 import os
 import struct
 import sys
-from can.typechecking import CanFilterExtended
+from can.typechecking import CanFilter
 import tqdm
 from pydantic_settings import (
     CliApp, BaseSettings,
@@ -120,7 +120,7 @@ if __name__ == "__main__":
     args = CliApp.run(Settings, cli_settings_source=cli_settings_source)
     bus = can.interface.Bus(interface=interface, channel=args.channel, bitrate=250000)
 
-    filter = CanFilterExtended(can_id=PLATFORM_TX, can_mask=0x10f, extended=False)
+    filter = CanFilter(can_id=PLATFORM_TX, can_mask=0x10f, extended=False)
     bus.set_filters([filter])
 
     if flash:=args.flash:
