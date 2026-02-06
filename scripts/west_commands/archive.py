@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
-import os
 import subprocess
 import textwrap
 import zipfile
@@ -13,13 +12,6 @@ from typing import List, Tuple
 from west.commands import WestCommand
 from yaml import safe_load
 
-
-def zip_files(files: List[Tuple[str, Path]], out_zip_file: Path) -> None:
-    with zipfile.ZipFile(out_zip_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for outname, file in files:
-            zipf.write(file, outname)
-
-    print(f'Files compressed into {out_zip_file}')
 
 
 class Archive(WestCommand):
@@ -49,8 +41,8 @@ class Archive(WestCommand):
                             help='build directory to create or use')
         parser.add_argument('--rebuild', action=argparse.BooleanOptionalAction,
                             help='manually specify to reinvoke cmake or not')
-        parser.add_argument('--extra-file', nargs='*',
-                            help='add list file to zip')
+        parser.add_argument('--extra-file', nargs='*', help='add list file to zip')
+        parser.add_argument('-o', '--output', help='spec output zip name')
 
         return parser
 
@@ -64,18 +56,9 @@ class Archive(WestCommand):
 
         # rebuild target
         if args.rebuild is not False:
-            west_info = info.get('west')
-            if west_info:
-                build_cmd = west_info.get('command')
-                if build_cmd:
-                    _cmd = build_cmd.split()
-                    _cmd.remove('--cmake-only')
-                    proc = subprocess.run(_cmd, encoding="utf-8")
-                    if proc.returncode:
-                        self.die('build error')
-                else:
-                    self.die('build error')
-            else:
+            _cmd = ['cmake', '--build', args.build_dir]
+            proc = subprocess.run(_cmd, encoding="utf-8")
+            if proc.returncode:
                 self.die('build error')
 
         # compress file
@@ -96,14 +79,16 @@ class Archive(WestCommand):
             for image in cmake_info.get('images'):
                 if image['type'] == 'BOOTLOADER':
                     bootloader_path = build_dir/image['name']
-                    file_lists.append(('bootloader.bin', bootloader_path/'zephyr/zephyr.bin'))
-                    file_lists.append(('bootloader.hex', bootloader_path/'zephyr/zephyr.hex'))
-                    hex_file_lists.append(bootloader_path/'zephyr/zephyr.hex')
+                    image_dir = bootloader_path/'zephyr'
+                    file_lists.append(('bootloader.bin', image_dir/'zephyr.bin'))
+                    file_lists.append(('bootloader.hex', image_dir/'zephyr.hex'))
+                    hex_file_lists.append(image_dir/'zephyr.hex')
                 elif image['type'] == 'MAIN':
                     app_path = build_dir/image['name']
-                    file_lists.append(('app.bin', app_path/'zephyr/zephyr.signed.bin'))
-                    file_lists.append(('app.hex', app_path/'zephyr/zephyr.signed.hex'))
-                    hex_file_lists.append(app_path/'zephyr/zephyr.signed.hex')
+                    image_dir = app_path/'zephyr'
+                    file_lists.append(('app.bin', image_dir/'zephyr.signed.bin'))
+                    file_lists.append(('app.hex', image_dir/'zephyr.signed.hex'))
+                    hex_file_lists.append(image_dir/'zephyr.signed.hex')
                     app_name = image['name']
             if hex_file_lists:
                 output_hex = build_dir/'full_output.hex'
@@ -120,5 +105,29 @@ class Archive(WestCommand):
                 if proc.returncode:
                     self.die('hex2bin failed')
                 file_lists.append(('full_image.bin', output_hex.with_suffix('.bin')))
-        zip_files(file_lists, build_dir/f'{app_name}.{board_name}.zip')
+        else:
+            app_info = cmake_info.get('application')
+            app_name = Path(app_info['source-dir']).name
+            image_dir = build_dir/'zephyr'
+            if (image_dir/'zephyr.bin').exists():
+                file_lists.append(('app.bin', image_dir/'zephyr.bin'))
+                file_lists.append(('app.hex', image_dir/'zephyr.hex'))
+            elif (image_dir/'zephyr.exe').exists():
+                file_lists.append(('app.exe', image_dir/'zephyr.exe'))
+            elif (image_dir/'zephyr.elf').exists():
+                file_lists.append(('app.elf', image_dir/'zephyr.elf'))
+        output_name = f'{board_name}_{app_name}.zip'
+        if args.output:
+            output_name = args.output
+            if not output_name.endswith('.zip'):
+                output_name = f'{output_name}.zip'
+        self.zip_files(file_lists, build_dir/output_name)
+
+    def zip_files(self, files: List[Tuple[str, Path]], out_zip_file: Path) -> None:
+        self.inf(f'Files compressed into {out_zip_file}, List:')
+        with zipfile.ZipFile(out_zip_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for outname, file in files:
+                zip_outname = f'images/{outname}'
+                zipf.write(file, zip_outname)
+                self.inf(f'    {zip_outname}')
 

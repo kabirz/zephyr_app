@@ -38,31 +38,29 @@ jobs:
           toolchains: arm-zephyr-eabi
           manifest-file-name: zephyr4_3.yml
 
-      - name: Apply Patches
-        working-directory: workspace
-        shell: bash
-        run: |
-          west patch apply
-
       - name: Build Firmware
         working-directory: workspace
         shell: bash
-        run: >
-          west build -b laser_f103ret7 apps/applications/laser_ctrl -d output_f103ret7 --sysbuild -Dlaser_ctrl_SNIPPET=imgmgr-shell &&
-          west archive --no-rebuild --extra-file docs/{刷机.docx,单点激光板测试.docx,固件升级.docx}
+        run: |
+          set -e
+          west patch apply
+          west build -b laser_f103ret7 apps/applications/laser_ctrl --sysbuild -Dlaser_ctrl_SNIPPET=imgmgr-shell
+          west archive --no-rebuild --extra-file apps/docs/{刷机.docx,单点激光板测试.docx,固件升级.docx} -o laser_ctrl
+          echo "IMAGE_ZIP=laser_ctrl.zip" >>  $GITHUB_ENV
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v5.0.0
         with:
-          name: laser_f103ret7_laser_ctrl.zip
-          path: workspace/output_f103ret7/laser_f103ret7_laser_ctrl.zip
+          name: laser_ctrl
+          path: workspace/build/${{env.IMAGE_ZIP}}
+          compression-level: 0
 
       - name: GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2.4.2
         id: release
         with:
-          files: workspace/output_f103ret7/laser_f103ret7_laser_ctrl.zip
+          files: workspace/build/${{env.IMAGE_ZIP}}
 
       - name: Send Email
         if: startsWith(github.ref, 'refs/tags/')
@@ -81,4 +79,4 @@ jobs:
 
           to: ${{ secrets.TOLISTS }}
           from: GitHub Release
-          attachments: workspace/output_f103ret7/laser_f103ret7_laser_ctrl.zip
+          attachments: workspace/build/${{env.IMAGE_ZIP}}
