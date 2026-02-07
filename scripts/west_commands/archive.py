@@ -7,7 +7,7 @@ import subprocess
 import textwrap
 import zipfile
 from pathlib import Path
-from typing import List, Tuple
+import shutil
 
 from west.commands import WestCommand
 from yaml import safe_load
@@ -62,11 +62,20 @@ class Archive(WestCommand):
                 self.die('build error')
 
         # compress file
-        file_lists:List[Tuple[str, Path]] = []
+        images_path = build_dir/'output/images'
+        if images_path.exists():
+            if images_path.is_dir():
+                shutil.rmtree(images_path)
+            else:
+                images_path.unlink()
+        images_path.mkdir(parents=True, exist_ok=True)
         if args.extra_file:
             for _file in args.extra_file:
-                _f = Path(_file)
-                file_lists.append((_f.name, _file))
+                p_file = Path(_file)
+                if p_file.is_dir():
+                    shutil.copytree(p_file, images_path/p_file.name, dirs_exist_ok=True)
+                else:
+                    shutil.copy(_file, images_path)
         app_name = "app"
         board_name = "common"
         cmake_info = info.get('cmake')
@@ -80,14 +89,14 @@ class Archive(WestCommand):
                 if image['type'] == 'BOOTLOADER':
                     bootloader_path = build_dir/image['name']
                     image_dir = bootloader_path/'zephyr'
-                    file_lists.append(('bootloader.bin', image_dir/'zephyr.bin'))
-                    file_lists.append(('bootloader.hex', image_dir/'zephyr.hex'))
+                    shutil.copyfile(image_dir/'zephyr.bin', images_path/'bootloader.bin')
+                    shutil.copyfile(image_dir/'zephyr.hex', images_path/'bootloader.hex')
                     hex_file_lists.append(image_dir/'zephyr.hex')
                 elif image['type'] == 'MAIN':
                     app_path = build_dir/image['name']
                     image_dir = app_path/'zephyr'
-                    file_lists.append(('app.bin', image_dir/'zephyr.signed.bin'))
-                    file_lists.append(('app.hex', image_dir/'zephyr.signed.hex'))
+                    shutil.copyfile(image_dir/'zephyr.signed.bin', images_path/'app.bin')
+                    shutil.copyfile(image_dir/'zephyr.signed.hex', images_path/'app.hex')
                     hex_file_lists.append(image_dir/'zephyr.signed.hex')
                     app_name = image['name']
             if hex_file_lists:
@@ -98,36 +107,36 @@ class Archive(WestCommand):
                 proc = subprocess.run(_cmd, encoding="utf-8")
                 if proc.returncode:
                     self.die('hexmerge failed')
-                file_lists.append(('full_image.hex', output_hex))
+                shutil.copy(output_hex, images_path)
                 # full bin image
                 _cmd = ['hex2bin.py', output_hex, output_hex.with_suffix('.bin')]
                 proc = subprocess.run(_cmd, encoding="utf-8")
                 if proc.returncode:
                     self.die('hex2bin failed')
-                file_lists.append(('full_image.bin', output_hex.with_suffix('.bin')))
+                shutil.copy(output_hex.with_suffix('.bin'), images_path)
         else:
             app_info = cmake_info.get('application')
             app_name = Path(app_info['source-dir']).name
             image_dir = build_dir/'zephyr'
             if (image_dir/'zephyr.bin').exists():
-                file_lists.append(('app.bin', image_dir/'zephyr.bin'))
-                file_lists.append(('app.hex', image_dir/'zephyr.hex'))
+                shutil.copyfile(image_dir/'zephyr.bin', images_path/'app.bin')
+                shutil.copyfile(image_dir/'zephyr.hex', images_path/'app.hex')
             elif (image_dir/'zephyr.exe').exists():
-                file_lists.append(('app.exe', image_dir/'zephyr.exe'))
+                shutil.copyfile(image_dir/'zephyr.exe', images_path/'app.exe')
             elif (image_dir/'zephyr.elf').exists():
-                file_lists.append(('app.elf', image_dir/'zephyr.elf'))
+                shutil.copyfile(image_dir/'zephyr.elf', images_path/'app.elf')
         output_name = f'{board_name}_{app_name}.zip'
         if args.output:
             output_name = args.output
             if not output_name.endswith('.zip'):
                 output_name = f'{output_name}.zip'
-        self.zip_files(file_lists, build_dir/output_name)
+        self.zip_files(images_path.parent, build_dir/output_name)
 
-    def zip_files(self, files: List[Tuple[str, Path]], out_zip_file: Path) -> None:
+    def zip_files(self, paths: Path, out_zip_file: Path) -> None:
         self.inf(f'Files compressed into {out_zip_file}, List:')
         with zipfile.ZipFile(out_zip_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for outname, file in files:
-                zip_outname = f'images/{outname}'
-                zipf.write(file, zip_outname)
-                self.inf(f'    {zip_outname}')
+            for file in paths.rglob('*'):
+                if file.is_file():
+                    zipf.write(file, file.relative_to(paths))
+                    self.inf(f'    {file.relative_to(paths)}')
 
