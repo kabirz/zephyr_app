@@ -19,6 +19,7 @@
 		zephyr,flash = &flash0;
 		zephyr,code-partition = &slot0_partition;
 		zephyr,display = &sh1106_sh1106_128x64;
+		zephyr,cortex-m-idle-timer = &rtc;
 	};
 };
 
