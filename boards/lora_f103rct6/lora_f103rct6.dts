@@ -63,6 +63,8 @@
 		compatible = "jedec,spi-nor";
 		reg = <0x0>;
 		spi-max-frequency = <30000000>;
+		wp-gpios = <&gpioc 11 GPIO_ACTIVE_LOW>;
+		hold-gpios = <&gpioc 10 GPIO_ACTIVE_LOW>;
 		size = <0x800000>;
 		jedec-id = [c8 40 14];
 		partitions {

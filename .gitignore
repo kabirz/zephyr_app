@@ -1,6 +1,7 @@
 build
 .cache
 compile_commands.json
-out
+out*
 *.raw
 __pycache__
+*.log

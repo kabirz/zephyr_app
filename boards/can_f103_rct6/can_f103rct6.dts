@@ -1,0 +1,112 @@
+/*
+ * Copyright (c) 2020 WuhanStudio
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/dts-v1/;
+#include <st/f1/stm32f103Xc.dtsi>
+#include <st/f1/stm32f103r(c-d-e)tx-pinctrl.dtsi>
+
+/ {
+	model = "can_f103rct6 board";
+	compatible = "stm32f103";
+
+	chosen {
+		zephyr,console = &usart1;
+		zephyr,shell-uart = &usart1;
+		zephyr,sram = &sram0;
+		zephyr,flash = &flash0;
+		zephyr,code-partition = &slot0_partition;
+		zephyr,display = &sh1106_sh1106_128x64;
+		zephyr,canbus = &can1;
+	};
+	gpio_i2c {
+		compatible = "gpio-i2c";
+		scl-gpios = <&gpiob 4 GPIO_OPEN_DRAIN>;
+		sda-gpios = <&gpiob 5 GPIO_OPEN_DRAIN>;
+		clock-frequency = <I2C_BITRATE_STANDARD>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		sh1106_sh1106_128x64: ssd1306@3c {
+			compatible = "sinowealth,sh1106";
+			ready-time-ms = <200>;
+			reg = <0x3c>;
+			width = <128>;
+			height = <64>;
+			segment-offset = <2>;
+			page-offset = <0>;
+			display-offset = <0>;
+			multiplex-ratio = <63>;
+			segment-remap;
+			com-invdir;
+			prechargep = <0x22>;
+		};
+	};
+};
+
+&clk_lsi {
+	status = "okay";
+};
+
+&clk_hse {
+	clock-frequency = <DT_FREQ_M(8)>;
+	status = "okay";
+};
+
+&pll {
+	mul = <9>;
+	clocks = <&clk_hse>;
+	status = "okay";
+};
+
+&rcc {
+	clocks = <&pll>;
+	clock-frequency = <DT_FREQ_M(72)>;
+	ahb-prescaler = <1>;
+	apb1-prescaler = <2>;
+	apb2-prescaler = <1>;
+	/* usbpre not set: USB clock = 72 / 1.5: 48MHz */
+};
+
+&usart1 {
+	pinctrl-0 = <&usart1_rx_pa10 &usart1_tx_pa9>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+	status = "okay";
+};
+
+&flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		boot_partition: partition@0 {
+			label = "mcuboot";
+			reg = <0x00000000 DT_SIZE_K(32)>;
+			read-only;
+		};
+
+		slot0_partition: partition@8000 {
+			label = "image-0";
+			reg = <0x00008000 DT_SIZE_K(96)>;
+		};
+		slot1_partition: partition@20000 {
+			label = "image-1";
+			reg = <0x00020000 DT_SIZE_K(96)>;
+		};
+		scratch_partition: partition@38000 {
+			label = "image-scratch";
+			reg = <0x00038000 DT_SIZE_K(32)>;
+		};
+	};
+};
+
+&can1 {
+	pinctrl-0 = <&can_rx_pa11 &can_tx_pa12>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+

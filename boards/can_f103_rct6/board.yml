@@ -1,0 +1,6 @@
+board:
+  name: can_f103rct6
+  full_name: can f103rct6
+  vendor: st
+  socs:
+    - name: stm32f103xe
