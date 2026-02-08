@@ -2,6 +2,7 @@
 #include <mod-can.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/logging/log.h>
+#include <common.h>
 LOG_MODULE_REGISTER(mod_can, LOG_LEVEL_INF);
 
 static const struct device *can_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_canbus));
@@ -61,7 +62,9 @@ int mod_can_init(void)
 	uint8_t can_check_time = 0;
 
 	while (can_check_time++ < 10) {
-		if (check_can_device_ready()) break;
+		if (check_can_device_ready()) {
+			break;
+		}
 	}
 	if (can_check_time >= 10) {
 		LOG_ERR("can device is not ready");
@@ -78,10 +81,7 @@ int mod_can_init(void)
 		goto end;
 	}
 
-	struct can_filter filter = {
-		.mask = CAN_STD_ID_MASK
-	};
-
+	struct can_filter filter = {.mask = CAN_STD_ID_MASK};
 
 	filter.id = PLATFORM_RX;
 	can_add_rx_filter_msgq(can_dev, &mod_can_msgq, &filter);
@@ -101,10 +101,10 @@ void mod_can_process_thread(void)
 		return;
 	}
 
-
 	while (true) {
-		if (k_msgq_get(&mod_can_msgq, &frame, K_FOREVER) == 0)
+		if (k_msgq_get(&mod_can_msgq, &frame, K_FOREVER) == 0) {
 			mod_canrx_msg_handler(&frame);
+		}
 	}
 }
 
@@ -120,6 +120,7 @@ void mod_heart_thread(void)
 	int fail_count = 0, ret;
 
 	while (true) {
+		k_event_wait(&global_params.event, TIMEOUT_EVENT, false, K_FOREVER);
 		k_sem_take(&heart_wake_sem, K_FOREVER);
 
 		while (true) {
@@ -141,14 +142,14 @@ void mod_heart_thread(void)
 			if (fail_count >= 3) {
 				LOG_WRN("heartbeat failed 3 times, sleeping...");
 				k_sem_reset(&heart_wake_sem);
+				k_event_clear(&global_params.event, TIMEOUT_EVENT);
 				break;
 			}
 			uint32_t diff = k_uptime_get_32() - t1;
 
-			k_sleep(K_MSEC(CAN_HEART_TIME - diff));
+			k_sleep(K_MSEC(global_params.can_heart_time - diff));
 		}
 	}
-
 }
 
 K_THREAD_DEFINE(can_heart, 1024, mod_heart_thread, NULL, NULL, NULL, 11, 0, 0);

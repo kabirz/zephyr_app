@@ -10,6 +10,7 @@ target_sources(app PRIVATE
   src/main.c
   src/can.c
   src/firmware.c
-  src/mod_handler.c
+  src/battery.c
+  src/can.c
 )
 

@@ -17,13 +17,24 @@
 		canpower-gpios = <&gpioc 7 GPIO_ACTIVE_HIGH>;
 		dispower-gpios = <&gpioc 8 GPIO_ACTIVE_HIGH>;
 		lorapower-gpios = <&gpioc 9 GPIO_ACTIVE_HIGH>;
-		power-gpios = <&gpioa 8 GPIO_ACTIVE_HIGH>;
+		//power5en-gpios = <&gpioa 8 GPIO_ACTIVE_HIGH>;
 
 		hostwake-gpios = <&gpioa 0 GPIO_ACTIVE_HIGH>;
 		lorawake-gpios = <&gpioa 1 GPIO_ACTIVE_HIGH>;
 		lorareset-gpios = <&gpiob 3 GPIO_ACTIVE_HIGH>;
 		loralink-gpios = <&gpiod 2 GPIO_ACTIVE_HIGH>;
+
+		chargefull-gpios = <&gpiob 12 GPIO_PULL_UP>;
+		charging-gpios = <&gpiob 13 GPIO_PULL_UP>;
+		power-gpios = <&gpiob 14 GPIO_PULL_UP>;
+
+        	io-channels = <&adc1 14>, <&adc1 15>, <&adc1 9>;
+        	io-channel-names = "adc_x", "adc_y", "adc_vcc";
 	};
+};
+
+&gpiob {
+	wakeup-source;
 };
 
 &usart2 {
@@ -37,4 +48,36 @@
 	pinctrl-0 = <&can_rx_pa11 &can_tx_pa12>;
 	pinctrl-names = "default";
 	status = "okay";
+};
+
+&adc1 {
+    status = "okay";
+    pinctrl-0 = <&adc1_in14_pc4 &adc1_in15_pc5 &adc1_in9_pb1>;
+    pinctrl-names = "default";
+    #address-cells = <1>;
+    #size-cells = <0>;
+
+    channel@e {
+        reg = <14>;
+        zephyr,gain = "ADC_GAIN_1";
+        zephyr,reference = "ADC_REF_INTERNAL";
+        zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+        zephyr,resolution = <12>;
+    };
+
+    channel@f {
+        reg = <15>;
+        zephyr,gain = "ADC_GAIN_1";
+        zephyr,reference = "ADC_REF_INTERNAL";
+        zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+        zephyr,resolution = <12>;
+    };
+
+    channel@9 {
+        reg = <9>;
+        zephyr,gain = "ADC_GAIN_1";
+        zephyr,reference = "ADC_REF_INTERNAL";
+        zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+        zephyr,resolution = <12>;
+    };
 };
