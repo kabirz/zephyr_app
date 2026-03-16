@@ -12,6 +12,7 @@
 #include <zephyr/logging/log.h>
 #include <common.h>
 #include <mod-can.h>
+#include <display.h>
 
 LOG_MODULE_REGISTER(main_app, LOG_LEVEL_INF);
 
@@ -25,7 +26,8 @@ int main(void)
 	printk("build time: %s-%s, board: %s, system clk: %dMHz, flash size: %dKB, version: %s\n",
 	       __DATE__, __TIME__, CONFIG_BOARD_TARGET,
 	       CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC / 1000000, CONFIG_FLASH_SIZE, APP_VERSION_STRING);
-
+	mod_display_init();
+	mod_display_demo();
 	while (1) {
 		k_sleep(K_SECONDS(5));
 	}
