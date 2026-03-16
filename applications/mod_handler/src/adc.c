@@ -83,8 +83,9 @@ void adc_read_thread(void)
 			}
 			k_msleep(1);
 		}
-		k_msleep(30);
+		LOG_INF("X: %d, Y: %d, vcc: %dmv", (int)x_degree, (int)y_degree, mv_vcc);
+		k_msleep(3000);
 	}
 }
 
-K_THREAD_DEFINE(adc_thread_id, 2048, adc_read_thread, NULL, NULL, NULL, 7, 0, 0);
+K_THREAD_DEFINE(adc_thread_id, 1024, adc_read_thread, NULL, NULL, NULL, 7, 0, 0);

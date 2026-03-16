@@ -6,10 +6,10 @@
 
 LOG_MODULE_REGISTER(battery_monitor, LOG_LEVEL_INF);
 
-static const struct gpio_dt_spec charge_full =
-	GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), chargefull_gpios);
+static const struct gpio_dt_spec charge_full = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), chargefull_gpios);
 static const struct gpio_dt_spec charging = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), charging_gpios);
 static const struct gpio_dt_spec power_button = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), power_gpios);
+static const struct gpio_dt_spec handle_button = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), handlebt_gpios);
 static struct gpio_callback power_button_cb_data;
 
 /* 读取电池状态 */
@@ -29,10 +29,13 @@ static battery_status_t read_battery_status(void)
 	return BATTERY_STATUS_DISCHARGING;
 }
 
-void power_button_pressed(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
-
+void gpio_irq(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
-	// todo
+	if (pins & BIT(power_button.pin)) {
+		LOG_INF("Power button Press!");
+	} else if (pins & BIT(handle_button.pin)) {
+		LOG_INF("handler button Press!");
+	}
 }
 
 static int gpio_init(void)
@@ -54,6 +57,11 @@ static int gpio_init(void)
 		return -ENODEV;
 	}
 
+	if (!gpio_is_ready_dt(&handle_button)) {
+		LOG_ERR("handle button GPIO device not ready");
+		return -ENODEV;
+	}
+
 	ret = gpio_pin_configure_dt(&charge_full, GPIO_INPUT);
 	if (ret < 0) {
 		LOG_ERR("Failed to configure charge_full pin: %d", ret);
@@ -72,12 +80,25 @@ static int gpio_init(void)
 		return ret;
 	}
 
+	ret = gpio_pin_configure_dt(&handle_button, GPIO_INPUT);
+	if (ret < 0) {
+		LOG_ERR("Failed to configure handle button pin: %d", ret);
+		return ret;
+	}
+
 	ret = gpio_pin_interrupt_configure_dt(&power_button, GPIO_INT_EDGE_FALLING);
 	if (ret < 0) {
 		LOG_ERR("Failed to configure power button interrupt: %d", ret);
 		return ret;
 	}
-	gpio_init_callback(&power_button_cb_data, power_button_pressed, BIT(power_button.pin));
+
+	ret = gpio_pin_interrupt_configure_dt(&handle_button, GPIO_INT_EDGE_FALLING);
+	if (ret < 0) {
+		LOG_ERR("Failed to configure power button interrupt: %d", ret);
+		return ret;
+	}
+	gpio_init_callback(&power_button_cb_data, gpio_irq,
+		    BIT(power_button.pin) | BIT(handle_button.pin));
 	gpio_add_callback(power_button.port, &power_button_cb_data);
 
 	LOG_INF("GPIO initialized successfully");

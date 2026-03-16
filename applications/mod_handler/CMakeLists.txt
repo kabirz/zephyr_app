@@ -11,6 +11,9 @@ target_sources(app PRIVATE
   src/can.c
   src/firmware.c
   src/battery.c
+  src/display.c
+  src/lora.c
+  src/power.c
   src/can.c
 )
 
