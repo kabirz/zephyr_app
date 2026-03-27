@@ -1,7 +1,13 @@
 #include <zephyr/init.h>
+#include <power.h>
+#include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(lora_serial, LOG_LEVEL_INF);
+
+static const struct gpio_dt_spec lora_reset_pin = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), lorareset_gpios);
+static const struct gpio_dt_spec lora_hostwake_pin = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), hostwake_gpios);
+static K_MUTEX_DEFINE(hostwake_mutex);
 
 int lora_stopclear(void);
 #define USER_NODE DT_PATH(zephyr_user)
@@ -12,6 +18,44 @@ struct rx_buf {
 	uint8_t data[128];
 };
 K_MSGQ_DEFINE(lora_serial_msgq, sizeof(struct rx_buf), 3, 4);
+static bool hostwake_input;
+/*
+ * return : busy is true
+ */
+bool lora_get_hostwake_status(void)
+{
+	k_mutex_lock(&hostwake_mutex, K_FOREVER);
+	if (hostwake_input == false) {
+		gpio_pin_configure_dt(&lora_hostwake_pin, GPIO_INPUT|GPIO_PULL_UP);
+		k_busy_wait(100);
+		hostwake_input = true;
+	}
+	int val = gpio_pin_get_dt(&lora_hostwake_pin);
+	k_mutex_unlock(&hostwake_mutex);
+	return val == 1 ? true : false;
+}
+
+/*
+ * send: send is true, idle is false
+ */
+void lora_set_hostwake_status(bool send)
+{
+	k_mutex_lock(&hostwake_mutex, K_FOREVER);
+	if (hostwake_input == true) {
+		gpio_pin_configure_dt(&lora_hostwake_pin, GPIO_OUTPUT);
+		k_busy_wait(100);
+		hostwake_input = false;
+	}
+	if (send) {
+		gpio_pin_set_dt(&lora_hostwake_pin, 1);
+		k_msleep(5);
+	} else {
+		gpio_pin_set_dt(&lora_hostwake_pin, 0);
+		gpio_pin_configure_dt(&lora_hostwake_pin, GPIO_INPUT|GPIO_PULL_UP);
+	}
+	k_mutex_unlock(&hostwake_mutex);
+}
+
 static void lora_msg_process_thread(void)
 {
 	struct rx_buf buf;
@@ -73,17 +117,36 @@ K_THREAD_DEFINE(lora_uart_poll, 1024, lora_uart_process_thread, NULL, NULL, NULL
 
 static bool serial_send(const uint8_t *data, size_t len, uint32_t event)
 {
+	if (lora_get_hostwake_status()) {
+		// lora busy
+		return false;
+	} else {
+		lora_set_hostwake_status(true);
+	}
 	for (size_t i = 0; i < len; i++) {
 		uart_poll_out(uart_dev, data[i]);
 	}
 
 	LOG_HEXDUMP_INF(data, len, "TX:");
-
+	lora_set_hostwake_status(false);
 	return true;
 }
 
 static int lora_serial_init(void)
 {
+	int ret;
+	ret = gpio_pin_configure_dt(&lora_reset_pin, GPIO_OUTPUT);
+	if (ret < 0) {
+		LOG_ERR("Failed to configure handle button pin: %d", ret);
+		return ret;
+	}
+	lora_power_enable(true);
+	gpio_pin_set_dt(&lora_reset_pin, 0);
+	k_msleep(10);
+	gpio_pin_set_dt(&lora_reset_pin, 1);
+	k_msleep(10);
+	gpio_pin_configure_dt(&lora_hostwake_pin, GPIO_INPUT|GPIO_PULL_UP);
+	hostwake_input = true;
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	uart_irq_callback_set(uart_dev, uart_cb);
 	uart_irq_rx_enable(uart_dev);
@@ -101,10 +164,13 @@ static int cmd_send(const struct shell *ctx, size_t argc, char **argv)
 	static char tx_buf[64];
 	int len = snprintf(tx_buf, sizeof(tx_buf), "%s\r\n", argv[1]);
 
-	serial_send(tx_buf, len, 0xf);
+	if (serial_send(tx_buf, len, 0xf) == false) {
+		shell_error(ctx, "lora is busy, wait and send agian!");
+	}
 
 	return 0;
 }
+
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_serial_cmds,
 			       SHELL_CMD_ARG(send, NULL,
 					     "lora send\n"

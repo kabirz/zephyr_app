@@ -1,17 +1,7 @@
 / {
-    	aliases {
-        	sw0 = &button0;
-    	};
 	chosen {
 		zephyr,canbus = &can1;
 	};
-        buttons {
-        	compatible = "gpio-keys";
-        	button0: button_0 {
-			gpios = <&gpioc 13 GPIO_ACTIVE_HIGH>;
-			label = "User button";
-        	};
-    	};
 
 	zephyr,user {
 		canpower-gpios = <&gpioc 7 GPIO_ACTIVE_HIGH>;
@@ -33,10 +23,6 @@
         	io-channels = <&adc1 14>, <&adc1 15>, <&adc1 9>;
         	io-channel-names = "adc_x", "adc_y", "adc_vcc";
 	};
-};
-
-&gpiob {
-	wakeup-source;
 };
 
 &usart2 {

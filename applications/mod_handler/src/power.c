@@ -81,8 +81,11 @@ static int can_power_init(void)
 		LOG_ERR("Failed to configure 5v power pin: %d", ret);
 		return ret;
 	}
+	dis_power_enable(true);
+	can_power_enable(true);
+	p5_power_enable(true);
 
 	pm_notifier_register(&notifier);
 	return 0;
 }
-SYS_INIT(can_power_init, APPLICATION, 11);
+SYS_INIT(can_power_init, PRE_KERNEL_2, 1);
