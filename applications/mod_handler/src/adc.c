@@ -38,8 +38,8 @@ void adc_read_thread(void)
 	int ret;
 	uint16_t buf;
 	struct adc_sequence sequence = {.buffer = &buf, .buffer_size = sizeof(buf)};
-	int32_t val_mv, mv_vcc;
-	float x_degree, y_degree;
+	int32_t val_mv, mv_vcc = 0;
+	float x_degree = 0, y_degree = 0;
 
 	LOG_INF("ADC read thread started");
 
@@ -49,7 +49,7 @@ void adc_read_thread(void)
 		return;
 	}
 
-	while (1) {
+	while (true) {
 		for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++) {
 			(void)adc_sequence_init_dt(&adc_channels[i], &sequence);
 			ret = adc_read_dt(&adc_channels[i], &sequence);
@@ -69,21 +69,24 @@ void adc_read_thread(void)
 			case 0:
 				// X
 				x_degree = (float)(CLAMP(val_mv * 10 / 6, 500, 4500) - 500)/(4500-500)*40-20;
+		LOG_INF("X: %d, vcc: %dmv", (int)x_degree, val_mv);
 				break;
 			case 1:
 				// Y
 				y_degree = (float)(CLAMP(val_mv * 10 / 6, 500, 4500) - 500)/(4500-500)*40-20;
+		LOG_INF("Y: %d, vcc: %dmv", (int)y_degree, val_mv);
 				break;
 			case 2:
 				// Power VCC
 				mv_vcc = val_mv;
+		LOG_INF("power: %dmv", val_mv);
 				break;
 			default:
 				break;
 			}
 			k_msleep(1);
 		}
-		LOG_INF("X: %d, Y: %d, vcc: %dmv", (int)x_degree, (int)y_degree, mv_vcc);
+		/* LOG_INF("X: %d, Y: %d, vcc: %dmv", (int)x_degree, (int)y_degree, mv_vcc); */
 		k_msleep(3000);
 	}
 }

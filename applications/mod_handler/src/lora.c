@@ -75,6 +75,7 @@ static void uart_cb(const struct device *dev, void *user_data)
 
 	while (uart_irq_update(dev) && uart_irq_rx_ready(dev)) {
 		buf.len += uart_fifo_read(dev, buf.data + buf.len, sizeof(buf.data) - buf.len);
+		LOG_HEXDUMP_INF(buf.data, buf.len, "RX:");
 		if (buf.len >= sizeof(buf.data)) {
 			LOG_WRN("too more lora data");
 			LOG_HEXDUMP_INF(buf.data, buf.len, "RX:");
