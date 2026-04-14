@@ -30,7 +30,7 @@ static const struct gpio_dt_spec lora_hostwake_pin =
 static const struct device *uart_dev =
 	DEVICE_DT_GET(DT_NODELABEL(usart2));
 
-static K_MUTEX_DEFINE(hostwake_mutex);
+/* hostwake_mutex 已移除: HOSTWAKE 仅作输入读取, 无需互斥 */
 
 /* ================================================================
  * 模式状态机
@@ -90,32 +90,14 @@ static K_SEM_DEFINE(at_resp_sem, 0, 1);
 
 /* ================================================================
  * HOSTWAKE 管理
- *   HOSTWAKE 是双向 GPIO:
- *   - 输入模式: 读取模块忙状态 (高=模块正在收发无线数据)
- *   - 输出模式: 拉高 5ms 通知模块 MCU 要发送数据
+ *   HOST_WAKE (Pin 24) 是模块输出引脚:
+ *   - 高电平: 模块正在串口发送数据 (拉高 5ms) 或无线发送中
+ *   - 低电平: 模块空闲
+ *   MCU 仅读取该引脚判断模块忙状态, 不应驱动它
  * ================================================================ */
 bool lora_get_hostwake_status(void)
 {
-	k_mutex_lock(&hostwake_mutex, K_FOREVER);
-	gpio_pin_configure_dt(&lora_hostwake_pin, GPIO_INPUT | GPIO_PULL_UP);
-	k_busy_wait(100);
-	int val = gpio_pin_get_dt(&lora_hostwake_pin);
-	k_mutex_unlock(&hostwake_mutex);
-	return val == 1;
-}
-
-void lora_set_hostwake_status(bool send)
-{
-	k_mutex_lock(&hostwake_mutex, K_FOREVER);
-	if (send) {
-		gpio_pin_configure_dt(&lora_hostwake_pin, GPIO_OUTPUT);
-		gpio_pin_set_dt(&lora_hostwake_pin, 1);
-		k_msleep(5);
-	} else {
-		gpio_pin_set_dt(&lora_hostwake_pin, 0);
-		gpio_pin_configure_dt(&lora_hostwake_pin, GPIO_INPUT | GPIO_PULL_UP);
-	}
-	k_mutex_unlock(&hostwake_mutex);
+	return gpio_pin_get_dt(&lora_hostwake_pin) == 1;
 }
 
 /* ================================================================
@@ -222,16 +204,17 @@ bool lora_data_send(const uint8_t *data, size_t len)
 		return false;
 	}
 
-	/* 检查模块是否繁忙 (HOSTWAKE 高 = 无线收发中) */
-	if (lora_get_hostwake_status()) {
+	/* 等待模块空闲 (HOSTWAKE 低 = 模块未在无线收发) */
+	int retry = 10;
+	while (lora_get_hostwake_status() && retry-- > 0) {
+		k_msleep(5);
+	}
+	if (retry <= 0) {
 		LOG_WRN("LoRa module busy");
 		return false;
 	}
 
-	/* HOSTWAKE 拉高通知模块准备接收串口数据 */
-	lora_set_hostwake_status(true);
 	int ret = lora_async_tx(data, len);
-	lora_set_hostwake_status(false);
 
 	return (ret == 0);
 }

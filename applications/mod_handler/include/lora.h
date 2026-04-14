@@ -56,15 +56,12 @@ int lora_send_at(const char *cmd, char *resp, size_t resp_size,
 /**
  * @brief 读取 HOSTWAKE 引脚状态 (模块是否繁忙)
  *
- * @return true 模块正在发送/接收, false 模块空闲
+ * HOST_WAKE (Pin 24) 是模块输出引脚:
+ * - 高电平: 模块正在串口发送或无线收发中
+ * - 低电平: 模块空闲
+ *
+ * @return true 模块繁忙, false 模块空闲
  */
 bool lora_get_hostwake_status(void);
-
-/**
- * @brief 设置 HOSTWAKE 引脚状态
- *
- * @param send true 拉高通知模块, false 释放恢复输入
- */
-void lora_set_hostwake_status(bool send);
 
 #endif /* __LORA_H__ */
