@@ -64,4 +64,33 @@ int lora_send_at(const char *cmd, char *resp, size_t resp_size,
  */
 bool lora_get_hostwake_status(void);
 
+/**
+ * @brief LG210 网关连接参数
+ */
+struct lora_gw_config {
+	uint8_t spd;   /* 速率等级 1-12, 默认 10 */
+	uint8_t ch;    /* 信道 0-127, 默认 72 (470MHz) */
+};
+
+/**
+ * @brief 配置 L101 与 LG210 网关连接参数
+ *
+ * 进入 AT 模式, 依次设置 LORAPROT/SPD/CH, 保存并重启模块.
+ * 重启完成后自动恢复数据模式.
+ *
+ * @param cfg 网关参数 (NULL 则使用默认值: spd=10, ch=72)
+ * @return 0 成功, -EBUSY 模块繁忙, -ETIMEDOUT 指令超时
+ */
+int lora_gw_configure(const struct lora_gw_config *cfg);
+
+/**
+ * @brief 查询当前网关连接参数
+ *
+ * 进入 AT 模式, 读取 SPD/CH, 退出 AT 模式.
+ *
+ * @param cfg 返回当前参数
+ * @return 0 成功, 负数失败
+ */
+int lora_gw_query(struct lora_gw_config *cfg);
+
 #endif /* __LORA_H__ */

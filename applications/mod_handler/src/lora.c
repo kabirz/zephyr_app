@@ -15,6 +15,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
 #include <string.h>
+#include <stdlib.h>
 #include <power.h>
 #include <lora.h>
 
@@ -379,6 +380,133 @@ int lora_send_at(const char *cmd, char *resp, size_t resp_size,
 }
 
 /* ================================================================
+ * LG210 网关配置 — LORAPROT + SPD + CH + 保存 + 重启
+ * ================================================================ */
+int lora_gw_configure(const struct lora_gw_config *cfg)
+{
+	struct lora_gw_config defaults = { .spd = 10, .ch = 72 };
+
+	if (!cfg) {
+		cfg = &defaults;
+	}
+
+	if (cfg->spd < 1 || cfg->spd > 12) {
+		LOG_ERR("Invalid SPD %d (1-12)", cfg->spd);
+		return -EINVAL;
+	}
+
+	if (cfg->ch > 127) {
+		LOG_ERR("Invalid CH %d (0-127)", cfg->ch);
+		return -EINVAL;
+	}
+
+	int ret = lora_enter_at();
+
+	if (ret) {
+		return ret;
+	}
+
+	char resp[128];
+	char cmd[64];
+
+	/* 选择 LG210 协议 */
+	ret = lora_send_at("AT+LORAPROT=LG210", resp, sizeof(resp), 2000);
+	if (ret) {
+		LOG_ERR("Set LORAPROT failed");
+		goto out;
+	}
+
+	/* 设置速率等级 */
+	snprintf(cmd, sizeof(cmd), "AT+SPD=%d", cfg->spd);
+	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	if (ret) {
+		LOG_ERR("Set SPD failed");
+		goto out;
+	}
+
+	/* 设置信道 */
+	snprintf(cmd, sizeof(cmd), "AT+CH=%d", cfg->ch);
+	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	if (ret) {
+		LOG_ERR("Set CH failed");
+		goto out;
+	}
+
+	/* 保存为出厂默认 */
+	lora_send_at("AT+CFGTF", resp, sizeof(resp), 2000);
+
+	/* 重启使配置生效 */
+	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
+
+	/* 模块重启后直接进入透传模式, 恢复数据模式 RX */
+	k_msleep(1000);
+	lora_rx_disable_sync();
+	atomic_set(&lora_current_mode, LORA_MODE_DATA);
+	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE,
+		       LORA_DATA_RX_TIMEOUT);
+	k_mutex_unlock(&lora_mode_mutex);
+
+	LOG_INF("Gateway configured: spd=%d ch=%d", cfg->spd, cfg->ch);
+	return 0;
+
+out:
+	lora_exit_at();
+	return ret;
+}
+
+/* ================================================================
+ * LG210 网关参数查询 — 读取 SPD/CH
+ * ================================================================ */
+static int parse_at_number(const char *resp)
+{
+	/* AT 响应可能为 "+OK=<value>" 或 "<value>\r\nOK" */
+	const char *p = strstr(resp, "=");
+
+	if (p) {
+		return (int)strtol(p + 1, NULL, 10);
+	}
+
+	/* 尝试直接解析为数字 */
+	return (int)strtol(resp, NULL, 10);
+}
+
+int lora_gw_query(struct lora_gw_config *cfg)
+{
+	if (!cfg) {
+		return -EINVAL;
+	}
+
+	int ret = lora_enter_at();
+
+	if (ret) {
+		return ret;
+	}
+
+	char resp[128];
+
+	/* 查询速率 */
+	ret = lora_send_at("AT+SPD?", resp, sizeof(resp), 2000);
+	if (ret == 0) {
+		cfg->spd = (uint8_t)parse_at_number(resp);
+	} else {
+		LOG_WRN("Query SPD failed");
+		cfg->spd = 0;
+	}
+
+	/* 查询信道 */
+	ret = lora_send_at("AT+CH?", resp, sizeof(resp), 2000);
+	if (ret == 0) {
+		cfg->ch = (uint8_t)parse_at_number(resp);
+	} else {
+		LOG_WRN("Query CH failed");
+		cfg->ch = 0;
+	}
+
+	lora_exit_at();
+	return 0;
+}
+
+/* ================================================================
  * 数据接收处理线程 — 从 msgq 取帧, 上报应用层
  * ================================================================ */
 static void lora_msg_process_thread(void)
@@ -460,6 +588,57 @@ static int cmd_exit(const struct shell *ctx, size_t argc, char **argv)
 	return lora_exit_at();
 }
 
+static int cmd_gw_config(const struct shell *ctx, size_t argc,
+			 char **argv)
+{
+	struct lora_gw_config cfg = { .spd = 10, .ch = 72 };
+
+	if (argc >= 2) {
+		cfg.spd = (uint8_t)strtol(argv[1], NULL, 10);
+	}
+	if (argc >= 3) {
+		cfg.ch = (uint8_t)strtol(argv[2], NULL, 10);
+	}
+
+	int ret = lora_gw_configure(&cfg);
+
+	if (ret) {
+		shell_error(ctx, "Gateway config failed (%d)", ret);
+		return ret;
+	}
+	shell_print(ctx, "Gateway configured: spd=%d ch=%d", cfg.spd,
+		    cfg.ch);
+	return 0;
+}
+
+static int cmd_gw_query(const struct shell *ctx, size_t argc,
+			char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	struct lora_gw_config cfg;
+	int ret = lora_gw_query(&cfg);
+
+	if (ret) {
+		shell_error(ctx, "Query failed (%d)", ret);
+		return ret;
+	}
+	shell_print(ctx, "Gateway params: spd=%d ch=%d", cfg.spd, cfg.ch);
+	return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(
+	sub_lora_gw_cmds,
+	SHELL_CMD_ARG(config, NULL,
+		      "Configure gateway params and reboot\n"
+		      "Usage: config [spd] [ch]",
+		      cmd_gw_config, 1, 2),
+	SHELL_CMD_ARG(query, NULL,
+		      "Query current gateway params",
+		      cmd_gw_query, 1, 0),
+	SHELL_SUBCMD_SET_END);
+
 SHELL_STATIC_SUBCMD_SET_CREATE(
 	sub_lora_cmds,
 	SHELL_CMD_ARG(send, NULL,
@@ -473,6 +652,8 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 	SHELL_CMD_ARG(exit, NULL,
 		      "Exit AT mode, return to data mode",
 		      cmd_exit, 1, 0),
+	SHELL_CMD(gw, &sub_lora_gw_cmds,
+		  "LG210 gateway operations", NULL),
 	SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(lora, &sub_lora_cmds, "LoRa WH-L101-L commands", NULL);
