@@ -20,7 +20,7 @@ typedef struct {
 	uint8_t h_button;
 	uint8_t power_level;
 #define CAN_TYPE  1
-#define LORA_TYPE 1
+#define LORA_TYPE 2
 	uint8_t connect_type;
 	uint32_t can_heart_time;
 	battery_status_t battery_status;

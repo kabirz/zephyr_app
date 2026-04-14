@@ -12,6 +12,7 @@ target_sources(app PRIVATE
   src/can.c
   src/display.c
   src/firmware.c
+  src/font_8x16.c
   src/lora.c
   src/main.c
   src/power.c

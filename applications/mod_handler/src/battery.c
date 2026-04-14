@@ -2,7 +2,6 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
 #include <common.h>
-#include <display.h>
 
 LOG_MODULE_REGISTER(battery_monitor, LOG_LEVEL_INF);
 
@@ -35,6 +34,7 @@ void gpio_irq(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 		LOG_INF("Power button Press!");
 	} else if (pins & BIT(handle_button.pin)) {
 		LOG_INF("handler button Press!");
+		global_params.h_button = !global_params.h_button;
 	}
 }
 
@@ -128,7 +128,7 @@ void battery_monitor_thread(void)
 		global_params.battery_status = read_battery_status();
 
 		if (global_params.battery_status != previous_status) {
-			mod_display_battery(&global_params);
+			previous_status = global_params.battery_status;
 		}
 
 		k_sleep(K_SECONDS(5));

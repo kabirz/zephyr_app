@@ -2,7 +2,7 @@
 #define _MOD_DISPLAY_H
 #include <common.h>
 
-void mod_display_init(void);
+int mod_display_init(void);
 void mod_display_demo(void);
 void mod_display_battery(const gloval_params_t *params);
 void mod_display_handler_x(const gloval_params_t *params);
