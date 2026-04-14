@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include  <mod-can.h>
+#include <mod-can.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/app_version.h>
 #include <zephyr/sys/reboot.h>
@@ -33,7 +33,6 @@ int fw_update(struct can_frame *frame)
 				LOG_ERR("start update message size must 8");
 				fw_can_recevie(FW_CODE_FLASH_ERROR, 0);
 				return -1;
-
 			}
 			memset(&msg, 0, sizeof(msg));
 			if (flash_img_init(&msg.flash_img_ctx) != 0) {
@@ -41,7 +40,8 @@ int fw_update(struct can_frame *frame)
 				fw_can_recevie(FW_CODE_FLASH_ERROR, 0);
 				return -1;
 			}
-			if (flash_area_flatten(msg.flash_img_ctx.flash_area, 0, msg.flash_img_ctx.flash_area->fa_size) != 0) {
+			if (flash_area_flatten(msg.flash_img_ctx.flash_area, 0,
+					       msg.flash_img_ctx.flash_area->fa_size) != 0) {
 				LOG_ERR("flash erase failed");
 				fw_can_recevie(FW_CODE_FLASH_ERROR, 0);
 				return -1;
@@ -53,11 +53,13 @@ int fw_update(struct can_frame *frame)
 		} else if (frame->data_32[0] == BOARD_CONFIRM) {
 			flash_img_buffered_write(&msg.flash_img_ctx, frame->data, 0, true);
 			if (msg.total_size != flash_img_bytes_written(&msg.flash_img_ctx)) {
-				LOG_ERR("Download failed total: %d, %d", msg.total_size, flash_img_bytes_written(&msg.flash_img_ctx));
+				LOG_ERR("Download failed total: %d, %d", msg.total_size,
+					flash_img_bytes_written(&msg.flash_img_ctx));
 				fw_can_recevie(FW_CODE_TRANFER_ERROR, msg.offset);
 				return -1;
 			} else {
-				LOG_INF("Download Finished, need reboot and finish system upgrade.");
+				LOG_INF("Download Finished, need reboot and finish system "
+					"upgrade.");
 			}
 			boot_request_upgrade(frame->data_32[1]);
 			fw_can_recevie(FW_CODE_CONFIRM, 0x55AA55AA);
@@ -76,12 +78,13 @@ int fw_update(struct can_frame *frame)
 			LOG_INF("recived firmware: %d/%d", msg.offset, msg.total_size);
 			fw_can_recevie(FW_CODE_UPDATE_SUCCESS, msg.total_size);
 		} else {
-			if (msg.offset % 4096 == 0)
+			if (msg.offset % 4096 == 0) {
 				LOG_INF("recived firmware: %d/%d", msg.offset, msg.total_size);
-			if (msg.offset % 64 == 0)
+			}
+			if (msg.offset % 64 == 0) {
 				fw_can_recevie(FW_CODE_OFFSET, msg.offset);
+			}
 		}
 	}
 	return 0;
 }
-

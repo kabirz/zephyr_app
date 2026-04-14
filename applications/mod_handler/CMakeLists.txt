@@ -7,9 +7,13 @@ project(mod_handler)
 
 target_include_directories(app PRIVATE include)
 target_sources(app PRIVATE
-  src/main.c
+  src/adc.c
+  src/battery.c
   src/can.c
+  src/display.c
   src/firmware.c
-  src/mod_handler.c
+  src/lora.c
+  src/main.c
+  src/power.c
 )
 
