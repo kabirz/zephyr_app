@@ -1,3 +1,5 @@
+#include <zephyr/dt-bindings/dma/stm32_dma.h>
+
 / {
 	chosen {
 		zephyr,canbus = &can1;
@@ -29,6 +31,13 @@
 	pinctrl-0 = <&usart2_tx_pa2 &usart2_rx_pa3>;
 	pinctrl-names = "default";
 	current-speed = <115200>;
+	dmas = <&dma1 7 (STM32_DMA_MEMORY_TO_PERIPH | STM32_DMA_MEM_INC)>,
+	       <&dma1 6 (STM32_DMA_PERIPH_TO_MEMORY | STM32_DMA_MEM_INC)>;
+	dma-names = "tx", "rx";
+	status = "okay";
+};
+
+&dma1 {
 	status = "okay";
 };
 
