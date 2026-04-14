@@ -65,11 +65,24 @@ int lora_send_at(const char *cmd, char *resp, size_t resp_size,
 bool lora_get_hostwake_status(void);
 
 /**
+ * @brief LG210 网关通信模式
+ *
+ * 透传模式: 仅需 SPD + CH 匹配, 无需网关 ID
+ * 组网模式: 需 NETID + SPD + CH 同时匹配
+ */
+enum lora_gw_mode {
+	LORA_GW_MODE_TRANS,	/* 透传模式 (默认) */
+	LORA_GW_MODE_NETWORK,	/* 组网模式 */
+};
+
+/**
  * @brief LG210 网关连接参数
  */
 struct lora_gw_config {
-	uint8_t spd;   /* 速率等级 1-12, 默认 10 */
-	uint8_t ch;    /* 信道 0-127, 默认 72 (470MHz) */
+	enum lora_gw_mode mode;	/* 通信模式 */
+	uint8_t spd;		/* 速率等级 1-12, 默认 10 */
+	uint8_t ch;		/* 信道 0-127, 默认 72 (470MHz) */
+	uint16_t nid;		/* 网关 ID, 组网模式有效 (0-65535) */
 };
 
 /**

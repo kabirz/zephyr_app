@@ -384,7 +384,12 @@ int lora_send_at(const char *cmd, char *resp, size_t resp_size,
  * ================================================================ */
 int lora_gw_configure(const struct lora_gw_config *cfg)
 {
-	struct lora_gw_config defaults = { .spd = 10, .ch = 72 };
+	struct lora_gw_config defaults = {
+		.mode = LORA_GW_MODE_TRANS,
+		.spd = 10,
+		.ch = 72,
+		.nid = 0,
+	};
 
 	if (!cfg) {
 		cfg = &defaults;
@@ -432,6 +437,16 @@ int lora_gw_configure(const struct lora_gw_config *cfg)
 		goto out;
 	}
 
+	/* 组网模式: 设置网关 ID */
+	if (cfg->mode == LORA_GW_MODE_NETWORK) {
+		snprintf(cmd, sizeof(cmd), "AT+NID=%d", cfg->nid);
+		ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+		if (ret) {
+			LOG_ERR("Set NID failed");
+			goto out;
+		}
+	}
+
 	/* 保存为出厂默认 */
 	lora_send_at("AT+CFGTF", resp, sizeof(resp), 2000);
 
@@ -446,7 +461,9 @@ int lora_gw_configure(const struct lora_gw_config *cfg)
 		       LORA_DATA_RX_TIMEOUT);
 	k_mutex_unlock(&lora_mode_mutex);
 
-	LOG_INF("Gateway configured: spd=%d ch=%d", cfg->spd, cfg->ch);
+	LOG_INF("Gateway configured: mode=%s spd=%d ch=%d nid=%d",
+		cfg->mode == LORA_GW_MODE_NETWORK ? "network" : "trans",
+		cfg->spd, cfg->ch, cfg->nid);
 	return 0;
 
 out:
@@ -483,6 +500,20 @@ int lora_gw_query(struct lora_gw_config *cfg)
 	}
 
 	char resp[128];
+
+	/* 查询网关 ID — 有值则为组网模式, 否则为透传模式 */
+	cfg->nid = 0;
+	cfg->mode = LORA_GW_MODE_TRANS;
+	ret = lora_send_at("AT+NID?", resp, sizeof(resp), 2000);
+	if (ret == 0) {
+		int nid_val = parse_at_number(resp);
+		if (nid_val > 0) {
+			cfg->nid = (uint16_t)nid_val;
+			cfg->mode = LORA_GW_MODE_NETWORK;
+		}
+	} else {
+		LOG_WRN("Query NID failed");
+	}
 
 	/* 查询速率 */
 	ret = lora_send_at("AT+SPD?", resp, sizeof(resp), 2000);
@@ -591,13 +622,35 @@ static int cmd_exit(const struct shell *ctx, size_t argc, char **argv)
 static int cmd_gw_config(const struct shell *ctx, size_t argc,
 			 char **argv)
 {
-	struct lora_gw_config cfg = { .spd = 10, .ch = 72 };
+	struct lora_gw_config cfg = {
+		.mode = LORA_GW_MODE_TRANS,
+		.spd = 10,
+		.ch = 72,
+		.nid = 0,
+	};
 
+	/* lora gw config [mode] [spd] [ch] [nid]
+	 * mode: "trans" (默认) 或 "net"
+	 */
 	if (argc >= 2) {
-		cfg.spd = (uint8_t)strtol(argv[1], NULL, 10);
+		if (strcmp(argv[1], "net") == 0) {
+			cfg.mode = LORA_GW_MODE_NETWORK;
+		}
 	}
 	if (argc >= 3) {
-		cfg.ch = (uint8_t)strtol(argv[2], NULL, 10);
+		cfg.spd = (uint8_t)strtol(argv[2], NULL, 10);
+	}
+	if (argc >= 4) {
+		cfg.ch = (uint8_t)strtol(argv[3], NULL, 10);
+	}
+	if (argc >= 5) {
+		cfg.nid = (uint16_t)strtol(argv[4], NULL, 10);
+	}
+
+	/* 组网模式必须提供网关 ID */
+	if (cfg.mode == LORA_GW_MODE_NETWORK && cfg.nid == 0) {
+		shell_error(ctx, "Network mode requires NID > 0");
+		return -EINVAL;
 	}
 
 	int ret = lora_gw_configure(&cfg);
@@ -606,8 +659,9 @@ static int cmd_gw_config(const struct shell *ctx, size_t argc,
 		shell_error(ctx, "Gateway config failed (%d)", ret);
 		return ret;
 	}
-	shell_print(ctx, "Gateway configured: spd=%d ch=%d", cfg.spd,
-		    cfg.ch);
+	shell_print(ctx, "Gateway configured: mode=%s spd=%d ch=%d nid=%d",
+		    cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans",
+		    cfg.spd, cfg.ch, cfg.nid);
 	return 0;
 }
 
@@ -624,7 +678,9 @@ static int cmd_gw_query(const struct shell *ctx, size_t argc,
 		shell_error(ctx, "Query failed (%d)", ret);
 		return ret;
 	}
-	shell_print(ctx, "Gateway params: spd=%d ch=%d", cfg.spd, cfg.ch);
+	shell_print(ctx, "Gateway params: mode=%s spd=%d ch=%d nid=%d",
+		    cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans",
+		    cfg.spd, cfg.ch, cfg.nid);
 	return 0;
 }
 
@@ -632,8 +688,10 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 	sub_lora_gw_cmds,
 	SHELL_CMD_ARG(config, NULL,
 		      "Configure gateway params and reboot\n"
-		      "Usage: config [spd] [ch]",
-		      cmd_gw_config, 1, 2),
+		      "Usage: config [trans|net] [spd] [ch] [nid]\n"
+		      "  trans  Transparent mode (default)\n"
+		      "  net    Network mode (requires nid)",
+		      cmd_gw_config, 1, 4),
 	SHELL_CMD_ARG(query, NULL,
 		      "Query current gateway params",
 		      cmd_gw_query, 1, 0),
