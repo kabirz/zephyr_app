@@ -533,15 +533,23 @@ out:
  * ================================================================ */
 static int parse_at_number(const char *resp)
 {
-	/* AT 响应可能为 "+OK=<value>" 或 "<value>\r\nOK" */
-	const char *p = strstr(resp, "=");
+	/* AT 查询响应格式: \r\n+CMD:<value>\r\n\r\nOK\r\n
+	 * 例: \r\n+NID:5\r\n\r\nOK\r\n
+	 *     \r\n+SPD:10\r\n\r\nOK\r\n
+	 * 查找 ':' 或 '=' 作为值分隔符
+	 */
+	const char *p = strchr(resp, ':');
 
 	if (p) {
 		return (int)strtol(p + 1, NULL, 10);
 	}
 
-	/* 尝试直接解析为数字 */
-	return (int)strtol(resp, NULL, 10);
+	p = strchr(resp, '=');
+	if (p) {
+		return (int)strtol(p + 1, NULL, 10);
+	}
+
+	return 0;
 }
 
 int lora_gw_query(struct lora_gw_config *cfg)
