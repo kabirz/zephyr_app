@@ -124,6 +124,7 @@
 		segment-remap;
 		com-invdir;
 		prechargep = <0x22>;
+		ready-time-ms = <100>;
 	};
 };
 

@@ -70,19 +70,16 @@ void adc_read_thread(void)
 			case 0:
 				// X
 				x_degree = (float)(CLAMP(val_mv * 10 / 6, 500, 4500) - 500)/(4500-500)*40-20;
-		LOG_INF("X: %d, vcc: %dmv", (int)x_degree, val_mv);
 				global_params.x_degree = x_degree;
 				break;
 			case 1:
 				// Y
 				y_degree = (float)(CLAMP(val_mv * 10 / 6, 500, 4500) - 500)/(4500-500)*40-20;
-		LOG_INF("Y: %d, vcc: %dmv", (int)y_degree, val_mv);
 				global_params.y_degree = y_degree;
 				break;
 			case 2:
 				// Power VCC → 电量百分比 (3.0V~4.2V 线性映射)
 				mv_vcc = val_mv;
-		LOG_INF("power: %dmv", val_mv);
 				global_params.power_level =
 					(uint8_t)CLAMP(
 						(val_mv - 3000) * 100 / 1200,
@@ -93,7 +90,6 @@ void adc_read_thread(void)
 			}
 			k_msleep(1);
 		}
-		/* LOG_INF("X: %d, Y: %d, vcc: %dmv", (int)x_degree, (int)y_degree, mv_vcc); */
 		k_msleep(500);
 	}
 }

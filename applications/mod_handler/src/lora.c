@@ -427,6 +427,10 @@ int lora_send_at(const char *cmd, char *resp, size_t resp_size,
 			break;
 		}
 	}
+	if (strncmp("AT+Z", cmd, 4) == 0) {
+		LOG_INF("reboot WH-L101-L");
+		atomic_set(&lora_current_mode, LORA_MODE_DATA);
+	}
 
 	if (resp && resp_size > 0) {
 		strncpy(resp, (const char *)at_resp_buf, resp_size - 1);
@@ -552,6 +556,29 @@ static int parse_at_number(const char *resp)
 	return 0;
 }
 
+/* ================================================================
+ * LG210 网关参数查询 — 读取 NID
+ * ================================================================ */
+static int parse_at_nid(const char *resp)
+{
+	/* AT 查询响应格式: \r\n+CMD:<value>\r\n\r\nOK\r\n
+	 * 例: \r\n+NID:5\r\n\r\nOK\r\n
+	 *     \r\n+SPD:10\r\n\r\nOK\r\n
+	 * 查找 ':' 或 '=' 作为值分隔符
+	 */
+	const char *p = strchr(resp, ':');
+
+	if (p) {
+		return (int)strtol(p + 1, NULL, 16);
+	}
+
+	p = strchr(resp, '=');
+	if (p) {
+		return (int)strtol(p + 1, NULL, 16);
+	}
+
+	return 0;
+}
 int lora_gw_query(struct lora_gw_config *cfg)
 {
 	if (!cfg) {
@@ -569,11 +596,11 @@ int lora_gw_query(struct lora_gw_config *cfg)
 	/* 查询网关 ID — 有值则为组网模式, 否则为透传模式 */
 	cfg->nid = 0;
 	cfg->mode = LORA_GW_MODE_TRANS;
-	ret = lora_send_at("AT+NID?", resp, sizeof(resp), 2000);
+	ret = lora_send_at("AT+NID", resp, sizeof(resp), 2000);
 	if (ret == 0) {
-		int nid_val = parse_at_number(resp);
+		int nid_val = parse_at_nid(resp);
 		if (nid_val > 0) {
-			cfg->nid = (uint16_t)nid_val;
+			cfg->nid = (uint32_t)nid_val;
 			cfg->mode = LORA_GW_MODE_NETWORK;
 		}
 	} else {
@@ -581,7 +608,7 @@ int lora_gw_query(struct lora_gw_config *cfg)
 	}
 
 	/* 查询速率 */
-	ret = lora_send_at("AT+SPD?", resp, sizeof(resp), 2000);
+	ret = lora_send_at("AT+SPD", resp, sizeof(resp), 2000);
 	if (ret == 0) {
 		cfg->spd = (uint8_t)parse_at_number(resp);
 	} else {
@@ -590,7 +617,7 @@ int lora_gw_query(struct lora_gw_config *cfg)
 	}
 
 	/* 查询信道 */
-	ret = lora_send_at("AT+CH?", resp, sizeof(resp), 2000);
+	ret = lora_send_at("AT+CH", resp, sizeof(resp), 2000);
 	if (ret == 0) {
 		cfg->ch = (uint8_t)parse_at_number(resp);
 	} else {
@@ -662,7 +689,10 @@ static int cmd_at(const struct shell *ctx, size_t argc, char **argv)
 	}
 
 	char resp[256];
-	int ret = lora_send_at(argv[1], resp, sizeof(resp), 2000);
+	char at_cmd[256] = {0};
+
+	snprintf(at_cmd, sizeof(at_cmd), "AT+%s\r\n", argv[1]);
+	int ret = lora_send_at(at_cmd, resp, sizeof(resp), 2000);
 
 	if (ret == 0) {
 		shell_print(ctx, "%s", resp);
@@ -709,7 +739,7 @@ static int cmd_gw_config(const struct shell *ctx, size_t argc,
 		cfg.ch = (uint8_t)strtol(argv[3], NULL, 10);
 	}
 	if (argc >= 5) {
-		cfg.nid = (uint16_t)strtol(argv[4], NULL, 10);
+		cfg.nid = (uint16_t)strtol(argv[4], NULL, 16);
 	}
 
 	/* 组网模式必须提供网关 ID */
@@ -724,7 +754,7 @@ static int cmd_gw_config(const struct shell *ctx, size_t argc,
 		shell_error(ctx, "Gateway config failed (%d)", ret);
 		return ret;
 	}
-	shell_print(ctx, "Gateway configured: mode=%s spd=%d ch=%d nid=%d",
+	shell_print(ctx, "Gateway configured: mode=%s spd=%d ch=%d nid=%x",
 		    cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans",
 		    cfg.spd, cfg.ch, cfg.nid);
 	return 0;
@@ -743,7 +773,7 @@ static int cmd_gw_query(const struct shell *ctx, size_t argc,
 		shell_error(ctx, "Query failed (%d)", ret);
 		return ret;
 	}
-	shell_print(ctx, "Gateway params: mode=%s spd=%d ch=%d nid=%d",
+	shell_print(ctx, "Gateway params: mode=%s spd=%d ch=%d nid=%x",
 		    cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans",
 		    cfg.spd, cfg.ch, cfg.nid);
 	return 0;

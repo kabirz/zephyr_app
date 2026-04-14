@@ -107,7 +107,7 @@ struct lora_gw_config {
 	enum lora_gw_mode mode;	/* 通信模式 */
 	uint8_t spd;		/* 速率等级 1-12, 默认 10 */
 	uint8_t ch;		/* 信道 0-127, 默认 72 (470MHz) */
-	uint16_t nid;		/* 网关 ID, 组网模式有效 (0-65535) */
+	uint32_t nid;		/* 网关 ID, 组网模式有效 (0-2^32) */
 };
 
 /**
