@@ -6,11 +6,15 @@
 
 ## 功能特性
 
-- **操纵杆控制** — 双通道 ADC 采集 X/Y 轴角度，3 秒周期上报
-- **双通道通信** — CAN 总线 (250Kbps) + LoRa 无线 (WH-L101-L 透传)，冗余链路
-- **心跳保活** — CAN 心跳帧 (400ms 周期)，连续 3 次失败自动休眠
+- **操纵杆控制** — 双通道 ADC 采集 X/Y 轴角度，500ms 周期上报
+- **双通道通信** — CAN 总线 (250Kbps) + LoRa 无线 (WH-L101-L 透传)，互斥冗余链路
+- **CAN/LoRa 互斥** — CAN 优先发送遥测数据，心跳 3 次失败自动切换 LoRa；CAN 恢复后自动切回
+- **CAN 遥测** — 帧 ID 0x764，6 字节 payload (X/Y 角度 + 按键 + 电量)，心跳成功时随心跳周期发送
+- **LoRa 遥测** — 8 字节二进制帧，包含角度/按键/电量，500ms 周期通过 LG210 网关发送 (仅 CAN 断开时)
+- **LoRa 网关管理** — 支持透传/组网双模式配置，Shell 一键配置 SPD/CH/NID
+- **心跳保活** — CAN 心跳帧 (400ms 周期)，连续 3 次失败自动切换 LoRa
 - **电池管理** — 充电状态检测、电量百分比估算
-- **OLED 显示** — SH1106 128x64 I2C 屏幕，16x16 中文字模
+- **OLED 显示** — SH1106 128x64 I2C 屏幕，8x16 ASCII 字体 + 水平电池图标
 - **OTA 升级** — 通过 CAN 总线接收固件，写入外部 SPI Flash，MCUBoot 安全切换
 - **外设电源管理** — CAN / LoRa / 显示 / 5V 四路独立 GPIO 电源开关
 
@@ -47,24 +51,27 @@ west flash
 ```
 main() + SYS_INIT
   |
+  +-- 主循环 (main thread)
+  |     +-- 500ms 周期: OLED 刷新
+  |
   +-- CAN 总线 (priority 11)
   |     +-- 消息收发与协议分发
   |     +-- 固件升级状态机
-  |     +-- 心跳保活 (400ms)
+  |     +-- 心跳保活 (400ms) + CAN 遥测 (0x764)
+  |     +-- 心跳失败 3 次 → connect_type = LORA_TYPE
   |
   +-- LoRa UART (WH-L101-L, priority 12)
+  |     +-- DMA 双缓冲透传
+  |     +-- 遥测帧发送 (仅 CAN 断开时, 500ms)
   |     +-- AT 指令收发 (经 USR-LG210-L 网关中转)
-  |     +-- Shell 调试命令 (lora send <data>)
+  |     +-- Shell 调试命令 (send/at/exit/gw)
   |
   +-- ADC 采集 (priority 7)
-  |     +-- 操纵杆 X/Y 角度
-  |     +-- 电源电压采样
+  |     +-- 操纵杆 X/Y 角度 + 电源电压 (500ms)
   |
   +-- 电池监测 (priority 7)
   |     +-- 充电状态 GPIO 检测
-  |     +-- 操纵手柄按键中断
-  |
-  +-- OLED 显示 (SH1106, I2C)
+  |     +-- 操纵手柄按键中断 (状态切换)
   |
   +-- 电源管理 (PRE_KERNEL_2 初始化)
         +-- 4 路 GPIO 电源开关
@@ -76,9 +83,10 @@ main() + SYS_INIT
 | 线程 | 栈大小 | 优先级 | 说明 |
 |------|--------|--------|------|
 | CAN 收发 | 2048 | 11 | CAN 消息接收与协议处理 |
-| CAN 心跳 | 1024 | 11 | 400ms 周期心跳，3 次失败休眠 |
-| LoRa 处理 | 1024 | 12 | UART AT 指令解析 |
-| ADC 采集 | 1024 | 7 | 3 秒周期采集操纵杆角度 |
+| CAN 心跳 | 1024 | 11 | 400ms 周期心跳 + 遥测，3 次失败切 LoRa |
+| LoRa 处理 | 1024 | 12 | UART DMA 双缓冲 + AT 指令解析 |
+| LoRa 遥测 | 1024 | 10 | 500ms 周期遥测 (仅 CAN 断开时发送) |
+| ADC 采集 | 1024 | 7 | 500ms 周期采集操纵杆角度 |
 | 电池监测 | 1024 | 7 | 5 秒周期检测电池状态 |
 
 ### 线程间通信
@@ -87,6 +95,42 @@ main() + SYS_INIT
 - **事件通知**: `k_event` — 超时事件唤醒心跳线程
 - **消息队列**: CAN 和 LoRa 各自使用 `k_msgq` 传递帧数据
 - **信号量**: `k_sem` 配合心跳超时检测
+
+## OLED 显示布局
+
+SH1106 128x64 像素，使用 8x16 ASCII 字体，4 行 × 16 列字符：
+
+```
+Row 0: CAN     [电池图标] 85% CHG    ← 连接类型 + 水平电池图标 + 电量
+Row 1: X:+15.0                        ← X 轴角度 (-20° ~ +20°)
+Row 2: Y: -3.5                        ← Y 轴角度 (-20° ~ +20°)
+Row 3: BTN:OFF                        ← 按键状态 (ON/OFF)
+```
+
+主循环 500ms 周期刷新全屏，通过 mutex 保护并发 display_write。
+
+## LoRa 遥测帧格式
+
+主循环每 500ms 通过 LoRa 透传模式发送 8 字节遥测帧至 LG210 网关：
+
+| 偏移 | 长度 | 字段 | 说明 |
+|------|------|------|------|
+| 0 | 1 | 帧头 | 0xAA |
+| 1-2 | 2 | X 角度 | int16_t LE, 单位 0.1° (如 +15.0° = 150) |
+| 3-4 | 2 | Y 角度 | int16_t LE, 单位 0.1° |
+| 5 | 1 | 按键 | 0=松开, 1=按下 |
+| 6 | 1 | 电量 | 0~100% |
+| 7 | 1 | 校验和 | XOR(bytes 0~6) |
+
+## LoRa Shell 命令
+
+```
+lora send <data>              -- 透传模式发送
+lora at <cmd>                 -- 发送 AT 指令 (自动进入 AT 模式)
+lora exit                     -- 退出 AT 模式
+lora gw config [trans|net] [spd] [ch] [nid]  -- 网关参数配置
+lora gw query                 -- 查询当前网关参数 (模式/SPD/CH/NID)
+```
 
 ## CAN 通信协议
 
@@ -125,7 +169,7 @@ main() + SYS_INIT
 | 充电满 | PB12 | GPIO 输入上拉，低有效 |
 | 充电中 | PB13 | GPIO 输入上拉，低有效 |
 | 电源键 | PB14 | GPIO 输入上拉 |
-| LoRa HOSTWAKE | PA0 | GPIO 双向 |
+| LoRa HOSTWAKE | PA0 | GPIO 输入 |
 | LoRa RESET | PB3 | GPIO 输出 |
 
 ## 目录结构
@@ -134,16 +178,18 @@ main() + SYS_INIT
 include/
   common.h          -- 全局状态类型 (gloval_params_t)
   mod-can.h         -- CAN 协议定义 + OTA 接口
+  lora.h            -- LoRa 驱动接口 (透传/AT/遥测/网关配置)
   display.h         -- 显示模块接口
   power.h           -- 外设电源控制接口
 src/
-  main.c            -- 入口 + SYS_INIT 初始化
+  main.c            -- 入口 + 主循环 (显示刷新 + LoRa 遥测)
   can.c             -- CAN 收发 + 心跳线程
   firmware.c        -- OTA 固件升级状态机
-  lora.c            -- LoRa UART 通信 + Shell 命令
-  adc.c             -- ADC 操纵杆角度采集
+  lora.c            -- LoRa UART async+DMA + 遥测帧 + 网关管理 + Shell
+  font_8x16.c       -- 8x16 ASCII 字体位图 (95 字符)
+  adc.c             -- ADC 操纵杆角度采集 + 电量映射
   battery.c         -- 电池/按键 GPIO 监测
-  display.c         -- SH1106 OLED 显示
+  display.c         -- SH1106 OLED 显示 (8x16 文本 + 电池图标)
   power.c           -- 外设电源管理
 boards/
   lora_f103rct6.overlay  -- 板级 Devicetree 覆盖

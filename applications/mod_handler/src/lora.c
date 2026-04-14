@@ -221,6 +221,63 @@ bool lora_data_send(const uint8_t *data, size_t len)
 }
 
 /* ================================================================
+ * 遥测数据帧打包发送
+ *
+ * 帧格式 (8 字节):
+ *   [0]   帧头 0xAA
+ *   [1-2] X 角度 (int16_t LE, 单位 0.1°)
+ *   [3-4] Y 角度 (int16_t LE, 单位 0.1°)
+ *   [5]   按键 (0/1)
+ *   [6]   电量 (0~100)
+ *   [7]   校验和 (XOR bytes 0~6)
+ * ================================================================ */
+bool lora_send_telemetry(const gloval_params_t *params)
+{
+	uint8_t frame[LORA_TELEM_LEN];
+	int16_t x_raw = (int16_t)(params->x_degree * 10);
+	int16_t y_raw = (int16_t)(params->y_degree * 10);
+
+	frame[0] = LORA_TELEM_HEADER;
+	memcpy(&frame[1], &x_raw, sizeof(x_raw));
+	memcpy(&frame[3], &y_raw, sizeof(y_raw));
+	frame[5] = params->h_button ? 1 : 0;
+	frame[6] = params->power_level;
+
+	/* XOR 校验 */
+	uint8_t xor_val = 0;
+
+	for (int i = 0; i < LORA_TELEM_LEN - 1; i++) {
+		xor_val ^= frame[i];
+	}
+	frame[LORA_TELEM_LEN - 1] = xor_val;
+
+	return lora_data_send(frame, LORA_TELEM_LEN);
+}
+
+/* ================================================================
+ * 遥测发送线程 — 独立线程周期发送遥测帧至 LG210 网关
+ * ================================================================ */
+#define LORA_TELEM_INTERVAL_MS 500
+
+static void lora_telem_thread(void)
+{
+	k_msleep(1000);
+
+	while (true) {
+		/* CAN 优先: 仅在 CAN 断开时通过 LoRa 发送遥测 */
+		if (global_params.connect_type == CAN_TYPE) {
+			k_msleep(LORA_TELEM_INTERVAL_MS);
+			continue;
+		}
+
+		lora_send_telemetry(&global_params);
+		k_msleep(LORA_TELEM_INTERVAL_MS);
+	}
+}
+K_THREAD_DEFINE(lora_telem, 1024, lora_telem_thread,
+		NULL, NULL, NULL, 10, 0, 0);
+
+/* ================================================================
  * AT 模式进入 — +++ → a → +OK 握手
  *
  * 时序要求 (WH-L101-L):

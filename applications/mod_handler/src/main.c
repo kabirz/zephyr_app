@@ -35,6 +35,7 @@ int main(void)
 static int main_init(void)
 {
 	global_params.can_heart_time = CAN_HEART_TIME;
+	global_params.connect_type = CAN_TYPE;
 	k_event_init(&global_params.event);
 	return 0;
 }

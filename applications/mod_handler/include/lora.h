@@ -12,6 +12,31 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <common.h>
+
+/**
+ * @brief LoRa 遥测数据帧格式 (8 字节)
+ *
+ * Offset  Size  Field
+ * 0       1     帧头 0xAA
+ * 1       2     X 角度 (int16_t, 单位 0.1°, 范围 -200~+200)
+ * 3       2     Y 角度 (int16_t, 单位 0.1°, 范围 -200~+200)
+ * 5       1     按键状态 (0=松开, 1=按下)
+ * 6       1     电量百分比 (0~100)
+ * 7       1     校验和 (XOR of bytes 0~6)
+ */
+#define LORA_TELEM_HEADER  0xAA
+#define LORA_TELEM_LEN     8
+
+/**
+ * @brief 打包并发送遥测数据帧
+ *
+ * 将操纵杆角度、按键状态、电量打包为二进制帧通过 LoRa 发送.
+ *
+ * @param params 全局参数
+ * @return true 发送成功, false 模块繁忙或模式不匹配
+ */
+bool lora_send_telemetry(const gloval_params_t *params);
 
 /**
  * @brief 数据模式下发送透传数据

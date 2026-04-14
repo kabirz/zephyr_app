@@ -20,22 +20,30 @@ mod_handler 是一个运行在 STM32F103RCT6 (ARM Cortex-M3, 72MHz, 256KB Flash,
 ```
 main() + SYS_INIT
   |
+  +-- 主循环 (main thread)
+  |     +-- 500ms 周期: OLED 刷新 + LoRa 遥测发送
+  |
   +-- CAN 总线 (mod_can_process_thread, priority 11)
   |     +-- 固件升级协议 (fw_update)
   |     +-- 心跳发送 (mod_heart_thread, priority 11)
   |
   +-- LoRa UART (WH-L101-L, UART async + DMA, lora_msg_process_thread, priority 12)
   |     +-- 数据模式: DMA 双缓冲透传, rx_timeout=20ms 判定帧边界
+  |     +-- 遥测发送: 8 字节帧 (角度/按键/电量), 500ms 周期
   |     +-- AT 模式: +++a 握手进入, 同步指令, 经 USR-LG210-L 网关中转
+  |     +-- 网关管理: 透传/组网双模式, SPD/CH/NID 配置
   |
   +-- ADC 操纵杆 (adc_read_thread, priority 7)
-  |     +-- X/Y 角度采集 + 电源电压
+  |     +-- X/Y 角度采集 → global_params.x/y_degree
+  |     +-- 电源电压采集 → global_params.power_level (百分比)
   |
   +-- 电池 & 按键 (battery_monitor_thread, priority 7)
-  |     +-- 充电状态检测 + 按键中断
+  |     +-- 充电状态检测 + 按键中断 (h_button 状态切换)
   |
-  +-- OLED 显示 (SH1106 128x64, I2C)
-  |     +-- 直接帧缓冲写入 (16x16 中文字模)
+  +-- OLED 显示 (SH1106 128x64, I2C, 主循环驱动)
+  |     +-- Row 0: 连接类型 (CAN/LORA) + 24x16 水平电池图标 + 电量
+  |     +-- Row 1-2: X/Y 角度值
+  |     +-- Row 3: 按键状态
   |
   +-- 电源管理 (can_power_init, PRE_KERNEL_2)
         +-- 4 路 GPIO 电源开关 + PM notifier
@@ -48,9 +56,13 @@ main() + SYS_INIT
 - **OTA 通过 CAN**: 固件升级完全通过 CAN 总线传输，分两阶段 -- 控制帧走 `PLATFORM_RX` (0x103)，数据帧走 `FW_DATA_RX` (0x103)。使用 MCUBoot swap-with-scratch 确保掉电安全。
 - **外设独立供电**: CAN、LoRa、显示屏、5V 电源各有独立 GPIO 使能引脚，由 `power.c` 统一管理。
 - **线程间通信**: CAN 和 LoRa 各自使用 `k_msgq`，心跳使用 `k_sem` + `k_event` 组合实现超时检测。
-- **LoRa 通信链路**: 使用有人物联网 WH-L101-L 模块 (串口透传)，通过 USR-LG210-L 网关与激光设备组网。HOSTWAKE 引脚 (PA0) 用于检测模块忙状态和通知模块进入发送模式。
-- **LoRa 双模式驱动**: `lora.c` 基于 UART async API + DMA 实现。数据模式使用 DMA 双缓冲 + `rx_timeout=20ms` 判定帧边界；AT 模式通过 `+++` → `a` → `+OK` 握手进入，支持同步指令收发。公共接口定义在 `include/lora.h`。
-- **Shell 调试**: LoRa 模块注册了 `lora send <data>`、`lora at <cmd>`、`lora exit` shell 命令用于调试。
+- **LoRa 双模式驱动**: `lora.c` 基于 UART async API + DMA 实现。数据模式使用 DMA 双缓冲 + `rx_timeout=20ms` 判定帧边界；AT 模式通过 `+++` → `a` → `+OK` 握手进入，支持同步指令收发。
+- **LoRa 遥测协议**: 8 字节二进制帧 (0xAA + X/Y int16 + 按键 + 电量 + XOR校验)，主循环 500ms 周期调用 `lora_send_telemetry()` 发送。帧格式定义在 `lora.h`。
+- **LoRa 网关管理**: 支持透传模式 (`LORA_GW_MODE_TRANS`, 仅 SPD+CH) 和组网模式 (`LORA_GW_MODE_NETWORK`, 需要 NID)。通过 `lora_gw_configure()` 一键配置并重启模块。
+- **OLED 显示**: 主循环 500ms 刷新全屏，使用 8x16 ASCII 字体 (`font_8x16.c`, 95 字符) + 24x16 水平电池图标 (5 级)。所有 display_write 通过 `display_mutex` 保护。
+- **ADC 数据流**: 500ms 周期采集，角度写入 `global_params.x/y_degree`，电压通过 3.0V~4.2V 线性映射为 `power_level` 百分比。
+- **连接类型**: `connect_type` 字段区分 `CAN_TYPE (1)` 和 `LORA_TYPE (2)`，默认 CAN。
+- **Shell 调试**: `lora send/at/exit` 基础命令 + `lora gw config/query` 网关管理命令。
 
 ---
 
@@ -65,8 +77,6 @@ west build -b lora_f103rct6 . --sysbuild
 # 带 shell 和 imgmgr snippet
 west build -b lora_f103rct6 . --sysbuild -Dmod_handler_SNIPPET=imgmgr-shell
 ```
-
-> 注意: README.md 中引用的 `laser_f103ret7` 是旧板型名，当前应使用 `lora_f103rct6`。
 
 ### 烧录
 
@@ -90,7 +100,7 @@ west build -b lora_f103rct6 . --sysbuild --pristine
 | 显示电源 | PC8 | GPIO 输出 |
 | LoRa 电源 | PC9 | GPIO 输出 |
 | 5V 使能 | PA8 | GPIO 输出 |
-| LoRa HOSTWAKE | PA0 | GPIO 双向 |
+| LoRa HOSTWAKE | PA0 | GPIO 输入 (模块忙状态) |
 | LoRa RESET | PB3 | GPIO 输出 |
 | 操纵手柄按键 | PB0 | GPIO 输入 |
 | 充电满 | PB12 | GPIO 输入上拉 (低有效) |
@@ -118,25 +128,39 @@ west build -b lora_f103rct6 . --sysbuild --pristine
 | 0x103 (`FW_DATA_RX`) | 平台->手柄 | 固件数据传输 |
 | 0x763 (`COBID_HEATBEAT`) | 手柄->平台 | 心跳 (400ms 周期) |
 
+## LoRa 遥测帧格式
+
+8 字节二进制帧，主循环 500ms 周期发送至 LG210 网关:
+
+| 偏移 | 长度 | 字段 | 说明 |
+|------|------|------|------|
+| 0 | 1 | 帧头 | 0xAA |
+| 1-2 | 2 | X 角度 | int16_t LE, 单位 0.1° |
+| 3-4 | 2 | Y 角度 | int16_t LE, 单位 0.1° |
+| 5 | 1 | 按键 | 0=松开, 1=按下 |
+| 6 | 1 | 电量 | 0~100% |
+| 7 | 1 | 校验和 | XOR(bytes 0~6) |
+
 ---
 
 ## 源码结构
 
 ```
 include/
-  common.h          -- 全局状态类型定义 (gloval_params_t)
+  common.h          -- 全局状态类型定义 (gloval_params_t, CAN_TYPE/LORA_TYPE)
   mod-can.h         -- CAN 协议定义 + 固件升级接口
-  lora.h            -- LoRa 驱动公共接口 (数据发送/AT 模式/HOSTWAKE)
+  lora.h            -- LoRa 驱动接口 (透传/AT/遥测帧/网关配置)
   display.h         -- 显示模块接口
   power.h           -- 外设电源控制接口
 src/
-  main.c            -- 入口 + SYS_INIT 初始化
+  main.c            -- 入口 + 主循环 (显示刷新 + LoRa 遥测)
   can.c             -- CAN 收发 + 心跳线程
   firmware.c        -- OTA 固件升级状态机
-  lora.c            -- LoRa UART async+DMA 驱动 (双模式: 数据/AT)
-  adc.c             -- ADC 操纵杆角度采集
+  lora.c            -- LoRa UART async+DMA + 遥测帧 + 网关管理 + Shell
+  font_8x16.c       -- 8x16 ASCII 字体位图 (95 字符, 1520 字节)
+  adc.c             -- ADC 操纵杆角度采集 + 电量映射
   battery.c         -- 电池/按键 GPIO 监测
-  display.c         -- SH1106 OLED 显示
+  display.c         -- SH1106 OLED 显示 (8x16 文本 + 水平电池图标)
   power.c           -- 外设电源管理 + PM notifier
 boards/
   lora_f103rct6.overlay  -- 板级 devicetree 覆盖
@@ -154,7 +178,7 @@ VERSION                  -- 版本号 (0.1.2-release)
 | `mod_can` | `mod_can_process_thread` | 2048 | 11 | CAN 消息接收与分发 |
 | `can_heart` | `mod_heart_thread` | 1024 | 11 | CAN 心跳保活 |
 | `lora_msg` | `lora_msg_process_thread` | 1024 | 12 | LoRa 串口消息处理 |
-| `adc_thread_id` | `adc_read_thread` | 1024 | 7 | ADC 周期采集 (3s) |
+| `adc_thread_id` | `adc_read_thread` | 1024 | 7 | ADC 周期采集 (500ms) |
 | `battery_monitor_tid` | `battery_monitor_thread` | 1024 | 7 | 电池状态监测 (5s) |
 
 ---
@@ -167,6 +191,8 @@ VERSION                  -- 版本号 (0.1.2-release)
 - 初始化使用 `SYS_INIT` 分级初始化
 - GPIO 引脚全部通过 `zephyr,user` devicetree 节点定义
 - 头文件保护使用 `#ifndef _MOD_XXX_H__` 或 `#ifndef __MOD_XXX_H__` 模式
+- 显示刷新和 LoRa 遥测在主循环中执行，不新增线程
+- 所有 display_write 调用通过 `display_mutex` 保护
 
 ---
 
@@ -175,7 +201,9 @@ VERSION                  -- 版本号 (0.1.2-release)
 - 修改 CAN 协议时，同步更新 `mod-can.h` 中的枚举定义
 - 添加新外设时，先在 `boards/lora_f103rct6.overlay` 的 `zephyr,user` 节点中定义引脚，然后在对应驱动中用 `GPIO_DT_SPEC_GET` / `ADC_DT_SPEC_GET_BY_IDX` 获取
 - 电源管理相关代码目前被注释掉 (`CONFIG_PM` 未启用)，如需启用需在 `prj.conf` 中取消注释
-- 显示模块多数函数体为空，属于预留接口
-- `gloval_params_t` 中 `connect_type` 字段使用了位掩码 (`CAN_TYPE`, `LORA_TYPE`) 但当前未被使用
+- `gloval_params_t` 中 `connect_type` 使用 `CAN_TYPE (1)` / `LORA_TYPE (2)` 区分连接类型
 - Flash 分区: 内部 Flash 仅存放 mcuboot(64KB) + image-0(192KB)，image-1 和 scratch 在外部 SPI Flash (GD25Q80)
 - `main.c` 中的 `#ifndef CONFIG_FLASH_SIZE` 保护是针对 native_sim 构建的兼容处理
+- 字体/图标位图取模方式: MONO_VTILED, MSB 上高位, 与 SH1106 原生格式一致
+- LoRa AT 指令格式参考 `doc/` 目录下的 WH-L101-L AT 指令集和 LG210 协议说明书
+- 修改遥测帧格式时，需同步更新 `lora.h` 中的帧格式注释和 `lora.c` 中的打包逻辑

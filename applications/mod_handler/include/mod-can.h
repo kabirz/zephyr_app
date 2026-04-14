@@ -3,12 +3,14 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/can.h>
+#include <common.h>
 
 enum {
-	PLATFORM_RX   = 0x101,
-	PLATFORM_TX   = 0x102,
-	FW_DATA_RX    = 0x103,
+	PLATFORM_RX    = 0x101,
+	PLATFORM_TX    = 0x102,
+	FW_DATA_RX     = 0x103,
 	COBID_HEATBEAT = 0x763,
+	COBID_TELEMETRY = 0x764,
 };
 
 enum fw_error_code {
@@ -49,4 +51,12 @@ struct image_fw_msg {
 };
 int fw_update(struct can_frame *frame);
 int mod_can_send(struct can_frame *frame);
+
+/**
+ * @brief 通过 CAN 发送遥测帧 (X/Y 角度 + 按键 + 电量)
+ *
+ * @param params 全局参数
+ * @return 0 成功, 负数失败
+ */
+int mod_can_send_telemetry(const gloval_params_t *params);
 #endif

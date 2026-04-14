@@ -134,13 +134,16 @@ void mod_heart_thread(void)
 
 			if (atomic_get(&heart_send_success) || ret == 0) {
 				fail_count = 0;
+				global_params.connect_type = CAN_TYPE;
+				mod_can_send_telemetry(&global_params);
 			} else {
 				fail_count++;
 				LOG_WRN("heartbeat send failed, count: %d", fail_count);
 			}
 
 			if (fail_count >= 3) {
-				LOG_WRN("heartbeat failed 3 times, sleeping...");
+				LOG_WRN("heartbeat failed 3 times, switching to LoRa");
+				global_params.connect_type = LORA_TYPE;
 				k_sem_reset(&heart_wake_sem);
 				k_event_clear(&global_params.event, TIMEOUT_EVENT);
 				break;
@@ -153,3 +156,30 @@ void mod_heart_thread(void)
 }
 
 K_THREAD_DEFINE(can_heart, 1024, mod_heart_thread, NULL, NULL, NULL, 11, 0, 0);
+
+/* ================================================================
+ * CAN 遥测帧发送 — X/Y 角度 + 按键 + 电量
+ *
+ * 帧 ID: 0x764 (COBID_TELEMETRY), DLC: 6
+ * Data[0-1]: X 角度 (int16_t LE, 0.1° 单位)
+ * Data[2-3]: Y 角度 (int16_t LE, 0.1° 单位)
+ * Data[4]:   按键 (0/1)
+ * Data[5]:   电量 (0~100)
+ * ================================================================ */
+int mod_can_send_telemetry(const gloval_params_t *params)
+{
+	int16_t x_raw = (int16_t)(params->x_degree * 10);
+	int16_t y_raw = (int16_t)(params->y_degree * 10);
+
+	struct can_frame frame = {
+		.id = COBID_TELEMETRY,
+		.dlc = can_bytes_to_dlc(6),
+	};
+
+	memcpy(&frame.data[0], &x_raw, sizeof(x_raw));
+	memcpy(&frame.data[2], &y_raw, sizeof(y_raw));
+	frame.data[4] = params->h_button ? 1 : 0;
+	frame.data[5] = params->power_level;
+
+	return mod_can_send(&frame);
+}
