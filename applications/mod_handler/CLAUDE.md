@@ -21,15 +21,18 @@ mod_handler 是一个运行在 STM32F103RCT6 (ARM Cortex-M3, 72MHz, 256KB Flash,
 main() + SYS_INIT
   |
   +-- 主循环 (main thread)
-  |     +-- 500ms 周期: OLED 刷新 + LoRa 遥测发送
+  |     +-- 500ms 周期: OLED 刷新
   |
   +-- CAN 总线 (mod_can_process_thread, priority 11)
   |     +-- 固件升级协议 (fw_update)
   |     +-- 心跳发送 (mod_heart_thread, priority 11)
+  |     +-- CAN 遥测: 心跳成功时发送 0x764 帧 (X/Y + 按键 + 电量)
+  |     +-- LoRa 远程配参: 0x105/0x106 (k_work 异步, 不阻塞 CAN 线程)
+  |     +-- 心跳失败 3 次 → connect_type = LORA_TYPE
   |
   +-- LoRa UART (WH-L101-L, UART async + DMA, lora_msg_process_thread, priority 12)
   |     +-- 数据模式: DMA 双缓冲透传, rx_timeout=20ms 判定帧边界
-  |     +-- 遥测发送: 8 字节帧 (角度/按键/电量), 500ms 周期
+  |     +-- 遥测发送: 8 字节帧 (角度/按键/电量), 500ms 周期 (仅 CAN 断开时)
   |     +-- AT 模式: +++a 握手进入, 同步指令, 经 USR-LG210-L 网关中转
   |     +-- 网关管理: 透传/组网双模式, SPD/CH/NID 配置
   |
@@ -52,13 +55,16 @@ main() + SYS_INIT
 ### 关键设计决策
 
 - **全局状态共享**: `gloval_params_t global_params` (定义在 `common.h`) 是所有模块共享的中心状态结构，包含操纵杆角度、电池状态、事件对象等。
-- **心跳保活机制**: CAN 心跳线程在发送失败 3 次后自动休眠，直到 `TIMEOUT_EVENT` 重新触发。
+- **心跳保活机制**: CAN 心跳线程在发送失败 3 次后将 `connect_type` 切换为 `LORA_TYPE`，直到 `TIMEOUT_EVENT` 重新触发。心跳成功时设置 `connect_type = CAN_TYPE` 并发送 CAN 遥测帧 (0x764)。
 - **OTA 通过 CAN**: 固件升级完全通过 CAN 总线传输，分两阶段 -- 控制帧走 `PLATFORM_RX` (0x103)，数据帧走 `FW_DATA_RX` (0x103)。使用 MCUBoot swap-with-scratch 确保掉电安全。
 - **外设独立供电**: CAN、LoRa、显示屏、5V 电源各有独立 GPIO 使能引脚，由 `power.c` 统一管理。
 - **线程间通信**: CAN 和 LoRa 各自使用 `k_msgq`，心跳使用 `k_sem` + `k_event` 组合实现超时检测。
 - **LoRa 双模式驱动**: `lora.c` 基于 UART async API + DMA 实现。数据模式使用 DMA 双缓冲 + `rx_timeout=20ms` 判定帧边界；AT 模式通过 `+++` → `a` → `+OK` 握手进入，支持同步指令收发。
-- **LoRa 遥测协议**: 8 字节二进制帧 (0xAA + X/Y int16 + 按键 + 电量 + XOR校验)，主循环 500ms 周期调用 `lora_send_telemetry()` 发送。帧格式定义在 `lora.h`。
-- **LoRa 网关管理**: 支持透传模式 (`LORA_GW_MODE_TRANS`, 仅 SPD+CH) 和组网模式 (`LORA_GW_MODE_NETWORK`, 需要 NID)。通过 `lora_gw_configure()` 一键配置并重启模块。
+- **LoRa 遥测协议**: 8 字节二进制帧 (0xAA + X/Y int16 + 按键 + 电量 + XOR校验)，独立线程 `lora_telem` 500ms 周期发送，仅在 `connect_type != CAN_TYPE` 时发送。帧格式定义在 `lora.h`。
+- **CAN 遥测协议**: 帧 ID 0x764 (`COBID_TELEMETRY`)，6 字节 payload (X/Y int16 LE + 按键 + 电量)，由心跳线程在心跳成功时随周期发送。
+- **CAN/LoRa 互斥**: 默认 `connect_type = CAN_TYPE` (在 `main_init` 中设置)。CAN 心跳成功 → 保持 CAN_TYPE + 发 CAN 遥测；心跳 3 次失败 → 切换 LORA_TYPE，LoRa 线程自动接管遥测；CAN 恢复 → 自动切回。
+- **LoRa 网关管理**: 支持透传模式 (`LORA_GW_MODE_TRANS`, 仅 SPD+CH) 和组网模式 (`LORA_GW_MODE_NETWORK`, 需要 NID)。通过 `lora_gw_configure()` 一键配置并重启模块。也可通过 CAN 帧 0x105/0x106 远程设置/查询。
+- **CAN 远程配参**: Host 通过 CAN 帧 `LORA_CONFIG_RX` (0x105) 发送 SET/QUERY 命令，设备通过 `LORA_CONFIG_TX` (0x106) 响应。配置操作耗时 10s+（AT 模式握手 + 模块重启），使用 `k_work` 异步执行，不阻塞 CAN 接收线程。命令/结果枚举定义在 `mod-can.h`。
 - **OLED 显示**: 主循环 500ms 刷新全屏，使用 8x16 ASCII 字体 (`font_8x16.c`, 95 字符) + 24x16 水平电池图标 (5 级)。所有 display_write 通过 `display_mutex` 保护。
 - **ADC 数据流**: 500ms 周期采集，角度写入 `global_params.x/y_degree`，电压通过 3.0V~4.2V 线性映射为 `power_level` 百分比。
 - **连接类型**: `connect_type` 字段区分 `CAN_TYPE (1)` 和 `LORA_TYPE (2)`，默认 CAN。
@@ -127,6 +133,9 @@ west build -b lora_f103rct6 . --sysbuild --pristine
 | 0x102 (`PLATFORM_TX`) | 手柄->平台 | 响应帧 |
 | 0x103 (`FW_DATA_RX`) | 平台->手柄 | 固件数据传输 |
 | 0x763 (`COBID_HEATBEAT`) | 手柄->平台 | 心跳 (400ms 周期) |
+| 0x764 (`COBID_TELEMETRY`) | 手柄->平台 | 遥测 (X/Y 角度 + 按键 + 电量) |
+| 0x105 (`LORA_CONFIG_RX`) | 平台->手柄 | LoRa 参数设置/查询命令 |
+| 0x106 (`LORA_CONFIG_TX`) | 手柄->平台 | LoRa 参数配置/查询响应 |
 
 ## LoRa 遥测帧格式
 
@@ -153,10 +162,10 @@ include/
   display.h         -- 显示模块接口
   power.h           -- 外设电源控制接口
 src/
-  main.c            -- 入口 + 主循环 (显示刷新 + LoRa 遥测)
-  can.c             -- CAN 收发 + 心跳线程
+  main.c            -- 入口 + 主循环 (显示刷新)
+  can.c             -- CAN 收发 + 心跳线程 + CAN 遥测 + LoRa 远程配参 (k_work)
   firmware.c        -- OTA 固件升级状态机
-  lora.c            -- LoRa UART async+DMA + 遥测帧 + 网关管理 + Shell
+  lora.c            -- LoRa UART async+DMA + 遥测帧 (CAN 断开时) + 网关管理 + Shell
   font_8x16.c       -- 8x16 ASCII 字体位图 (95 字符, 1520 字节)
   adc.c             -- ADC 操纵杆角度采集 + 电量映射
   battery.c         -- 电池/按键 GPIO 监测
@@ -178,6 +187,7 @@ VERSION                  -- 版本号 (0.1.2-release)
 | `mod_can` | `mod_can_process_thread` | 2048 | 11 | CAN 消息接收与分发 |
 | `can_heart` | `mod_heart_thread` | 1024 | 11 | CAN 心跳保活 |
 | `lora_msg` | `lora_msg_process_thread` | 1024 | 12 | LoRa 串口消息处理 |
+| `lora_telem` | `lora_telem_thread` | 1024 | 10 | LoRa 遥测发送 (仅 CAN 断开时, 500ms) |
 | `adc_thread_id` | `adc_read_thread` | 1024 | 7 | ADC 周期采集 (500ms) |
 | `battery_monitor_tid` | `battery_monitor_thread` | 1024 | 7 | 电池状态监测 (5s) |
 
@@ -191,7 +201,7 @@ VERSION                  -- 版本号 (0.1.2-release)
 - 初始化使用 `SYS_INIT` 分级初始化
 - GPIO 引脚全部通过 `zephyr,user` devicetree 节点定义
 - 头文件保护使用 `#ifndef _MOD_XXX_H__` 或 `#ifndef __MOD_XXX_H__` 模式
-- 显示刷新和 LoRa 遥测在主循环中执行，不新增线程
+- 显示刷新在主循环中执行，LoRa 遥测在独立线程中执行 (仅 CAN 断开时发送)
 - 所有 display_write 调用通过 `display_mutex` 保护
 
 ---
@@ -206,4 +216,7 @@ VERSION                  -- 版本号 (0.1.2-release)
 - `main.c` 中的 `#ifndef CONFIG_FLASH_SIZE` 保护是针对 native_sim 构建的兼容处理
 - 字体/图标位图取模方式: MONO_VTILED, MSB 上高位, 与 SH1106 原生格式一致
 - LoRa AT 指令格式参考 `doc/` 目录下的 WH-L101-L AT 指令集和 LG210 协议说明书
-- 修改遥测帧格式时，需同步更新 `lora.h` 中的帧格式注释和 `lora.c` 中的打包逻辑
+- 修改遥测帧格式时，需同步更新 `lora.h` 中的帧格式注释、`lora.c` 中的 LoRa 打包逻辑、`mod-can.h` 和 `can.c` 中的 CAN 遥测逻辑
+- CAN/LoRa 互斥通过 `global_params.connect_type` 控制: CAN 心跳线程写、LoRa 遥测线程读，无需额外锁 (atomic 级别的 byte 写入)
+- CAN 远程配参 (0x105/0x106) 使用 `k_work` 异步处理: CAN 接收线程解析参数后 `k_work_submit()`，工作队列执行 `lora_gw_configure()` / `lora_gw_query()` 完成后发送响应帧
+- `lora_cfg_work`、`pending_lora_cfg`、`lora_cfg_cmd` 为 `can.c` 内部 static 变量，由 CAN 接收线程写入、系统工作队列读取，单生产者单消费者无需锁

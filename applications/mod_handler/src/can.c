@@ -1,5 +1,6 @@
 #include <zephyr/kernel.h>
 #include <mod-can.h>
+#include <lora.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/logging/log.h>
 #include <common.h>
@@ -11,6 +12,8 @@ CAN_MSGQ_DEFINE(mod_can_msgq, 8);
 static K_SEM_DEFINE(heart_wake_sem, 1, 1);
 static atomic_t heart_send_success = ATOMIC_INIT(0);
 
+static void can_lora_config_handler(struct can_frame *frame);
+
 static void mod_canrx_msg_handler(struct can_frame *frame)
 {
 	k_sem_give(&heart_wake_sem);
@@ -19,6 +22,9 @@ static void mod_canrx_msg_handler(struct can_frame *frame)
 	case PLATFORM_RX:
 	case FW_DATA_RX:
 		fw_update(frame);
+		break;
+	case LORA_CONFIG_RX:
+		can_lora_config_handler(frame);
 		break;
 	default:
 		LOG_ERR("can frame id (0x%x) is not support", frame->id);
@@ -39,6 +45,67 @@ static void mod_cantx_callback(const struct device *dev, int error, void *user_d
 		LOG_DBG("CAN frame #%u successfully sent", count);
 	} else {
 		LOG_ERR("failed to send CAN frame #%u (err %d)", count, error);
+	}
+}
+
+/* ================================================================
+ * LoRa 参数配置 — CAN 远程设置/查询, k_work 异步执行
+ *   lora_gw_configure() 涉及 AT 模式握手 + 模块重启 (10s+),
+ *   不能在 CAN 接收线程中同步执行, 提交到系统工作队列
+ * ================================================================ */
+static struct k_work lora_cfg_work;
+static struct lora_gw_config pending_lora_cfg;
+static uint8_t lora_cfg_cmd;
+
+static void lora_cfg_work_handler(struct k_work *work)
+{
+	struct can_frame resp = {
+		.id = LORA_CONFIG_TX,
+		.dlc = can_bytes_to_dlc(6),
+	};
+
+	if (lora_cfg_cmd == LORA_CMD_SET) {
+		int ret = lora_gw_configure(&pending_lora_cfg);
+
+		resp.data[0] = (ret == 0) ? LORA_CFG_OK : LORA_CFG_FAIL;
+		LOG_INF("LoRa config SET: ret=%d mode=%d spd=%d ch=%d nid=%d",
+			ret, pending_lora_cfg.mode, pending_lora_cfg.spd,
+			pending_lora_cfg.ch, pending_lora_cfg.nid);
+		mod_can_send(&resp);
+	} else if (lora_cfg_cmd == LORA_CMD_QUERY) {
+		struct lora_gw_config cfg;
+		int ret = lora_gw_query(&cfg);
+
+		resp.data[0] = (ret == 0) ? LORA_CFG_OK : LORA_CFG_FAIL;
+		if (ret == 0) {
+			resp.data[1] = (uint8_t)cfg.mode;
+			resp.data[2] = cfg.spd;
+			resp.data[3] = cfg.ch;
+			memcpy(&resp.data[4], &cfg.nid, sizeof(cfg.nid));
+			LOG_INF("LoRa config QUERY: mode=%d spd=%d ch=%d nid=%d",
+				cfg.mode, cfg.spd, cfg.ch, cfg.nid);
+		} else {
+			LOG_ERR("LoRa config QUERY failed: %d", ret);
+		}
+		mod_can_send(&resp);
+	}
+}
+
+static void can_lora_config_handler(struct can_frame *frame)
+{
+	lora_cfg_cmd = frame->data[0];
+
+	if (lora_cfg_cmd == LORA_CMD_SET) {
+		pending_lora_cfg.mode = (frame->data[1] == 1)
+			? LORA_GW_MODE_NETWORK : LORA_GW_MODE_TRANS;
+		pending_lora_cfg.spd = frame->data[2];
+		pending_lora_cfg.ch = frame->data[3];
+		memcpy(&pending_lora_cfg.nid, &frame->data[4], sizeof(uint16_t));
+		k_work_submit(&lora_cfg_work);
+	} else if (lora_cfg_cmd == LORA_CMD_QUERY) {
+		k_work_submit(&lora_cfg_work);
+	} else {
+		LOG_ERR("Unknown LoRa config cmd: 0x%02x", lora_cfg_cmd);
 	}
 }
 
@@ -88,6 +155,11 @@ int mod_can_init(void)
 
 	filter.id = FW_DATA_RX;
 	can_add_rx_filter_msgq(can_dev, &mod_can_msgq, &filter);
+
+	filter.id = LORA_CONFIG_RX;
+	can_add_rx_filter_msgq(can_dev, &mod_can_msgq, &filter);
+
+	k_work_init(&lora_cfg_work, lora_cfg_work_handler);
 end:
 	return err;
 }

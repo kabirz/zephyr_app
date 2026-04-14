@@ -6,11 +6,13 @@
 #include <common.h>
 
 enum {
-	PLATFORM_RX    = 0x101,
-	PLATFORM_TX    = 0x102,
-	FW_DATA_RX     = 0x103,
-	COBID_HEATBEAT = 0x763,
+	PLATFORM_RX     = 0x101,
+	PLATFORM_TX     = 0x102,
+	FW_DATA_RX      = 0x103,
+	COBID_HEATBEAT  = 0x763,
 	COBID_TELEMETRY = 0x764,
+	LORA_CONFIG_RX  = 0x105,
+	LORA_CONFIG_TX  = 0x106,
 };
 
 enum fw_error_code {
@@ -36,6 +38,18 @@ enum {
 	LASER_ON,
 	LASER_CON_MESURE,
 	LASER_FW_UPDATE,
+};
+
+/* LoRa 配置命令 */
+enum lora_config_cmd {
+	LORA_CMD_SET   = 0x01,
+	LORA_CMD_QUERY = 0x02,
+};
+
+/* LoRa 配置结果 */
+enum lora_config_result {
+	LORA_CFG_OK   = 0x00,
+	LORA_CFG_FAIL = 0x01,
 };
 
 #define CAN_HEART_TIME 400
