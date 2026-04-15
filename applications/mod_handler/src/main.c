@@ -24,6 +24,7 @@ int main(void)
 	       __DATE__, __TIME__, CONFIG_BOARD_TARGET,
 	       CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC / 1000000, CONFIG_FLASH_SIZE, APP_VERSION_STRING);
 	mod_display_init();
+	mod_display_clear();
 	while (1) {
 		mod_display_all(&global_params);
 		k_sleep(K_MSEC(500));

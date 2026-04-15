@@ -2,8 +2,13 @@
 #define _MOD_DISPLAY_H
 #include <common.h>
 
+typedef struct {
+	char val;
+	uint8_t data[16];
+} font8x16_t;
+
 int mod_display_init(void);
-void mod_display_demo(void);
+void mod_display_clear(void);
 void mod_display_battery(const gloval_params_t *params);
 void mod_display_handler_x(const gloval_params_t *params);
 void mod_display_handler_y(const gloval_params_t *params);

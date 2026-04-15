@@ -17,6 +17,7 @@
 #include <zephyr/drivers/display.h>
 #include <zephyr/logging/log.h>
 #include <stdio.h>
+#include <display.h>
 
 LOG_MODULE_REGISTER(mod_display, LOG_LEVEL_INF);
 
@@ -27,7 +28,8 @@ LOG_MODULE_REGISTER(mod_display, LOG_LEVEL_INF);
 #define FONT_8X16_LAST  0x7E
 #define FONT_8X16_COUNT (FONT_8X16_LAST - FONT_8X16_FIRST + 1)
 
-extern const uint8_t font_8x16[FONT_8X16_COUNT][16];
+extern const font8x16_t font_8x16[];
+extern int font_8x16_len;
 
 /* ================================================================
  * 显示设备 + 全局状态
@@ -75,10 +77,15 @@ static void display_write_buf(int x, int y, int w, int h, const void *data)
 /* 渲染单个 8x16 ASCII 字符 */
 static void display_char(char ch, int x, int y)
 {
-	if (ch < FONT_8X16_FIRST || ch > FONT_8X16_LAST) {
-		ch = '?';
+	for (int i = 0; i < font_8x16_len; i++) {
+		if (font_8x16[i].val == ch) {
+			display_write_buf(x, y, 8, 16, font_8x16[i].data);
+			return;
+		}
+
 	}
-	display_write_buf(x, y, 8, 16, font_8x16[ch - FONT_8X16_FIRST]);
+	LOG_ERR("without '%c' in table", ch);
+	display_write_buf(x, y, 8, 16, font_8x16[0].data);
 }
 
 /* 渲染字符串, 返回末尾 x 坐标 */
@@ -93,46 +100,15 @@ static int display_str(const char *s, int x, int y)
 }
 
 /* 用空格填充到行尾, 覆盖旧内容 */
-static void display_clear_rest(int x, int y)
+void mod_display_clear(void)
 {
-	uint8_t blank[8] = {0};
-
-	while (x + 8 <= 128) {
-		display_write_buf(x, y, 8, 16, blank);
-		x += 8;
-	}
-}
-
-/* ================================================================
- * 16x16 中文点阵 (保留兼容)
- * ================================================================ */
-static const uint8_t bitmap_bytes[][32] = {
-	/* 你 */
-	{0x02,0x04,0x1F,0xE0,0x02,0x04,0x18,0xF0,0x10,0x13,0x10,0x10,
-	 0x14,0x18,0x00,0x00,0x00,0x00,0xFF,0x00,0x00,0x10,0x20,0xC2,
-	 0x01,0xFE,0x00,0x80,0x60,0x30,0x00,0x00},
-	/* 好 */
-	{0x08,0x08,0x0F,0xF8,0x08,0x0F,0x01,0x41,0x41,0x41,0x47,0x49,
-	 0x51,0x63,0x01,0x00,0x02,0x44,0xA8,0x10,0x28,0xC6,0x00,0x00,
-	 0x02,0x01,0xFE,0x00,0x00,0x00,0x00,0x00},
-};
-
-void mod_display_16x16(const uint8_t *data, int x, int y)
-{
-	buf_desc.buf_size = 32;
-	buf_desc.height = 16;
-	buf_desc.width = 16;
-	buf_desc.pitch = 16;
-	display_write(display_dev, x, y, &buf_desc, data);
-}
-
-void mod_display_demo(void)
-{
-	for (int h = 0; h < capabilities.y_resolution; h += 16) {
-		for (int w = 0; w < capabilities.x_resolution; w += 16) {
-			mod_display_16x16(bitmap_bytes[(w % 32) == 16], w, h);
+	uint8_t blank[16] = {0};
+	for (int i = 0; i < capabilities.x_resolution; i += 8) {
+		for (int j = 0; j < capabilities.y_resolution; j += 16) {
+			display_write_buf(i, j, 8, 16, blank);
 		}
 	}
+
 }
 
 /* ================================================================
@@ -196,8 +172,6 @@ void mod_display_lora_can(const gloval_params_t *params)
 /* Row 0 右侧: 电池图标 + 百分比 + 充电状态 */
 void mod_display_battery(const gloval_params_t *params)
 {
-	char line[17];
-
 	k_mutex_lock(&display_mutex, K_FOREVER);
 
 	/* 选择对应格数的图标 */
@@ -208,40 +182,16 @@ void mod_display_battery(const gloval_params_t *params)
 	display_write_buf(40, 0, BATTERY_ICON_W, BATTERY_ICON_H,
 			  battery_icons[idx]);
 
-	/* 图标右侧: 百分比 + 充电状态 */
-	const char *status;
-
-	switch (params->battery_status) {
-	case BATTERY_STATUS_FULL:
-		status = "FUL";
-		break;
-	case BATTERY_STATUS_CHARGING:
-		status = "CHG";
-		break;
-	case BATTERY_STATUS_DISCHARGING:
-		status = "DIS";
-		break;
-	default:
-		status = "UNK";
-		break;
-	}
-
-	snprintf(line, sizeof(line), "%3d%% %s ", params->power_level, status);
-
-	/* 清除图标右侧区域后写入 */
-	display_clear_rest(64, 0);
-	display_str(line, 64, 0);
-
 	k_mutex_unlock(&display_mutex);
 }
 
 /* Row 1: X 轴角度 */
 void mod_display_handler_x(const gloval_params_t *params)
 {
-	char line[17];
+	char line[17] = {0};
 
 	k_mutex_lock(&display_mutex, K_FOREVER);
-	snprintf(line, sizeof(line), "X:%+5.1f      ", (double)params->x_degree);
+	snprintf(line, sizeof(line), "X: %d.%d", params->x_degree/10, params->x_degree%10);
 	display_str(line, 0, 16);
 	k_mutex_unlock(&display_mutex);
 }
@@ -249,10 +199,10 @@ void mod_display_handler_x(const gloval_params_t *params)
 /* Row 2: Y 轴角度 */
 void mod_display_handler_y(const gloval_params_t *params)
 {
-	char line[17];
+	char line[17] = {0};
 
 	k_mutex_lock(&display_mutex, K_FOREVER);
-	snprintf(line, sizeof(line), "Y:%+5.1f      ", (double)params->y_degree);
+	snprintf(line, sizeof(line), "Y: %d.%d", params->y_degree/10, params->y_degree%10);
 	display_str(line, 0, 32);
 	k_mutex_unlock(&display_mutex);
 }
@@ -263,7 +213,7 @@ void mod_display_handler_button(const gloval_params_t *params)
 	char line[17];
 
 	k_mutex_lock(&display_mutex, K_FOREVER);
-	snprintf(line, sizeof(line), "BTN:%s        ",
+	snprintf(line, sizeof(line), "BTN:%s",
 		 params->h_button ? "ON " : "OFF");
 	display_str(line, 0, 48);
 	k_mutex_unlock(&display_mutex);

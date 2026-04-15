@@ -15,8 +15,8 @@ typedef enum {
 
 
 typedef struct {
-	float x_degree;
-	float y_degree;
+	int x_degree;
+	int y_degree;
 	uint8_t h_button;
 	uint8_t power_level;
 #define CAN_TYPE  1

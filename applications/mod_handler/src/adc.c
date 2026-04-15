@@ -40,7 +40,7 @@ void adc_read_thread(void)
 	uint16_t buf;
 	struct adc_sequence sequence = {.buffer = &buf, .buffer_size = sizeof(buf)};
 	int32_t val_mv, mv_vcc = 0;
-	float x_degree = 0, y_degree = 0;
+	int x_degree = 0, y_degree = 0;
 
 	LOG_INF("ADC read thread started");
 
@@ -69,12 +69,12 @@ void adc_read_thread(void)
 			switch (i) {
 			case 0:
 				// X
-				x_degree = (float)(CLAMP(val_mv * 10 / 6, 500, 4500) - 500)/(4500-500)*40-20;
+				x_degree = 10*(CLAMP(val_mv * 10 / 6, 500, 4500) - 500)/(4500-500)*40-20;
 				global_params.x_degree = x_degree;
 				break;
 			case 1:
 				// Y
-				y_degree = (float)(CLAMP(val_mv * 10 / 6, 500, 4500) - 500)/(4500-500)*40-20;
+				y_degree = 10*(CLAMP(val_mv * 10 / 6, 500, 4500) - 500)/(4500-500)*40-20;
 				global_params.y_degree = y_degree;
 				break;
 			case 2:
