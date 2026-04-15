@@ -13,7 +13,10 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/sys/byteorder.h>
+#include <zephyr/sys/crc.h>
 #include <zephyr/logging/log.h>
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <power.h>
@@ -52,6 +55,7 @@ static K_MUTEX_DEFINE(lora_mode_mutex);
 static uint8_t rx_buf_a[LORA_BUF_SIZE];
 static uint8_t rx_buf_b[LORA_BUF_SIZE];
 static uint8_t *rx_next_buf = rx_buf_b;
+static uint32_t node_id;
 
 /* ================================================================
  * TX 同步 — 静态缓冲区, DMA 发送完成信号量
@@ -200,10 +204,25 @@ static void lora_rx_disable_sync(void)
  * ================================================================ */
 bool lora_data_send(const uint8_t *data, size_t len)
 {
+	uint8_t tx_data[32];
+	int offset = 0;
+
 	if (atomic_get(&lora_current_mode) != LORA_MODE_DATA) {
 		LOG_WRN("Not in data mode");
 		return false;
 	}
+	/* 节点ID */
+	snprintf(tx_data, 9, "%08x", node_id);
+	offset += 8;
+
+	/* 需要发送的数据 */
+	memcpy(tx_data+offset, data, len);
+	offset += len;
+
+	/* CRC16 */
+	*(uint16_t *)(tx_data+offset) = crc16_ccitt(0, tx_data, offset);
+
+	offset += 2;
 
 	/* 等待模块空闲 (HOSTWAKE 低 = 模块未在无线收发) */
 	int retry = 10;
@@ -215,43 +234,35 @@ bool lora_data_send(const uint8_t *data, size_t len)
 		return false;
 	}
 
-	int ret = lora_async_tx(data, len);
+	int ret = lora_async_tx(tx_data, offset);
 
 	return (ret == 0);
 }
 
 /* ================================================================
- * 遥测数据帧打包发送
+ * 遥测数据帧打包发送 — 与 CAN 手柄状态帧 (0x1E3) 格式一致
  *
- * 帧格式 (8 字节):
- *   [0]   帧头 0xAA
- *   [1-2] X 角度 (int16_t LE, 单位 0.1°)
- *   [3-4] Y 角度 (int16_t LE, 单位 0.1°)
- *   [5]   按键 (0/1)
- *   [6]   电量 (0~100)
- *   [7]   校验和 (XOR bytes 0~6)
+ * 帧格式 (8 字节, 大端序):
+ *   [0-1] X 角度 (int16_t BE, 0.1° 单位)
+ *   [2-3] Y 角度 (int16_t BE, 0.1° 单位)
+ *   [4]   按键 (bit0: btnHandler 反转, 按下=0, 松开=1)
+ *   [5-7] reserved (0xFF)
  * ================================================================ */
 bool lora_send_telemetry(const gloval_params_t *params)
 {
-	uint8_t frame[LORA_TELEM_LEN];
-	int16_t x_raw = (int16_t)(params->x_degree * 10);
-	int16_t y_raw = (int16_t)(params->y_degree * 10);
+	uint8_t frame[8];
 
-	frame[0] = LORA_TELEM_HEADER;
-	memcpy(&frame[1], &x_raw, sizeof(x_raw));
-	memcpy(&frame[3], &y_raw, sizeof(y_raw));
-	frame[5] = params->h_button ? 1 : 0;
-	frame[6] = params->power_level;
+	/* 大端序写入角度 */
+	sys_put_be16((uint16_t)params->x_degree, &frame[0]);
+	sys_put_be16((uint16_t)params->y_degree, &frame[2]);
 
-	/* XOR 校验 */
-	uint8_t xor_val = 0;
+	/* 按键: btnHandler 反转逻辑 (按下=0, 松开=1) */
+	frame[4] = params->h_button ? 0x00 : 0x01;
+	frame[5] = 0xFF;
+	frame[6] = 0xFF;
+	frame[7] = 0xFF;
 
-	for (int i = 0; i < LORA_TELEM_LEN - 1; i++) {
-		xor_val ^= frame[i];
-	}
-	frame[LORA_TELEM_LEN - 1] = xor_val;
-
-	return lora_data_send(frame, LORA_TELEM_LEN);
+	return lora_data_send(frame, sizeof(frame));
 }
 
 /* ================================================================
@@ -828,6 +839,19 @@ static int lora_serial_init(void)
 		return ret;
 	}
 
+
+	/* 进入 AT 模式读取模块参数 (NID/SPD/CH) */
+	struct lora_gw_config cfg;
+
+	ret = lora_gw_query(&cfg);
+	if (ret == 0) {
+		node_id = cfg.nid;
+		LOG_INF("LoRa params: mode=%s nid=0x%08x spd=%d ch=%d",
+			cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans",
+			node_id, cfg.spd, cfg.ch);
+	} else {
+		LOG_WRN("LoRa param query failed (%d), using defaults", ret);
+	}
 	LOG_INF("LoRa WH-L101-L initialized (async DMA, buf=%d, timeout=%dms)",
 		LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
 	return 0;

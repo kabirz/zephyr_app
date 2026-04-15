@@ -21,34 +21,34 @@ mod_handler 是一个运行在 STM32F103RCT6 (ARM Cortex-M3, 72MHz, 256KB Flash,
 main() + SYS_INIT
   |
   +-- 主循环 (main thread)
-  |     +-- 500ms 周期: OLED 刷新
+  |     +-- 启动时初始全屏刷新, 之后事件驱动
   |
   +-- CAN 总线 (mod_can_process_thread, priority 11)
   |     +-- 固件升级协议 (fw_update)
-  |     +-- 心跳发送 (mod_heart_thread, priority 11)
+  |     +-- 心跳发送 (mod_can_thread, priority 11)
   |     +-- 手柄状态上报: 心跳成功时发送 0x1E3 帧 (X/Y BE + 按键反转 + 0xFF)
-  |     +-- 扫描仪数据接收: 0x263/0x363/0x463 (超欠挖+激光+坐标, BE 解析)
+  |     +-- 扫描仪数据接收: 0x263/0x363/0x463 (即时解析+显示)
   |     +-- LoRa 远程配参: 0x105/0x106 (k_work 异步, 不阻塞 CAN 线程)
   |     +-- 心跳失败 3 次 → connect_type = LORA_TYPE
   |
   +-- LoRa UART (WH-L101-L, UART async + DMA, lora_msg_process_thread, priority 12)
   |     +-- 数据模式: DMA 双缓冲透传, rx_timeout=20ms 判定帧边界
-  |     +-- 遥测发送: 8 字节帧 (角度/按键/电量), 500ms 周期 (仅 CAN 断开时)
+  |     +-- 遥测发送: 8 字节帧 (角度/按键/电量), 事件驱动 (仅 CAN 断开时)
   |     +-- AT 模式: +++a 握手进入, 同步指令, 经 USR-LG210-L 网关中转
   |     +-- 网关管理: 透传/组网双模式, SPD/CH/NID 配置
   |
   +-- ADC 操纵杆 (adc_read_thread, priority 7)
-  |     +-- X/Y 角度采集 → global_params.x/y_degree
-  |     +-- 电源电压采集 → global_params.power_level (百分比)
+  |     +-- X/Y 角度采集 → 500ms, 变化时即时显示 + CAN/LoRa 发送
+  |     +-- 电源电压采集 → 5s 周期, 变化时即时显示
   |
   +-- 电池 & 按键 (battery_monitor_thread, priority 7)
-  |     +-- 充电状态检测 + 按键中断 (h_button 状态切换)
+  |     +-- 充电状态检测 + 按键中断 (ISR → k_work → 即时显示+发送)
   |
-  +-- OLED 显示 (SH1106 128x64, I2C, 主循环驱动)
-  |     +-- Row 0: 连接类型 (CAN/LORA) + 24x16 水平电池图标 + 电量
-  |     +-- Row 1: 激光距离 (D:) + 超欠挖 (OB:) (来自扫描仪 CAN 数据)
-  |     +-- Row 2: X/Y 轴角度 (紧凑格式)
-  |     +-- Row 3: 按键状态
+  +-- OLED 显示 (SH1106 128x64, I2C, 事件驱动)
+  |     +-- Row 0: 连接类型 (CAN/LORA) + 24x16 水平电池图标
+  |     +-- Row 1: 激光距离 (D:) + 超欠挖 (OB:) (扫描仪 CAN 数据, 即时刷新)
+  |     +-- Row 2: X/Y 轴角度 (变化时即时刷新)
+  |     +-- Row 3: 按键状态 (ISR 触发即时刷新)
   |
   +-- 电源管理 (can_power_init, PRE_KERNEL_2)
         +-- 4 路 GPIO 电源开关 + PM notifier
@@ -57,20 +57,22 @@ main() + SYS_INIT
 ### 关键设计决策
 
 - **全局状态共享**: `gloval_params_t global_params` (定义在 `common.h`) 是所有模块共享的中心状态结构，包含操纵杆角度、电池状态、扫描仪数据 (`scanner_data_t`)、事件对象等。
-- **心跳保活机制**: CAN 心跳线程在发送失败 3 次后将 `connect_type` 切换为 `LORA_TYPE`，直到 `TIMEOUT_EVENT` 重新触发。心跳成功时设置 `connect_type = CAN_TYPE` 并发送手柄状态帧 (0x1E3, 大端序)。
+- **事件驱动显示**: 启动时全屏刷新一次，之后各模块在数据变化时即时更新对应 OLED 行。`display_str_pad` 渲染字符串后用空格填充行尾，防止旧数据残留。显示函数接口拆分为细粒度参数（如 `mod_display_handler_xy(int x, int y)` 而非 `gloval_params_t*`），便于跨模块直接调用。
+- **心跳保活机制**: CAN 心跳线程在发送失败 3 次后将 `connect_type` 切换为 `LORA_TYPE`，直到 `TIMEOUT_EVENT` 重新触发。心跳成功时设置 `connect_type = CAN_TYPE` 并发送手柄状态帧 (0x1E3, 大端序)。连接类型切换时即时刷新 OLED Row 0。
 - **OTA 通过 CAN**: 固件升级完全通过 CAN 总线传输，分两阶段 -- 控制帧走 `PLATFORM_RX` (0x103)，数据帧走 `FW_DATA_RX` (0x103)。使用 MCUBoot swap-with-scratch 确保掉电安全。
 - **外设独立供电**: CAN、LoRa、显示屏、5V 电源各有独立 GPIO 使能引脚，由 `power.c` 统一管理。
 - **线程间通信**: CAN 和 LoRa 各自使用 `k_msgq`，心跳使用 `k_sem` + `k_event` 组合实现超时检测。
 - **LoRa 双模式驱动**: `lora.c` 基于 UART async API + DMA 实现。数据模式使用 DMA 双缓冲 + `rx_timeout=20ms` 判定帧边界；AT 模式通过 `+++` → `a` → `+OK` 握手进入，支持同步指令收发。
-- **LoRa 遥测协议**: 8 字节二进制帧 (0xAA + X/Y int16 + 按键 + 电量 + XOR校验)，独立线程 `lora_telem` 500ms 周期发送，仅在 `connect_type != CAN_TYPE` 时发送。帧格式定义在 `lora.h`。
-- **CAN 手柄状态协议**: 帧 ID 0x1E3 (`HANDLER_STATE`)，8 字节 payload (X/Y int16 BE + 按键反转 + 0xFF 保留)，由心跳线程在心跳成功时随周期发送。所有多字节数据使用大端序 (网络字节序)，按键 btnHandler 反转 (按下=0, 松开=1)。
+- **LoRa 遥测协议**: 8 字节二进制帧 (0xAA + X/Y int16 + 按键 + 电量 + XOR校验)，事件驱动发送。角度或按键变化时，若 `connect_type != CAN_TYPE` 则通过 LoRa 发送。帧格式定义在 `lora.h`。
+- **CAN 手柄状态协议**: 帧 ID 0x1E3 (`HANDLER_STATE`)，8 字节 payload (X/Y int16 BE + 按键反转 + 0xFF 保留)，由心跳线程在心跳成功时随周期发送，同时在角度/按键变化时由 ADC/按键模块即时发送。所有多字节数据使用大端序 (网络字节序)，按键 btnHandler 反转 (按下=0, 松开=1)。
 - **CAN 扫描仪数据接收**: 帧 ID 0x263 (`OVERBREAK_LASER`), 0x363 (`COORD_XY`), 0x463 (`COORD_Z`)，接收扫描仪下发的超欠挖+激光测距、X/Y/Z 坐标数据。解析后存入 `global_params.scanner`。Z 坐标有效标志同时设置 X/Y/Z 三者的有效性。
-- **CAN/LoRa 互斥**: 默认 `connect_type = CAN_TYPE` (在 `main_init` 中设置)。CAN 心跳成功 → 保持 CAN_TYPE + 发手柄状态帧；心跳 3 次失败 → 切换 LORA_TYPE，LoRa 线程自动接管遥测；CAN 恢复 → 自动切回。
+- **CAN/LoRa 互斥**: 默认 `connect_type = CAN_TYPE` (在 `main_init` 中设置)。CAN 心跳成功 → 保持 CAN_TYPE + 发手柄状态帧；心跳 3 次失败 → 切换 LORA_TYPE，角度/按键变化时通过 LoRa 发送；CAN 恢复 → 自动切回。连接类型切换即时刷新 OLED。
 - **LoRa 网关管理**: 支持透传模式 (`LORA_GW_MODE_TRANS`, 仅 SPD+CH) 和组网模式 (`LORA_GW_MODE_NETWORK`, 需要 NID)。通过 `lora_gw_configure()` 一键配置并重启模块。也可通过 CAN 帧 0x105/0x106 远程设置/查询。
 - **CAN 远程配参**: Host 通过 CAN 帧 `LORA_CONFIG_RX` (0x105) 发送 SET/QUERY 命令，设备通过 `LORA_CONFIG_TX` (0x106) 响应。配置操作耗时 10s+（AT 模式握手 + 模块重启），使用 `k_work` 异步执行，不阻塞 CAN 接收线程。命令/结果枚举定义在 `mod-can.h`。
-- **OLED 显示**: 主循环 500ms 刷新全屏，使用 8x16 ASCII 字体 (`font_8x16.c`, 95 字符) + 24x16 水平电池图标 (5 级)。所有 display_write 通过 `display_mutex` 保护。
-- **ADC 数据流**: 500ms 周期采集，角度写入 `global_params.x/y_degree`，电压通过 3.0V~4.2V 线性映射为 `power_level` 百分比。
-- **连接类型**: `connect_type` 字段区分 `CAN_TYPE (1)` 和 `LORA_TYPE (2)`，默认 CAN。
+- **OLED 显示**: 事件驱动刷新。启动时 `mod_display_all` 全屏刷新，之后各模块在数据变化时调用对应行刷新函数。`display_str_pad` 渲染后用空格填充行尾清除旧数据残留。所有 `display_write` 通过 `display_mutex` 保护。显示函数接口为细粒度参数（如 `mod_display_handler_xy(int x, int y)`），不依赖完整 `gloval_params_t` 指针。
+- **ADC 数据流**: 500ms 周期采集 X/Y 角度，变化时即时显示 + CAN/LoRa 发送。电量每 10 个周期 (5s) 采集一次，变化时即时显示。
+- **按键事件流**: GPIO ISR 检测按键变化 → `k_work_submit` → 工作队列线程中即时显示按键状态 + CAN/LoRa 发送。ISR 中不做显示/发送操作。
+- **连接类型**: `connect_type` 字段区分 `CAN_TYPE (1)` 和 `LORA_TYPE (2)`，默认 CAN。切换时即时刷新 OLED Row 0。
 - **Shell 调试**: `lora send/at/exit` 基础命令 + `lora gw config/query` 网关管理命令。
 
 ---
@@ -145,16 +147,18 @@ west build -b lora_f103rct6 . --sysbuild --pristine
 
 ## LoRa 遥测帧格式
 
-8 字节二进制帧，主循环 500ms 周期发送至 LG210 网关:
+事件驱动发送（角度/按键变化时），仅 CAN 断开时通过 LG210 网关发送。帧结构：节点 ID (8 字节 HEX ASCII) + 手柄状态数据 (8 字节, 与 CAN 0x1E3 一致) + CRC16-CCITT (2 字节)。
+
+**手柄状态数据 (8 字节, 大端序):**
 
 | 偏移 | 长度 | 字段 | 说明 |
 |------|------|------|------|
-| 0 | 1 | 帧头 | 0xAA |
-| 1-2 | 2 | X 角度 | int16_t LE, 单位 0.1° |
-| 3-4 | 2 | Y 角度 | int16_t LE, 单位 0.1° |
-| 5 | 1 | 按键 | 0=松开, 1=按下 |
-| 6 | 1 | 电量 | 0~100% |
-| 7 | 1 | 校验和 | XOR(bytes 0~6) |
+| 0-1 | 2 | coord_x | int16_t BE, 单位 0.1° |
+| 2-3 | 2 | coord_y | int16_t BE, 单位 0.1° |
+| 4 | 1 | btn flags | bit0: btnHandler(反转), 按下=0, 松开=1 |
+| 5-7 | 3 | reserved | 固定 0xFF |
+
+`lora_data_send()` 自动在数据前添加 `node_id` (8 字节 HEX ASCII) 并在尾部追加 CRC16-CCITT 校验。
 
 ---
 
@@ -168,14 +172,14 @@ include/
   display.h         -- 显示模块接口
   power.h           -- 外设电源控制接口
 src/
-  main.c            -- 入口 + 主循环 (显示刷新)
-  can.c             -- CAN 收发 + 心跳线程 + 手柄状态上报 (0x1E3 BE) + 扫描仪数据解析 (0x263/0x363/0x463 BE) + LoRa 远程配参 (k_work)
+  main.c            -- 入口 + 初始显示
+  can.c             -- CAN 收发 + 心跳线程 + 手柄状态上报 (0x1E3 BE) + 扫描仪数据解析+显示 + LoRa 远程配参 (k_work)
   firmware.c        -- OTA 固件升级状态机
-  lora.c            -- LoRa UART async+DMA + 遥测帧 (CAN 断开时) + 网关管理 + Shell
+  lora.c            -- LoRa UART async+DMA + 遥测帧 (事件驱动) + 网关管理 + Shell
   font_8x16.c       -- 8x16 ASCII 字体位图 (95 字符, 1520 字节)
-  adc.c             -- ADC 操纵杆角度采集 + 电量映射
-  battery.c         -- 电池/按键 GPIO 监测
-  display.c         -- SH1106 OLED 显示 (8x16 文本 + 水平电池图标)
+  adc.c             -- ADC 操纵杆角度采集 + 电量映射 (变化时即时显示+发送)
+  battery.c         -- 电池/按键 GPIO 监测 (ISR → k_work 即时显示+发送)
+  display.c         -- SH1106 OLED 显示 (8x16 文本 + 电池图标, display_str_pad 防残留)
   power.c           -- 外设电源管理 + PM notifier
 boards/
   lora_f103rct6.overlay  -- 板级 devicetree 覆盖
@@ -191,10 +195,9 @@ VERSION                  -- 版本号 (0.1.2-release)
 | 线程名 | 函数 | 栈大小 | 优先级 | 说明 |
 |--------|------|--------|--------|------|
 | `mod_can` | `mod_can_process_thread` | 2048 | 11 | CAN 消息接收与分发 |
-| `can_heart` | `mod_heart_thread` | 1024 | 11 | CAN 心跳保活 |
+| `can_heart` | `mod_can_thread` | 1024 | 11 | CAN 心跳保活 + 手柄状态周期上报 |
 | `lora_msg` | `lora_msg_process_thread` | 1024 | 12 | LoRa 串口消息处理 |
-| `lora_telem` | `lora_telem_thread` | 1024 | 10 | LoRa 遥测发送 (仅 CAN 断开时, 500ms) |
-| `adc_thread_id` | `adc_read_thread` | 1024 | 7 | ADC 周期采集 (500ms) |
+| `adc_thread_id` | `adc_read_thread` | 1024 | 7 | ADC 周期采集 (500ms, 变化时即时发送) |
 | `battery_monitor_tid` | `battery_monitor_thread` | 1024 | 7 | 电池状态监测 (5s) |
 
 ---
@@ -207,8 +210,11 @@ VERSION                  -- 版本号 (0.1.2-release)
 - 初始化使用 `SYS_INIT` 分级初始化
 - GPIO 引脚全部通过 `zephyr,user` devicetree 节点定义
 - 头文件保护使用 `#ifndef _MOD_XXX_H__` 或 `#ifndef __MOD_XXX_H__` 模式
-- 显示刷新在主循环中执行，LoRa 遥测在独立线程中执行 (仅 CAN 断开时发送)
+- 显示为事件驱动：各模块数据变化时直接调用对应行刷新函数，不在主循环轮询刷新
 - 所有 display_write 调用通过 `display_mutex` 保护
+- 显示函数使用 `display_str_pad` 替代 `display_str`，空格填充行尾防止旧数据残留
+- 显示函数接口为细粒度参数（如 `mod_display_handler_xy(int x, int y)`），不依赖完整 `gloval_params_t*`
+- ISR 中通过 `k_work_submit` 提交任务，不在中断上下文做显示/发送操作
 
 ---
 
@@ -224,7 +230,8 @@ VERSION                  -- 版本号 (0.1.2-release)
 - LoRa AT 指令格式参考 `doc/` 目录下的 WH-L101-L AT 指令集和 LG210 协议说明书
 - 修改遥测帧格式时，需同步更新 `lora.h` 中的帧格式注释、`lora.c` 中的 LoRa 打包逻辑、`mod-can.h` 和 `can.c` 中的手柄状态逻辑
 - CAN 帧使用大端序 (网络字节序): 发送用 `sys_put_be16`/`sys_put_be32`，接收用 `sys_get_be16`/`sys_get_be32`
-- CAN/LoRa 互斥通过 `global_params.connect_type` 控制: CAN 心跳线程写、LoRa 遥测线程读，无需额外锁 (atomic 级别的 byte 写入)
-- 扫描仪数据通过 `global_params.scanner` (scanner_data_t) 存储，CAN 接收线程写入、主循环显示线程读取，byte/int32 级别无需额外锁
+- CAN/LoRa 互斥通过 `global_params.connect_type` 控制: CAN 心跳线程写、ADC/按键模块读，无需额外锁 (atomic 级别的 byte 写入)
+- 扫描仪数据通过 `global_params.scanner` (scanner_data_t) 存储，CAN 接收线程写入并即时触发显示刷新
 - CAN 远程配参 (0x105/0x106) 使用 `k_work` 异步处理: CAN 接收线程解析参数后 `k_work_submit()`，工作队列执行 `lora_gw_configure()` / `lora_gw_query()` 完成后发送响应帧
 - `lora_cfg_work`、`pending_lora_cfg`、`lora_cfg_cmd` 为 `can.c` 内部 static 变量，由 CAN 接收线程写入、系统工作队列读取，单生产者单消费者无需锁
+- `btn_display_work` 为 `battery.c` 内部 static 变量，ISR 中 `k_work_submit`，工作队列线程执行显示+发送

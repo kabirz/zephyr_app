@@ -15,18 +15,14 @@
 #include <common.h>
 
 /**
- * @brief LoRa 遥测数据帧格式 (8 字节)
+ * @brief LoRa 遥测数据帧格式 (8 字节, 与 CAN 0x1E3 一致)
  *
  * Offset  Size  Field
- * 0       1     帧头 0xAA
- * 1       2     X 角度 (int16_t, 单位 0.1°, 范围 -200~+200)
- * 3       2     Y 角度 (int16_t, 单位 0.1°, 范围 -200~+200)
- * 5       1     按键状态 (0=松开, 1=按下)
- * 6       1     电量百分比 (0~100)
- * 7       1     校验和 (XOR of bytes 0~6)
+ * 0-1     2     coord_x (int16_t BE, 单位 0.1°)
+ * 2-3     2     coord_y (int16_t BE, 单位 0.1°)
+ * 4       1     btn flags (bit0: btnHandler 反转, 按下=0, 松开=1)
+ * 5-7     3     reserved (0xFF)
  */
-#define LORA_TELEM_HEADER  0xAA
-#define LORA_TELEM_LEN     8
 
 /**
  * @brief 打包并发送遥测数据帧
