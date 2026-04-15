@@ -15,6 +15,18 @@ typedef enum {
 
 
 typedef struct {
+	int8_t  overbreak_valid;
+	int32_t overbreak_value;
+	int8_t  laser_valid;
+	int32_t laser_distance;
+	int8_t  coord_xy_valid;
+	int32_t coord_x;
+	int32_t coord_y;
+	int8_t  coord_z_valid;
+	int32_t coord_z;
+} scanner_data_t;
+
+typedef struct {
 	int x_degree;
 	int y_degree;
 	uint8_t h_button;
@@ -24,6 +36,7 @@ typedef struct {
 	uint8_t connect_type;
 	uint32_t can_heart_time;
 	battery_status_t battery_status;
+	scanner_data_t scanner;
 #define TIMEOUT_EVENT 0x1
 	struct k_event event;
 } gloval_params_t;

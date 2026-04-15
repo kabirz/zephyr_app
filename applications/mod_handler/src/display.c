@@ -185,24 +185,42 @@ void mod_display_battery(const gloval_params_t *params)
 	k_mutex_unlock(&display_mutex);
 }
 
-/* Row 1: X 轴角度 */
-void mod_display_handler_x(const gloval_params_t *params)
+/* Row 1: 激光距离 + 超欠挖 (来自扫描仪 CAN 数据) */
+void mod_display_scanner(const gloval_params_t *params)
 {
 	char line[17] = {0};
+	const scanner_data_t *s = &params->scanner;
 
 	k_mutex_lock(&display_mutex, K_FOREVER);
-	snprintf(line, sizeof(line), "X: %d.%d", params->x_degree/10, params->x_degree%10);
+
+	if (s->laser_valid == 1) {
+		snprintf(line, sizeof(line), "D:%-5ld", (long)s->laser_distance);
+	} else {
+		snprintf(line, sizeof(line), "D:---  ");
+	}
 	display_str(line, 0, 16);
+
+	if (s->overbreak_valid == 1) {
+		snprintf(line, sizeof(line), "OB:%-5ld", (long)s->overbreak_value);
+	} else {
+		snprintf(line, sizeof(line), "OB:--- ");
+	}
+	display_str(line, 80, 16);
+
 	k_mutex_unlock(&display_mutex);
 }
 
-/* Row 2: Y 轴角度 */
-void mod_display_handler_y(const gloval_params_t *params)
+/* Row 2: X/Y 角度 (紧凑格式, 整数运算避免 %f 代码膨胀) */
+void mod_display_handler_xy(const gloval_params_t *params)
 {
 	char line[17] = {0};
+	int x = params->x_degree, y = params->y_degree;
+	int ax = x < 0 ? -x : x, ay = y < 0 ? -y : y;
 
 	k_mutex_lock(&display_mutex, K_FOREVER);
-	snprintf(line, sizeof(line), "Y: %d.%d", params->y_degree/10, params->y_degree%10);
+	snprintf(line, sizeof(line), "X:%c%d.%d Y:%c%d.%d",
+		 x < 0 ? '-' : '+', ax / 10, ax % 10,
+		 y < 0 ? '-' : '+', ay / 10, ay % 10);
 	display_str(line, 0, 32);
 	k_mutex_unlock(&display_mutex);
 }
@@ -224,7 +242,7 @@ void mod_display_all(const gloval_params_t *params)
 {
 	mod_display_lora_can(params);
 	mod_display_battery(params);
-	mod_display_handler_x(params);
-	mod_display_handler_y(params);
+	mod_display_scanner(params);
+	mod_display_handler_xy(params);
 	mod_display_handler_button(params);
 }

@@ -26,6 +26,11 @@ static void mod_canrx_msg_handler(struct can_frame *frame)
 	case LORA_CONFIG_RX:
 		can_lora_config_handler(frame);
 		break;
+	case OVERBREAK_LASER:
+	case COORD_XY:
+	case COORD_Z:
+		mod_can_parse_scanner(frame);
+		break;
 	default:
 		LOG_ERR("can frame id (0x%x) is not support", frame->id);
 	}
@@ -159,6 +164,15 @@ int mod_can_init(void)
 	filter.id = LORA_CONFIG_RX;
 	can_add_rx_filter_msgq(can_dev, &mod_can_msgq, &filter);
 
+	filter.id = OVERBREAK_LASER;
+	can_add_rx_filter_msgq(can_dev, &mod_can_msgq, &filter);
+
+	filter.id = COORD_XY;
+	can_add_rx_filter_msgq(can_dev, &mod_can_msgq, &filter);
+
+	filter.id = COORD_Z;
+	can_add_rx_filter_msgq(can_dev, &mod_can_msgq, &filter);
+
 	k_work_init(&lora_cfg_work, lora_cfg_work_handler);
 end:
 	return err;
@@ -207,7 +221,7 @@ void mod_heart_thread(void)
 			if (atomic_get(&heart_send_success) || ret == 0) {
 				fail_count = 0;
 				global_params.connect_type = CAN_TYPE;
-				mod_can_send_telemetry(&global_params);
+				mod_can_send_handler_state(&global_params);
 			} else {
 				fail_count++;
 				LOG_WRN("heartbeat send failed, count: %d", fail_count);
@@ -230,28 +244,80 @@ void mod_heart_thread(void)
 K_THREAD_DEFINE(can_heart, 1024, mod_heart_thread, NULL, NULL, NULL, 11, 0, 0);
 
 /* ================================================================
- * CAN 遥测帧发送 — X/Y 角度 + 按键 + 电量
+ * 手柄状态帧发送 — 0x1E3, 大端序, 8 字节
  *
- * 帧 ID: 0x764 (COBID_TELEMETRY), DLC: 6
- * Data[0-1]: X 角度 (int16_t LE, 0.1° 单位)
- * Data[2-3]: Y 角度 (int16_t LE, 0.1° 单位)
- * Data[4]:   按键 (0/1)
- * Data[5]:   电量 (0~100)
+ * Data[0-1]: coord_x (int16_t BE, 0.1° 单位)
+ * Data[2-3]: coord_y (int16_t BE, 0.1° 单位)
+ * Data[4]:   btn flags (bit0: btnHandler 反转, bit1: btnBox)
+ * Data[5-7]: reserved (0xFF)
  * ================================================================ */
-int mod_can_send_telemetry(const gloval_params_t *params)
+int mod_can_send_handler_state(const gloval_params_t *params)
 {
-	int16_t x_raw = (int16_t)(params->x_degree * 10);
-	int16_t y_raw = (int16_t)(params->y_degree * 10);
-
 	struct can_frame frame = {
-		.id = COBID_TELEMETRY,
-		.dlc = can_bytes_to_dlc(6),
+		.id = HANDLER_STATE,
+		.dlc = can_bytes_to_dlc(8),
 	};
 
-	memcpy(&frame.data[0], &x_raw, sizeof(x_raw));
-	memcpy(&frame.data[2], &y_raw, sizeof(y_raw));
-	frame.data[4] = params->h_button ? 1 : 0;
-	frame.data[5] = params->power_level;
+	/* 大端序写入角度 */
+	sys_put_be16((uint16_t)params->x_degree, &frame.data[0]);
+	sys_put_be16((uint16_t)params->y_degree, &frame.data[2]);
+
+	/* 按键: btnHandler 反转逻辑 (按下=0, 松开=1) */
+	frame.data[4] = params->h_button ? 0x00 : 0x01;
+	frame.data[5] = 0xFF;
+	frame.data[6] = 0xFF;
+	frame.data[7] = 0xFF;
 
 	return mod_can_send(&frame);
+}
+
+/* ================================================================
+ * 扫描仪 CAN 数据解析 — 0x263/0x363/0x463, 大端序
+ * ================================================================ */
+void mod_can_parse_scanner(struct can_frame *frame)
+{
+	scanner_data_t *s = &global_params.scanner;
+
+	switch (frame->id) {
+	case OVERBREAK_LASER:
+		/* Byte 0: flags (bit0=overbreak_valid, bit1=laser_valid)
+		 * Byte 1: reserved
+		 * Byte 2-3: overbreak_value (int16_t BE)
+		 * Byte 4-7: laser_value (uint32_t BE)
+		 */
+		s->overbreak_valid = (frame->data[0] & 0x01) ? 1 : -1;
+		s->laser_valid = (frame->data[0] & 0x02) ? 1 : -1;
+		s->overbreak_value = (int16_t)sys_get_be16(&frame->data[2]);
+		s->laser_distance = (int32_t)sys_get_be32(&frame->data[4]);
+		LOG_DBG("Overbreak: valid=%d val=%d, Laser: valid=%d val=%d",
+			s->overbreak_valid, s->overbreak_value,
+			s->laser_valid, s->laser_distance);
+		break;
+
+	case COORD_XY:
+		/* Byte 0-3: coordX (int32_t BE)
+		 * Byte 4-7: coordY (int32_t BE)
+		 */
+		s->coord_x = (int32_t)sys_get_be32(&frame->data[0]);
+		s->coord_y = (int32_t)sys_get_be32(&frame->data[4]);
+		s->coord_xy_valid = 1;
+		LOG_DBG("CoordXY: X=%d Y=%d", s->coord_x, s->coord_y);
+		break;
+
+	case COORD_Z:
+		/* Byte 0-3: coordZ (int32_t BE)
+		 * Byte 4: flags (bit0: coordz_valid)
+		 * Byte 5-7: reserved
+		 *
+		 * Z 坐标有效标志同时设置 X/Y/Z 三个坐标的有效性
+		 */
+		s->coord_z = (int32_t)sys_get_be32(&frame->data[0]);
+		s->coord_z_valid = (frame->data[4] & 0x01) ? 1 : -1;
+		s->coord_xy_valid = s->coord_z_valid;
+		LOG_DBG("CoordZ: Z=%d valid=%d", s->coord_z, s->coord_z_valid);
+		break;
+
+	default:
+		break;
+	}
 }

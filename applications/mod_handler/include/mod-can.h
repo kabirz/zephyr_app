@@ -10,7 +10,10 @@ enum {
 	PLATFORM_TX     = 0x102,
 	FW_DATA_RX      = 0x103,
 	COBID_HEATBEAT  = 0x763,
-	COBID_TELEMETRY = 0x764,
+	HANDLER_STATE   = 0x1E3,
+	OVERBREAK_LASER = 0x263,
+	COORD_XY        = 0x363,
+	COORD_Z         = 0x463,
 	LORA_CONFIG_RX  = 0x105,
 	LORA_CONFIG_TX  = 0x106,
 };
@@ -67,10 +70,17 @@ int fw_update(struct can_frame *frame);
 int mod_can_send(struct can_frame *frame);
 
 /**
- * @brief 通过 CAN 发送遥测帧 (X/Y 角度 + 按键 + 电量)
+ * @brief 通过 CAN 发送手柄状态帧 (0x1E3, 大端序)
  *
  * @param params 全局参数
  * @return 0 成功, 负数失败
  */
-int mod_can_send_telemetry(const gloval_params_t *params);
+int mod_can_send_handler_state(const gloval_params_t *params);
+
+/**
+ * @brief 解析扫描仪 CAN 数据 (0x263/0x363/0x463)
+ *
+ * @param frame CAN 接收帧
+ */
+void mod_can_parse_scanner(struct can_frame *frame);
 #endif
