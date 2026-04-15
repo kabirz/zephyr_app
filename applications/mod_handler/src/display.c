@@ -99,6 +99,23 @@ static int display_str(const char *s, int x, int y)
 	return x;
 }
 
+/* 渲染字符串并用空格填充到指定宽度, 覆盖旧内容 */
+static void display_str_pad(const char *s, int x, int y, int width)
+{
+	int end = x + width;
+
+	while (*s && x + 8 <= end && x + 8 <= 128) {
+		display_char(*s, x, y);
+		x += 8;
+		s++;
+	}
+	/* 用空格填充剩余宽度, 清除旧数据 */
+	while (x + 8 <= end && x + 8 <= 128) {
+		display_char(' ', x, y);
+		x += 8;
+	}
+}
+
 /* 用空格填充到行尾, 覆盖旧内容 */
 void mod_display_clear(void)
 {
@@ -164,7 +181,7 @@ void mod_display_lora_can(uint8_t connect_type)
 {
 	k_mutex_lock(&display_mutex, K_FOREVER);
 	const char *type = (connect_type == LORA_TYPE) ? "LORA" : "CAN ";
-	display_str(type, 0, 0);
+	display_str_pad(type, 0, 0, 32);
 	k_mutex_unlock(&display_mutex);
 }
 
@@ -196,14 +213,14 @@ void mod_display_scanner(const scanner_data_t *s)
 	} else {
 		snprintf(line, sizeof(line), "D:---  ");
 	}
-	display_str(line, 0, 16);
+	display_str_pad(line, 0, 16, 128);
 
 	if (s->overbreak_valid == 1) {
 		snprintf(line, sizeof(line), "OB:%-5ld", (long)s->overbreak_value);
 	} else {
 		snprintf(line, sizeof(line), "OB:--- ");
 	}
-	display_str(line, 80, 16);
+	display_str_pad(line, 80, 16, 48);
 
 	k_mutex_unlock(&display_mutex);
 }
@@ -218,7 +235,7 @@ void mod_display_handler_xy(int x, int y)
 	snprintf(line, sizeof(line), "X:%c%d.%d Y:%c%d.%d",
 		 x < 0 ? '-' : '+', ax / 10, ax % 10,
 		 y < 0 ? '-' : '+', ay / 10, ay % 10);
-	display_str(line, 0, 32);
+	display_str_pad(line, 0, 32, 128);
 	k_mutex_unlock(&display_mutex);
 }
 
@@ -229,7 +246,7 @@ void mod_display_handler_button(uint8_t h_button)
 
 	k_mutex_lock(&display_mutex, K_FOREVER);
 	snprintf(line, sizeof(line), "BTN: %s", h_button ? "ON " : "OFF");
-	display_str(line, 0, 48);
+	display_str_pad(line, 0, 48, 128);
 	k_mutex_unlock(&display_mutex);
 }
 
