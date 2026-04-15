@@ -255,29 +255,6 @@ bool lora_send_telemetry(const gloval_params_t *params)
 }
 
 /* ================================================================
- * 遥测发送线程 — 独立线程周期发送遥测帧至 LG210 网关
- * ================================================================ */
-#define LORA_TELEM_INTERVAL_MS 500
-
-static void lora_telem_thread(void)
-{
-	k_msleep(1000);
-
-	while (true) {
-		/* CAN 优先: 仅在 CAN 断开时通过 LoRa 发送遥测 */
-		if (global_params.connect_type == CAN_TYPE) {
-			k_msleep(LORA_TELEM_INTERVAL_MS);
-			continue;
-		}
-
-		lora_send_telemetry(&global_params);
-		k_msleep(LORA_TELEM_INTERVAL_MS);
-	}
-}
-K_THREAD_DEFINE(lora_telem, 1024, lora_telem_thread,
-		NULL, NULL, NULL, 10, 0, 0);
-
-/* ================================================================
  * AT 模式进入 — +++ → a → +OK 握手
  *
  * 时序要求 (WH-L101-L):

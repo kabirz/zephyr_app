@@ -1,6 +1,7 @@
 #include <zephyr/kernel.h>
 #include <mod-can.h>
 #include <lora.h>
+#include <display.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/logging/log.h>
 #include <common.h>
@@ -196,7 +197,7 @@ void mod_can_process_thread(void)
 
 K_THREAD_DEFINE(mod_can, 2048, mod_can_process_thread, NULL, NULL, NULL, 11, 0, 0);
 
-void mod_heart_thread(void)
+void mod_can_thread(void)
 {
 	struct can_frame frame = {
 		.data[0] = 5,
@@ -220,7 +221,10 @@ void mod_heart_thread(void)
 
 			if (atomic_get(&heart_send_success) || ret == 0) {
 				fail_count = 0;
-				global_params.connect_type = CAN_TYPE;
+				if (global_params.connect_type != CAN_TYPE) {
+					global_params.connect_type = CAN_TYPE;
+					mod_display_lora_can(global_params.connect_type);
+				}
 				mod_can_send_handler_state(&global_params);
 			} else {
 				fail_count++;
@@ -229,7 +233,10 @@ void mod_heart_thread(void)
 
 			if (fail_count >= 3) {
 				LOG_WRN("heartbeat failed 3 times, switching to LoRa");
-				global_params.connect_type = LORA_TYPE;
+				if (global_params.connect_type != LORA_TYPE) {
+					global_params.connect_type = LORA_TYPE;
+					mod_display_lora_can(global_params.connect_type);
+				}
 				k_sem_reset(&heart_wake_sem);
 				k_event_clear(&global_params.event, TIMEOUT_EVENT);
 				break;
@@ -241,7 +248,7 @@ void mod_heart_thread(void)
 	}
 }
 
-K_THREAD_DEFINE(can_heart, 1024, mod_heart_thread, NULL, NULL, NULL, 11, 0, 0);
+K_THREAD_DEFINE(can_heart, 1024, mod_can_thread, NULL, NULL, NULL, 11, 0, 0);
 
 /* ================================================================
  * 手柄状态帧发送 — 0x1E3, 大端序, 8 字节
@@ -320,4 +327,7 @@ void mod_can_parse_scanner(struct can_frame *frame)
 	default:
 		break;
 	}
+
+	/* 解析完成后刷新扫描仪数据显示 */
+	mod_display_scanner(s);
 }

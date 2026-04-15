@@ -2,6 +2,9 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
 #include <common.h>
+#include <display.h>
+#include <mod-can.h>
+#include <lora.h>
 
 LOG_MODULE_REGISTER(battery_monitor, LOG_LEVEL_INF);
 
@@ -10,6 +13,20 @@ static const struct gpio_dt_spec charging = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user
 static const struct gpio_dt_spec power_button = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), power_gpios);
 static const struct gpio_dt_spec handle_button = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), handlebt_gpios);
 static struct gpio_callback power_button_cb_data;
+
+/* 按键显示 work — ISR 中 submit, 工作队列线程中刷新 OLED */
+static struct k_work btn_display_work;
+
+static void btn_display_work_handler(struct k_work *work)
+{
+	mod_display_handler_button(global_params.h_button);
+
+	if (global_params.connect_type == CAN_TYPE) {
+		mod_can_send_handler_state(&global_params);
+	} else {
+		lora_send_telemetry(&global_params);
+	}
+}
 
 /* 读取电池状态 */
 static battery_status_t read_battery_status(void)
@@ -34,7 +51,10 @@ void gpio_irq(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 		LOG_INF("Power button Press!");
 	} else if (pins & BIT(handle_button.pin)) {
 		LOG_INF("handler button Press!");
-		global_params.h_button = !global_params.h_button;
+		if (gpio_pin_get_dt(&handle_button) != global_params.h_button) {
+			global_params.h_button = !global_params.h_button;
+			k_work_submit(&btn_display_work);
+		}
 	}
 }
 
@@ -100,6 +120,8 @@ static int gpio_init(void)
 	gpio_init_callback(&power_button_cb_data, gpio_irq,
 		    BIT(power_button.pin) | BIT(handle_button.pin));
 	gpio_add_callback(power_button.port, &power_button_cb_data);
+
+	k_work_init(&btn_display_work, btn_display_work_handler);
 
 	LOG_INF("GPIO initialized successfully");
 	LOG_INF("  PB12 (Charge Full): %s", gpio_pin_get_dt(&charge_full) ? "HIGH" : "LOW");

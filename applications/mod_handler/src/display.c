@@ -160,25 +160,24 @@ static const uint8_t battery_icons[5][BATTERY_ICON_SZ] = {
  * ================================================================ */
 
 /* Row 0 左侧: 连接类型 CAN / LORA */
-void mod_display_lora_can(const gloval_params_t *params)
+void mod_display_lora_can(uint8_t connect_type)
 {
 	k_mutex_lock(&display_mutex, K_FOREVER);
-	const char *type =
-		(params->connect_type == LORA_TYPE) ? "LORA" : "CAN ";
+	const char *type = (connect_type == LORA_TYPE) ? "LORA" : "CAN ";
 	display_str(type, 0, 0);
 	k_mutex_unlock(&display_mutex);
 }
 
 /* Row 0 右侧: 电池图标 + 百分比 + 充电状态 */
-void mod_display_battery(const gloval_params_t *params)
+void mod_display_battery(uint8_t power_level)
 {
 	k_mutex_lock(&display_mutex, K_FOREVER);
 
 	/* 选择对应格数的图标 */
-	int idx = params->power_level >= 100 ? 4 :
-		  params->power_level >= 75  ? 3 :
-		  params->power_level >= 50  ? 2 :
-		  params->power_level >= 25  ? 1 : 0;
+	int idx = power_level >= 100 ? 4 :
+		  power_level >= 75  ? 3 :
+		  power_level >= 50  ? 2 :
+		  power_level >= 25  ? 1 : 0;
 	display_write_buf(40, 0, BATTERY_ICON_W, BATTERY_ICON_H,
 			  battery_icons[idx]);
 
@@ -186,10 +185,9 @@ void mod_display_battery(const gloval_params_t *params)
 }
 
 /* Row 1: 激光距离 + 超欠挖 (来自扫描仪 CAN 数据) */
-void mod_display_scanner(const gloval_params_t *params)
+void mod_display_scanner(const scanner_data_t *s)
 {
 	char line[17] = {0};
-	const scanner_data_t *s = &params->scanner;
 
 	k_mutex_lock(&display_mutex, K_FOREVER);
 
@@ -211,10 +209,9 @@ void mod_display_scanner(const gloval_params_t *params)
 }
 
 /* Row 2: X/Y 角度 (紧凑格式, 整数运算避免 %f 代码膨胀) */
-void mod_display_handler_xy(const gloval_params_t *params)
+void mod_display_handler_xy(int x, int y)
 {
 	char line[17] = {0};
-	int x = params->x_degree, y = params->y_degree;
 	int ax = x < 0 ? -x : x, ay = y < 0 ? -y : y;
 
 	k_mutex_lock(&display_mutex, K_FOREVER);
@@ -226,13 +223,12 @@ void mod_display_handler_xy(const gloval_params_t *params)
 }
 
 /* Row 3: 按键状态 */
-void mod_display_handler_button(const gloval_params_t *params)
+void mod_display_handler_button(uint8_t h_button)
 {
 	char line[17];
 
 	k_mutex_lock(&display_mutex, K_FOREVER);
-	snprintf(line, sizeof(line), "BTN:%s",
-		 params->h_button ? "ON " : "OFF");
+	snprintf(line, sizeof(line), "BTN: %s", h_button ? "ON " : "OFF");
 	display_str(line, 0, 48);
 	k_mutex_unlock(&display_mutex);
 }
@@ -240,9 +236,9 @@ void mod_display_handler_button(const gloval_params_t *params)
 /* 全屏刷新 */
 void mod_display_all(const gloval_params_t *params)
 {
-	mod_display_lora_can(params);
-	mod_display_battery(params);
-	mod_display_scanner(params);
-	mod_display_handler_xy(params);
-	mod_display_handler_button(params);
+	mod_display_lora_can(params->connect_type);
+	mod_display_battery(params->power_level);
+	mod_display_scanner(&params->scanner);
+	mod_display_handler_xy(params->x_degree, params->y_degree);
+	mod_display_handler_button(params->h_button);
 }
