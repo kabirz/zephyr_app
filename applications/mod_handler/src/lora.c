@@ -364,29 +364,6 @@ fail:
 }
 
 /* ================================================================
- * AT 模式退出 — AT+ENTM
- * ================================================================ */
-int lora_exit_at(void)
-{
-	/* 发送退出指令, 等待 +OK */
-	at_resp_len = 0;
-	k_sem_reset(&at_resp_sem);
-	lora_async_tx((const uint8_t *)"AT+ENTM\r\n", 9);
-	k_sem_take(&at_resp_sem, K_SECONDS(3));
-
-	/* 停止 AT 模式 RX */
-	lora_rx_disable_sync();
-
-	/* 切换回数据模式 */
-	atomic_set(&lora_current_mode, LORA_MODE_DATA);
-	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
-
-	LOG_INF("Exited AT mode, back to data mode");
-	k_mutex_unlock(&lora_mode_mutex);
-	return 0;
-}
-
-/* ================================================================
  * AT 指令收发 — 一问一答, 等待 OK/ERR 判定响应完整
  * ================================================================ */
 int lora_send_at(const char *cmd, char *resp, size_t resp_size, uint32_t timeout_ms)
@@ -443,6 +420,28 @@ int lora_send_at(const char *cmd, char *resp, size_t resp_size, uint32_t timeout
 
 	return (at_resp_len > 0) ? 0 : -ETIMEDOUT;
 }
+
+/* ================================================================
+ * AT 模式退出 — AT+ENTM
+ * ================================================================ */
+int lora_exit_at(void)
+{
+	char resp[128];
+	/* 发送退出指令, 等待 +OK */
+	lora_send_at("AT+ENTM\r\n", resp, sizeof(resp), 2000);
+
+	/* 停止 AT 模式 RX */
+	lora_rx_disable_sync();
+
+	/* 切换回数据模式 */
+	atomic_set(&lora_current_mode, LORA_MODE_DATA);
+	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
+
+	LOG_INF("Exited AT mode, back to data mode");
+	k_mutex_unlock(&lora_mode_mutex);
+	return 0;
+}
+
 
 /* ================================================================
  * LG210 网关配置 — LORAPROT + SPD + CH + 保存 + 重启
@@ -541,7 +540,7 @@ int lora_gw_configure(const struct lora_gw_config *cfg)
 
 	/* 组网模式: 设置网关 ID */
 	if (cfg->mode == LORA_GW_MODE_NETWORK) {
-		snprintf(cmd, sizeof(cmd), "AT+GWID=%X", cfg->gwid);
+		snprintf(cmd, sizeof(cmd), "AT+GWID=%08X", cfg->gwid);
 		ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
 		if (ret) {
 			LOG_ERR("Set GWID failed");
@@ -800,6 +799,8 @@ static void lora_msg_process_thread(void)
 				} else {
 					LOG_DBG("LoRa ACK received (empty payload)");
 				}
+			} else if (strncmp(msg.data, "LoRa Start!", sizeof("LoRa Start!")-1) == 0) {
+				LOG_INF("Lora start!");
 			} else {
 				LOG_HEXDUMP_INF(msg.data, msg.len, "LoRa RX (invalid):");
 			}
@@ -876,7 +877,7 @@ int lora_set_node_id(uint32_t nid)
 	char resp[128];
 	char cmd[64];
 
-	snprintf(cmd, sizeof(cmd), "AT+NID=%X", nid);
+	snprintf(cmd, sizeof(cmd), "AT+NID=%08X", nid);
 	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
 	if (ret) {
 		LOG_ERR("Set NID failed");
@@ -960,18 +961,6 @@ static int cmd_at(const struct shell *ctx, size_t argc, char **argv)
 	} else {
 		shell_error(ctx, "AT command timeout");
 	}
-	return ret;
-}
-
-static int cmd_exit(const struct shell *ctx, size_t argc, char **argv)
-{
-	ARG_UNUSED(argc);
-	ARG_UNUSED(argv);
-
-	if (atomic_get(&lora_current_mode) != LORA_MODE_AT) {
-		shell_warn(ctx, "Not in AT mode");
-		return 0;
-	}
 	return lora_exit_at();
 }
 
@@ -1028,7 +1017,7 @@ static int cmd_gw_config(const struct shell *ctx, size_t argc, char **argv)
 	const char *prot_str = cfg.prot == LORA_PROT_LG210 ? "lg210"
 			     : cfg.prot == LORA_PROT_LG220  ? "lg220"
 							    : "node";
-	shell_print(ctx, "Gateway configured: prot=%s mode=%s spd=%d ch=%d nid=%X, gwid=%X",
+	shell_print(ctx, "Gateway configured: prot=%s mode=%s spd=%d ch=%d nid=%08X, gwid=%08X",
 		    prot_str,
 		    cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans", cfg.spd, cfg.ch,
 		    cfg.nid, cfg.gwid);
@@ -1050,7 +1039,7 @@ static int cmd_gw_query(const struct shell *ctx, size_t argc, char **argv)
 	const char *prot_str = cfg.prot == LORA_PROT_LG210 ? "lg210"
 			     : cfg.prot == LORA_PROT_LG220  ? "lg220"
 							    : "node";
-	shell_print(ctx, "Gateway params: prot=%s mode=%s spd=%d ch=%d nid=%X, gwid=%X",
+	shell_print(ctx, "Gateway params: prot=%s mode=%s spd=%d ch=%d nid=%08X, gwid=%08X",
 		    prot_str,
 		    cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans", cfg.spd, cfg.ch,
 		    cfg.nid, cfg.gwid);
@@ -1077,8 +1066,6 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_cmds,
 					     "Send AT command (auto enter AT mode)\n"
 					     "Usage: at <command>",
 					     cmd_at, 2, 0),
-			       SHELL_CMD_ARG(exit, NULL, "Exit AT mode, return to data mode",
-					     cmd_exit, 1, 0),
 			       SHELL_CMD(gw, &sub_lora_gw_cmds, "LG210 gateway operations", NULL),
 			       SHELL_SUBCMD_SET_END);
 
@@ -1128,9 +1115,10 @@ static int lora_serial_init(void)
 
 	ret = lora_gw_query(&cfg);
 	if (ret == 0) {
-		LOG_INF("LoRa params: mode=%s nid=%08x spd=%d ch=%d, gwid=%08x",
-			cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans", cfg.nid, cfg.spd,
-			cfg.ch, cfg.gwid);
+		LOG_INF("LoRa params: prot=%s mode=%s nid=%08X spd=%d ch=%d, gwid=%08X",
+			cfg.prot == LORA_PROT_LG210 ? "LG210" : cfg.prot == LORA_PROT_LG220 ? "LG220" : "NODE",
+			cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans",
+			cfg.nid, cfg.spd, cfg.ch, cfg.gwid);
 		mod_display_lora_gwid(cfg.gwid);
 	} else {
 		LOG_WRN("LoRa param query failed (%d), using defaults", ret);
