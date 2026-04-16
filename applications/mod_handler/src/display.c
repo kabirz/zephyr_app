@@ -21,13 +21,6 @@
 
 LOG_MODULE_REGISTER(mod_display, LOG_LEVEL_INF);
 
-/* ================================================================
- * 字体定义 (font_8x16.c)
- * ================================================================ */
-#define FONT_8X16_FIRST 0x20
-#define FONT_8X16_LAST  0x7E
-#define FONT_8X16_COUNT (FONT_8X16_LAST - FONT_8X16_FIRST + 1)
-
 extern const font8x16_t font_8x16[];
 extern int font_8x16_len;
 
