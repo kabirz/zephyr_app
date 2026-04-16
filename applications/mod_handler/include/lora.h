@@ -85,14 +85,21 @@ int lora_send_at(const char *cmd, char *resp, size_t resp_size, uint32_t timeout
 bool lora_get_hostwake_status(void);
 
 /**
- * @brief LG210 网关通信模式
- *
- * 透传模式: 仅需 SPD + CH 匹配, 无需网关 ID
- * 组网模式: 需 NETID + SPD + CH 同时匹配
+ * @brief LG210 网关通信模式 (AT+WMODE)
  */
 enum lora_gw_mode {
+	LORA_GW_MODE_FP,      /* 点对点模式 */
 	LORA_GW_MODE_TRANS,   /* 透传模式 (默认) */
 	LORA_GW_MODE_NETWORK, /* 组网模式 */
+};
+
+/**
+ * @brief LoRa 通信协议类型
+ */
+enum lora_gw_prot {
+	LORA_PROT_NODE,	 /* 点对点 (默认) */
+	LORA_PROT_LG210, /* LG210 网关 */
+	LORA_PROT_LG220, /* LG220 网关 */
 };
 
 /**
@@ -100,10 +107,11 @@ enum lora_gw_mode {
  */
 struct lora_gw_config {
 	enum lora_gw_mode mode; /* 通信模式 */
+	enum lora_gw_prot prot; /* 通信协议 */
 	uint8_t spd;            /* 速率等级 1-12, 默认 10 */
 	uint8_t ch;             /* 信道 0-127, 默认 72 (470MHz) */
 	uint32_t nid;           /* 节点 ID, 组网模式有效 (0-2^32) */
-	uint32_t gwid;           /* 网关 ID, 组网模式有效 (0-2^32) */
+	uint32_t gwid;          /* 网关 ID, 组网模式有效 (0-2^32) */
 };
 
 /**
@@ -146,6 +154,25 @@ int lora_gw_query(struct lora_gw_config *cfg);
 #define LORA_FRAME_CRC_SIZE	2
 #define LORA_FRAME_HEADER_SIZE	(LORA_FRAME_NID_SIZE + LORA_FRAME_LEN_SIZE) /* 6 */
 #define LORA_FRAME_OVERHEAD	(LORA_FRAME_HEADER_SIZE + LORA_FRAME_CRC_SIZE) /* 8 */
+
+/**
+ * @brief 获取当前节点 ID
+ *
+ * 返回模块缓存的 NID (SYS_INIT 时通过 AT+NID 读取).
+ *
+ * @return 节点 ID (uint32_t)
+ */
+uint32_t lora_get_node_id(void);
+
+/**
+ * @brief 设置节点 ID 并写入模块
+ *
+ * 进入 AT 模式, 发送 AT+NID, 保存并重启模块, 更新本地缓存.
+ *
+ * @param nid 新的节点 ID
+ * @return 0 成功, 负数失败
+ */
+int lora_set_node_id(uint32_t nid);
 
 /**
  * @brief 检查 LoRa 网关链路状态

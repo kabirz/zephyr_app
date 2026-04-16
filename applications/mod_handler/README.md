@@ -11,9 +11,11 @@
 - **CAN/LoRa 互斥** — CAN 优先，心跳 3 次失败自动切换 LoRa；CAN 恢复后自动切回
 - **CAN 手柄状态上报** — 帧 ID 0x1E3，8 字节 payload (X/Y 角度 BE + 按键反转 + 保留)，心跳成功时周期发送，角度/按键变化时即时发送
 - **CAN 扫描仪数据接收** — 帧 ID 0x263/0x363/0x463，接收超欠挖、激光测距、X/Y/Z 坐标，即时显示
-- **LoRa 遥测** — 8 字节二进制帧，角度/按键变化时即时通过 LG210 网关发送 (仅 CAN 断开时)
-- **LoRa 网关管理** — 支持透传/组网双模式配置，Shell 一键配置或 CAN 远程配置 SPD/CH/NID
-- **CAN 远程配参** — Host 通过 CAN 帧 0x105/0x106 远程设置/查询 LoRa 网关参数
+- **LoRa 遥测** — 统一帧格式 (NID+Length+Data+CRC16)，角度/按键变化时即时发送 (仅 CAN 断开时)
+- **LoRa 链路检测** — 应用层心跳，周期发送遥测帧，连续 3 次 ACK 超时判定断连
+- **LoRa 网关管理** — 支持 FP/TRANS/NET 三种工作模式，NODE/LG210/LG220 三种协议，Shell 一键配置或 CAN 远程配置
+- **CAN 远程配参** — Host 通过 CAN 帧 0x105/0x106 远程设置/查询 LoRa 网关参数 (prot+mode+spd+ch+gwid)
+- **LoRa 数据接收** — 网关下发的扫描仪数据与 CAN 帧格式一致，复用 `mod_can_parse_scanner` 解析
 - **心跳保活** — CAN 心跳帧 (400ms 周期)，连续 3 次失败自动切换 LoRa
 - **电池管理** — 充电状态检测、电量百分比估算 (5s 周期采集)
 - **OLED 显示** — SH1106 128x64 I2C 屏幕，事件驱动刷新，变化时即时更新对应行
@@ -67,8 +69,14 @@ main() + SYS_INIT
   +-- LoRa UART (WH-L101-L, priority 12)
   |     +-- DMA 双缓冲透传
   |     +-- 遥测帧发送 (仅 CAN 断开时, 事件驱动)
+  |     +-- 接收帧解析: 心跳 ACK + 扫描仪数据 (复用 CAN 解析)
   |     +-- AT 指令收发 (经 USR-LG210-L 网关中转)
   |     +-- Shell 调试命令 (send/at/exit/gw)
+  |
+  +-- LoRa 心跳 (priority 12)
+  |     +-- 仅 connect_type == LORA_TYPE 时运行
+  |     +-- 周期发送遥测帧 (2s), 等待网关 ACK (1.5s)
+  |     +-- 连续 3 次超时 → lora_connected = false
   |
   +-- ADC 采集 (priority 7)
   |     +-- 操纵杆 X/Y 角度 (500ms, 变化时即时显示+发送)
@@ -89,7 +97,8 @@ main() + SYS_INIT
 |------|--------|--------|------|
 | CAN 收发 | 2048 | 11 | CAN 消息接收与协议处理 |
 | CAN 心跳 | 1024 | 11 | 400ms 周期心跳 + 手柄状态上报，3 次失败切 LoRa |
-| LoRa 处理 | 1024 | 12 | UART DMA 双缓冲 + AT 指令解析 |
+| LoRa 处理 | 1024 | 12 | UART DMA 双缓冲 + AT 指令解析 + 接收数据分发 |
+| LoRa 心跳 | 1024 | 12 | 仅 LoRa 模式运行，2s 周期遥测 + ACK 检测 |
 | ADC 采集 | 1024 | 7 | 500ms 周期采集操纵杆角度，变化时即时显示+发送 |
 | 电池监测 | 1024 | 7 | 5 秒周期检测电池状态 |
 
@@ -98,8 +107,9 @@ main() + SYS_INIT
 - **全局状态**: `gloval_params_t` 结构体（操纵杆角度、电池状态、扫描仪数据、连接类型等）
 - **事件通知**: `k_event` — 超时事件唤醒心跳线程
 - **消息队列**: CAN 和 LoRa 各自使用 `k_msgq` 传递帧数据
-- **信号量**: `k_sem` 配合心跳超时检测
+- **信号量**: `k_sem` 配合心跳超时检测 + LoRa ACK 检测
 - **工作队列**: `k_work` — 按键 ISR 提交显示+发送任务，LoRa 配参异步执行
+- **互斥锁**: `lora_mode_mutex` (AT 模式), `lora_tx_mutex` (LoRA TX), `display_mutex` (显示)
 
 ## OLED 显示布局
 
@@ -112,40 +122,11 @@ Row 2: X:+15.0  Y:-3.5              ← X/Y 轴角度 (-20° ~ +20°)
 Row 3: BTN:OFF                        ← 按键状态 (ON/OFF)
 ```
 
-启动时全屏刷新一次，之后各模块事件驱动更新对应行（角度变化刷新 Row 2，扫描仪数据变化刷新 Row 1，按键中断刷新 Row 3）。所有 `display_write` 通过 `display_mutex` 保护，`display_str_pad` 用空格填充行尾清除旧数据残留。
-
-## LoRa 遥测帧格式
-
-仅当 CAN 断开时 (`connect_type = LORA_TYPE`)，角度或按键变化时发送遥测帧至 LG210 网关。帧结构为：节点 ID + 手柄状态数据 + CRC16。
-
-**手柄状态数据 (8 字节, 大端序, 与 CAN 0x1E3 一致):**
-
-| 偏移 | 长度 | 字段 | 说明 |
-|------|------|------|------|
-| 0-1 | 2 | coord_x | int16_t BE, 单位 0.1° |
-| 2-3 | 2 | coord_y | int16_t BE, 单位 0.1° |
-| 4 | 1 | btn flags | bit0: btnHandler(反转), 按下=0, 松开=1 |
-| 5-7 | 3 | reserved | 固定 0xFF |
-
-**完整发送帧结构:**
-
-| 偏移 | 长度 | 字段 | 说明 |
-|------|------|------|------|
-| 0-7 | 8 | node_id | 节点 ID, 8 字节 HEX ASCII |
-| 8-15 | 8 | payload | 手柄状态数据 (同上表) |
-| 16-17 | 2 | CRC16 | CRC16-CCITT, 覆盖 node_id + payload |
-
-## LoRa Shell 命令
-
-```
-lora send <data>              -- 透传模式发送
-lora at <cmd>                 -- 发送 AT 指令 (自动进入 AT 模式)
-lora exit                     -- 退出 AT 模式
-lora gw config [trans|net] [spd] [ch] [nid]  -- 网关参数配置
-lora gw query                 -- 查询当前网关参数 (模式/SPD/CH/NID)
-```
+启动时全屏刷新一次，之后各模块事件驱动更新对应行。所有 `display_write` 通过 `display_mutex` 保护，`display_str_pad` 用空格填充行尾清除旧数据残留。
 
 ## CAN 通信协议
+
+帧 ID 定义在 `mod-can.h`:
 
 | 帧 ID | 方向 | 用途 |
 |-------|------|------|
@@ -153,7 +134,7 @@ lora gw query                 -- 查询当前网关参数 (模式/SPD/CH/NID)
 | 0x102 | 手柄 → 平台 | 响应帧 |
 | 0x103 | 平台 → 手柄 | 固件数据传输 |
 | 0x763 | 手柄 → 平台 | 心跳保活 (400ms) |
-| 0x1E3 | 手柄 → 平台 | 手柄状态 (X/Y 角度 BE + 按键) |
+| 0x1E3 | 手柄 → 平台 | 手柄状态 (X/Y 角度 BE + 按键反转 + 保留) |
 | 0x263 | 平台 → 手柄 | 超欠挖 + 激光测距数据 |
 | 0x363 | 平台 → 手柄 | X/Y 坐标数据 |
 | 0x463 | 平台 → 手柄 | Z 坐标数据 |
@@ -195,17 +176,17 @@ lora gw query                 -- 查询当前网关参数 (模式/SPD/CH/NID)
 
 ### CAN 控制 LoRa 参数
 
-Host 通过 CAN 帧 0x105 设置或查询 LoRa 网关参数，设备通过 0x106 响应。配置操作由 `k_work` 异步执行（AT 模式握手 + 模块重启约 10s），不阻塞 CAN 接收线程。
+Host 通过 CAN 帧 0x105 设置或查询 LoRa 网关参数，设备通过 0x106 响应。
 
-**SET 命令 (0x105, data[0] = 0x01):**
+**SET 命令 (0x105, DLC 8):**
 
 | 偏移 | 长度 | 字段 | 说明 |
 |------|------|------|------|
 | 0 | 1 | 命令 | 0x01 = SET |
-| 1 | 1 | 模式 | 0=透传, 1=组网 |
+| 1 | 1 | prot[7:4] + mode[3:0] | prot: 0=NODE, 1=LG210, 2=LG220; mode: 0=FP, 1=TRANS, 2=NET |
 | 2 | 1 | SPD | 速率等级 1-12 |
 | 3 | 1 | CH | 信道 0-127 |
-| 4-5 | 2 | NID | uint16_t LE, 组网模式有效 |
+| 4-7 | 4 | GWID | uint32_t LE |
 
 **QUERY 命令 (0x105, data[0] = 0x02):**
 
@@ -213,15 +194,35 @@ Host 通过 CAN 帧 0x105 设置或查询 LoRa 网关参数，设备通过 0x106
 |------|------|------|------|
 | 0 | 1 | 命令 | 0x02 = QUERY |
 
-**响应 (0x106):**
+**SET/QUERY 响应 (0x106, DLC 8):**
 
 | 偏移 | 长度 | 字段 | 说明 |
 |------|------|------|------|
 | 0 | 1 | 结果 | 0x00=成功, 0x01=失败 |
-| 1 | 1 | 模式 | 0=透传, 1=组网 (QUERY 有效) |
-| 2 | 1 | SPD | 速率等级 (QUERY 有效) |
-| 3 | 1 | CH | 信道 (QUERY 有效) |
-| 4-5 | 2 | NID | uint16_t LE (QUERY 有效) |
+| 1 | 1 | prot[7:4] + mode[3:0] | 同 SET 格式 |
+| 2 | 1 | SPD | 速率等级 |
+| 3 | 1 | CH | 信道 |
+| 4-7 | 4 | GWID | uint32_t LE |
+
+**QUERY_NID 命令 (0x105, data[0] = 0x03):**
+
+| 偏移 | 长度 | 字段 | 说明 |
+|------|------|------|------|
+| 0 | 1 | 命令 | 0x03 = QUERY_NID |
+
+**SET_NID 命令 (0x105, DLC 8):**
+
+| 偏移 | 长度 | 字段 | 说明 |
+|------|------|------|------|
+| 0 | 1 | 命令 | 0x04 = SET_NID |
+| 4-7 | 4 | NID | uint32_t LE |
+
+**NID 响应 (0x106, DLC 8):**
+
+| 偏移 | 长度 | 字段 | 说明 |
+|------|------|------|------|
+| 0 | 1 | 结果 | 0x00=成功, 0x01=失败 |
+| 4-7 | 4 | NID | uint32_t LE |
 
 ### CAN/LoRa 互斥机制
 
@@ -231,6 +232,69 @@ Host 通过 CAN 帧 0x105 设置或查询 LoRa 网关参数，设备通过 0x106
 2. CAN 心跳连续 3 次失败 → `connect_type = LORA_TYPE`，角度/按键变化时通过 LoRa 发送遥测
 3. CAN 恢复后 → 心跳成功自动切回 CAN
 4. 连接类型切换时即时刷新 OLED Row 0
+
+## LoRa 统一帧格式
+
+所有 LoRa 收发数据使用统一帧格式：
+
+```
+┌──────────┬──────────┬──────────────┬──────────┐
+│ NID 4B   │ Length 2B│ Data NB      │ CRC16 2B │
+│ uint32_t │ uint16_t│ 变长         │ CCITT    │
+│ LE       │ LE      │              │ LE       │
+└──────────┴──────────┴──────────────┴──────────┘
+ CRC 覆盖: NID + Length + Data (CRC 前所有字节)
+```
+
+| 帧类型 | 方向 | Data 内容 | 总长度 |
+|--------|------|-----------|--------|
+| 遥测/心跳 | 手柄→网关 | 8 字节 (同 CAN 0x1E3) | 16 字节 |
+| 心跳 ACK | 网关→手柄 | 0 字节 (空) | 8 字节 |
+| 扫描仪数据 | 网关→手柄 | 2B CAN ID BE + CAN data | 变长 |
+
+### LoRa 遥测数据 (Data 8 字节, 大端序, 与 CAN 0x1E3 一致)
+
+| 偏移 | 长度 | 字段 | 说明 |
+|------|------|------|------|
+| 0-1 | 2 | coord_x | int16_t BE, 单位 0.1° |
+| 2-3 | 2 | coord_y | int16_t BE, 单位 0.1° |
+| 4 | 1 | btn flags | bit0: btnHandler(反转), 按下=0, 松开=1 |
+| 5-7 | 3 | reserved | 固定 0xFF |
+
+### LoRa 扫描仪数据 (网关→手柄)
+
+Data 字段 = [CAN frame ID 2B BE] + [CAN data bytes]，与 CAN 帧数据一致，复用 `mod_can_parse_scanner` 解析。
+
+### LoRa 链路检测
+
+- 心跳线程仅 `connect_type == LORA_TYPE` 时运行
+- 每 2s 发送遥测帧，等待网关 ACK (空载荷帧)，超时 1.5s
+- 连续 3 次超时 → `lora_connected = false`
+- 收到任何合法帧 (NID 匹配 + CRC 正确) → `lora_connected = true`
+- `lora_is_connected()` 供外部查询链路状态
+
+### LoRa 网关参数
+
+| 参数 | AT 指令 | 说明 |
+|------|---------|------|
+| 协议 | AT+LORAPROT | NODE (点对点), LG210 (默认), LG220 |
+| 工作模式 | AT+WMODE | FP (点对点), TRANS (透传, 默认), NET (组网) |
+| 速率 | AT+SPD | 1-12, 默认 10 |
+| 信道 | AT+CH | 0-127, 默认 72 (470MHz) |
+| 网关 ID | AT+GWID | uint32_t, 组网模式有效 |
+| 节点 ID | AT+NID | uint32_t |
+
+## LoRa Shell 命令
+
+```
+lora send <data>                           -- 透传模式发送
+lora at <cmd>                              -- 发送 AT 指令 (自动进入 AT 模式)
+lora exit                                  -- 退出 AT 模式
+lora gw config [prot] [mode] [spd] [ch] [gwid]
+  prot: node, lg210 (default), gl220
+  mode: trans (default), fp, net
+lora gw query                              -- 查询当前网关参数
+```
 
 ## OTA 升级流程
 
@@ -245,7 +309,7 @@ Host 通过 CAN 帧 0x105 设置或查询 LoRa 网关参数，设备通过 0x106
 | 功能 | 引脚 | 说明 |
 |------|------|------|
 | CAN TX/RX | PA12 / PA11 | CAN1, 250Kbps |
-| LoRa UART | PA3 / PA2 | USART2, 115200bps (WH-L101-L) |
+| LoRa UART | PA3 / PA2 | USART2, 115200bps (WH-L101-L, DMA1 CH6/CH7) |
 | 调试串口 | PB7 / PB6 | USART1 (remap), 115200bps |
 | OLED I2C | PB11 / PB10 | I2C2, SH1106 @ 0x3C |
 | SPI Flash | PA5/PA6/PA7/PA4 | SPI1, GD25Q80 |
@@ -267,16 +331,16 @@ Host 通过 CAN 帧 0x105 设置或查询 LoRa 网关参数，设备通过 0x106
 
 ```
 include/
-  common.h          -- 全局状态类型 (gloval_params_t)
+  common.h          -- 全局状态类型 (gloval_params_t, scanner_data_t, CAN_TYPE/LORA_TYPE)
   mod-can.h         -- CAN 协议定义 + OTA 接口
-  lora.h            -- LoRa 驱动接口 (透传/AT/遥测/网关配置)
-  display.h         -- 显示模块接口
+  lora.h            -- LoRa 驱动接口 (透传/AT/遥测/网关配置/链路检测)
+  display.h         -- 显示模块接口 (font8x16_t 类型定义)
   power.h           -- 外设电源控制接口
 src/
   main.c            -- 入口 + 初始显示
-  can.c             -- CAN 收发 + 心跳线程 + 手柄状态上报 (0x1E3 BE) + 扫描仪数据解析 + LoRa 远程配参
+  can.c             -- CAN 收发 + 心跳线程 + 手柄状态上报 + 扫描仪数据解析 + LoRa 远程配参
   firmware.c        -- OTA 固件升级状态机
-  lora.c            -- LoRa UART async+DMA + 遥测帧 (事件驱动) + 网关管理 + Shell
+  lora.c            -- LoRa UART async+DMA + 遥测帧 + 接收数据分发 + 心跳线程 + 网关管理 + Shell
   font_8x16.c       -- 8x16 ASCII 字体位图 (95 字符)
   adc.c             -- ADC 操纵杆角度采集 + 电量映射 (变化时即时显示+发送)
   battery.c         -- 电池/按键 GPIO 监测 (ISR → k_work 即时显示+发送)

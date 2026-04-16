@@ -47,6 +47,8 @@ enum {
 enum lora_config_cmd {
 	LORA_CMD_SET = 0x01,
 	LORA_CMD_QUERY = 0x02,
+	LORA_CMD_QUERY_NID = 0x03,
+	LORA_CMD_SET_NID = 0x04,
 };
 
 /* LoRa 配置结果 */

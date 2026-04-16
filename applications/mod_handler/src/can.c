@@ -61,22 +61,23 @@ static void mod_cantx_callback(const struct device *dev, int error, void *user_d
  * ================================================================ */
 static struct k_work lora_cfg_work;
 static struct lora_gw_config pending_lora_cfg;
+static uint32_t pending_nid;
 static uint8_t lora_cfg_cmd;
 
 static void lora_cfg_work_handler(struct k_work *work)
 {
 	struct can_frame resp = {
 		.id = LORA_CONFIG_TX,
-		.dlc = can_bytes_to_dlc(6),
+		.dlc = can_bytes_to_dlc(8),
 	};
 
 	if (lora_cfg_cmd == LORA_CMD_SET) {
 		int ret = lora_gw_configure(&pending_lora_cfg);
 
 		resp.data[0] = (ret == 0) ? LORA_CFG_OK : LORA_CFG_FAIL;
-		LOG_INF("LoRa config SET: ret=%d mode=%d spd=%d ch=%d gwid=%d", ret,
-			pending_lora_cfg.mode, pending_lora_cfg.spd, pending_lora_cfg.ch,
-			pending_lora_cfg.gwid);
+		LOG_INF("LoRa config SET: ret=%d prot=%d mode=%d spd=%d ch=%d gwid=%d", ret,
+			pending_lora_cfg.prot, pending_lora_cfg.mode, pending_lora_cfg.spd,
+			pending_lora_cfg.ch, pending_lora_cfg.gwid);
 		mod_can_send(&resp);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY) {
 		struct lora_gw_config cfg;
@@ -84,14 +85,32 @@ static void lora_cfg_work_handler(struct k_work *work)
 
 		resp.data[0] = (ret == 0) ? LORA_CFG_OK : LORA_CFG_FAIL;
 		if (ret == 0) {
-			resp.data[1] = (uint8_t)cfg.mode;
+			resp.data[1] = (uint8_t)((cfg.prot << 4) | (cfg.mode & 0x0F));
 			resp.data[2] = cfg.spd;
 			resp.data[3] = cfg.ch;
-			memcpy(&resp.data[4], &cfg.gwid, sizeof(cfg.gwid));
-			LOG_INF("LoRa config QUERY: mode=%d spd=%d ch=%d gwid=%d", cfg.mode, cfg.spd,
-				cfg.ch, cfg.gwid);
+			memcpy(&resp.data[4], &cfg.gwid, sizeof(uint32_t));
+			LOG_INF("LoRa config QUERY: prot=%d mode=%d spd=%d ch=%d gwid=0x%x",
+				cfg.prot, cfg.mode, cfg.spd, cfg.ch, cfg.gwid);
 		} else {
 			LOG_ERR("LoRa config QUERY failed: %d", ret);
+		}
+		mod_can_send(&resp);
+	} else if (lora_cfg_cmd == LORA_CMD_QUERY_NID) {
+		uint32_t nid = lora_get_node_id();
+
+		resp.data[0] = LORA_CFG_OK;
+		memcpy(&resp.data[4], &nid, sizeof(uint32_t));
+		LOG_INF("LoRa NID QUERY: nid=0x%08x", nid);
+		mod_can_send(&resp);
+	} else if (lora_cfg_cmd == LORA_CMD_SET_NID) {
+		int ret = lora_set_node_id(pending_nid);
+
+		resp.data[0] = (ret == 0) ? LORA_CFG_OK : LORA_CFG_FAIL;
+		if (ret == 0) {
+			memcpy(&resp.data[4], &pending_nid, sizeof(uint32_t));
+			LOG_INF("LoRa NID SET: nid=0x%08x", pending_nid);
+		} else {
+			LOG_ERR("LoRa NID SET failed: %d", ret);
 		}
 		mod_can_send(&resp);
 	}
@@ -102,13 +121,18 @@ static void can_lora_config_handler(struct can_frame *frame)
 	lora_cfg_cmd = frame->data[0];
 
 	if (lora_cfg_cmd == LORA_CMD_SET) {
-		pending_lora_cfg.mode =
-			(frame->data[1] == 1) ? LORA_GW_MODE_NETWORK : LORA_GW_MODE_TRANS;
+		pending_lora_cfg.prot = (enum lora_gw_prot)(frame->data[1] >> 4);
+		pending_lora_cfg.mode = (enum lora_gw_mode)(frame->data[1] & 0x0F);
 		pending_lora_cfg.spd = frame->data[2];
 		pending_lora_cfg.ch = frame->data[3];
-		memcpy(&pending_lora_cfg.gwid, &frame->data[4], sizeof(uint16_t));
+		memcpy(&pending_lora_cfg.gwid, &frame->data[4], sizeof(uint32_t));
 		k_work_submit(&lora_cfg_work);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY) {
+		k_work_submit(&lora_cfg_work);
+	} else if (lora_cfg_cmd == LORA_CMD_QUERY_NID) {
+		k_work_submit(&lora_cfg_work);
+	} else if (lora_cfg_cmd == LORA_CMD_SET_NID) {
+		memcpy(&pending_nid, &frame->data[4], sizeof(uint32_t));
 		k_work_submit(&lora_cfg_work);
 	} else {
 		LOG_ERR("Unknown LoRa config cmd: 0x%02x", lora_cfg_cmd);
