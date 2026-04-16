@@ -35,6 +35,9 @@ typedef struct {
 	uint32_t can_heart_time;
 	battery_status_t battery_status;
 	scanner_data_t scanner;
+	uint8_t rssi;
+	uint32_t gwid;
+	uint32_t nid;
 #define TIMEOUT_EVENT 0x1
 	struct k_event event;
 } gloval_params_t;

@@ -23,6 +23,7 @@
 #include <lora.h>
 #include <mod-can.h>
 
+#include <display.h>
 LOG_MODULE_REGISTER(lora_serial, LOG_LEVEL_INF);
 
 /* ================================================================
@@ -56,7 +57,6 @@ static K_MUTEX_DEFINE(lora_tx_mutex); /* 保护 lora_data_send 多线程 TX 竞�
 static uint8_t rx_buf_a[LORA_BUF_SIZE];
 static uint8_t rx_buf_b[LORA_BUF_SIZE];
 static uint8_t *rx_next_buf = rx_buf_b;
-static uint32_t node_id;
 
 /* ================================================================
  * TX 同步 — 静态缓冲区, DMA 发送完成信号量
@@ -223,24 +223,22 @@ bool lora_data_send(const uint8_t *data, size_t len)
 
 	k_mutex_lock(&lora_tx_mutex, K_FOREVER);
 
-	/* NID (4 bytes LE) */
-	memcpy(tx_data + offset, &node_id, sizeof(uint32_t));
+	/* NID (4 bytes BE) */
+	sys_put_be32(global_params.nid, tx_data + offset);
 	offset += LORA_FRAME_NID_SIZE;
 
-	/* Length (2 bytes LE) — Data 字段长度 */
-	uint16_t data_len = (uint16_t)len;
-
-	memcpy(tx_data + offset, &data_len, sizeof(uint16_t));
+	/* Length (2 bytes BE) — Data 字段长度 */
+	sys_put_be16((uint16_t)len, tx_data + offset);
 	offset += LORA_FRAME_LEN_SIZE;
 
 	/* Data */
 	memcpy(tx_data + offset, data, len);
 	offset += len;
 
-	/* CRC16 — 覆盖 NID + Length + Data */
+	/* CRC16 — 覆盖 NID + Length + Data  (2 bytes BE)*/
 	uint16_t crc = crc16_ccitt(0, tx_data, offset);
 
-	memcpy(tx_data + offset, &crc, sizeof(uint16_t));
+	sys_put_be16(crc, tx_data + offset);
 	offset += LORA_FRAME_CRC_SIZE;
 
 	/* 等待模块空闲 (HOSTWAKE 低 = 模块未在无线收发) */
@@ -543,12 +541,14 @@ int lora_gw_configure(const struct lora_gw_config *cfg)
 
 	/* 组网模式: 设置网关 ID */
 	if (cfg->mode == LORA_GW_MODE_NETWORK) {
-		snprintf(cmd, sizeof(cmd), "AT+GWID=%x", cfg->gwid);
+		snprintf(cmd, sizeof(cmd), "AT+GWID=%X", cfg->gwid);
 		ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
 		if (ret) {
 			LOG_ERR("Set GWID failed");
 			goto out;
 		}
+		global_params.gwid = cfg->gwid;
+		mod_display_lora_gwid(global_params.gwid);
 	}
 
 	/* 保存为出厂默认 */
@@ -673,6 +673,7 @@ int lora_gw_query(struct lora_gw_config *cfg)
 		int gwid_val = parse_at_gwid(resp);
 		if (gwid_val > 0) {
 			cfg->gwid = (uint32_t)gwid_val;
+			global_params.gwid = cfg->gwid;
 		}
 	} else {
 		LOG_WRN("Query GWID failed");
@@ -685,6 +686,7 @@ int lora_gw_query(struct lora_gw_config *cfg)
 		int nid_val = parse_at_gwid(resp);
 		if (nid_val > 0) {
 			cfg->nid = (uint32_t)nid_val;
+			global_params.nid = cfg->nid;
 		}
 	} else {
 		LOG_WRN("Query NID failed");
@@ -728,17 +730,13 @@ static bool parse_lora_frame(const uint8_t *data, uint16_t len,
 	}
 
 	/* 验证 NID */
-	uint32_t rx_nid;
-
-	memcpy(&rx_nid, data, sizeof(uint32_t));
-	if (rx_nid != node_id) {
+	uint32_t rx_nid = sys_get_be32(data);
+	if (rx_nid != global_params.nid) {
 		return false;
 	}
 
 	/* 提取 Length (Data 字段长度) */
-	uint16_t data_len;
-
-	memcpy(&data_len, data + LORA_FRAME_NID_SIZE, sizeof(uint16_t));
+	uint16_t data_len = sys_get_be16(data + LORA_FRAME_NID_SIZE);
 
 	/* 检查帧完整性 */
 	if (len != LORA_FRAME_HEADER_SIZE + data_len + LORA_FRAME_CRC_SIZE) {
@@ -747,9 +745,8 @@ static bool parse_lora_frame(const uint8_t *data, uint16_t len,
 
 	/* 验证 CRC16 — 覆盖 NID + Length + Data */
 	uint16_t calc_crc = crc16_ccitt(0, data, LORA_FRAME_HEADER_SIZE + data_len);
-	uint16_t rx_crc;
+	uint16_t rx_crc = sys_get_be16(data + LORA_FRAME_HEADER_SIZE + data_len);
 
-	memcpy(&rx_crc, data + LORA_FRAME_HEADER_SIZE + data_len, sizeof(uint16_t));
 	if (calc_crc != rx_crc) {
 		return false;
 	}
@@ -868,14 +865,6 @@ static void lora_heartbeat_thread(void)
 }
 K_THREAD_DEFINE(lora_heart, 1024, lora_heartbeat_thread, NULL, NULL, NULL, 12, 0, 0);
 
-/* ================================================================
- * 节点 ID 读写
- * ================================================================ */
-uint32_t lora_get_node_id(void)
-{
-	return node_id;
-}
-
 int lora_set_node_id(uint32_t nid)
 {
 	int ret = lora_enter_at();
@@ -887,7 +876,7 @@ int lora_set_node_id(uint32_t nid)
 	char resp[128];
 	char cmd[64];
 
-	snprintf(cmd, sizeof(cmd), "AT+NID=%x", nid);
+	snprintf(cmd, sizeof(cmd), "AT+NID=%X", nid);
 	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
 	if (ret) {
 		LOG_ERR("Set NID failed");
@@ -899,7 +888,7 @@ int lora_set_node_id(uint32_t nid)
 	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
 
 	/* 模块重启后直接进入透传模式, 更新本地缓存 */
-	node_id = nid;
+	global_params.nid = nid;
 	k_msleep(1000);
 	lora_rx_disable_sync();
 	atomic_set(&lora_current_mode, LORA_MODE_DATA);
@@ -1039,10 +1028,10 @@ static int cmd_gw_config(const struct shell *ctx, size_t argc, char **argv)
 	const char *prot_str = cfg.prot == LORA_PROT_LG210 ? "lg210"
 			     : cfg.prot == LORA_PROT_LG220  ? "lg220"
 							    : "node";
-	shell_print(ctx, "Gateway configured: prot=%s mode=%s spd=%d ch=%d gwid=%x",
+	shell_print(ctx, "Gateway configured: prot=%s mode=%s spd=%d ch=%d nid=%X, gwid=%X",
 		    prot_str,
 		    cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans", cfg.spd, cfg.ch,
-		    cfg.gwid);
+		    cfg.nid, cfg.gwid);
 	return 0;
 }
 
@@ -1061,7 +1050,7 @@ static int cmd_gw_query(const struct shell *ctx, size_t argc, char **argv)
 	const char *prot_str = cfg.prot == LORA_PROT_LG210 ? "lg210"
 			     : cfg.prot == LORA_PROT_LG220  ? "lg220"
 							    : "node";
-	shell_print(ctx, "Gateway params: prot=%s mode=%s spd=%d ch=%d nid=%x, gwid=%x",
+	shell_print(ctx, "Gateway params: prot=%s mode=%s spd=%d ch=%d nid=%X, gwid=%X",
 		    prot_str,
 		    cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans", cfg.spd, cfg.ch,
 		    cfg.nid, cfg.gwid);
@@ -1119,7 +1108,7 @@ static int lora_serial_init(void)
 	gpio_pin_set_dt(&lora_reset_pin, 0);
 	k_msleep(10);
 	gpio_pin_set_dt(&lora_reset_pin, 1);
-	k_msleep(500);
+	k_msleep(10);
 
 	/* HOSTWAKE 初始化为输入 */
 	gpio_pin_configure_dt(&lora_hostwake_pin, GPIO_INPUT | GPIO_PULL_UP);
@@ -1139,10 +1128,10 @@ static int lora_serial_init(void)
 
 	ret = lora_gw_query(&cfg);
 	if (ret == 0) {
-		node_id = cfg.nid;
 		LOG_INF("LoRa params: mode=%s nid=%08x spd=%d ch=%d, gwid=%08x",
-			cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans", node_id, cfg.spd,
+			cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans", cfg.nid, cfg.spd,
 			cfg.ch, cfg.gwid);
+		mod_display_lora_gwid(cfg.gwid);
 	} else {
 		LOG_WRN("LoRa param query failed (%d), using defaults", ret);
 	}

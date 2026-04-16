@@ -18,11 +18,18 @@
 #include <zephyr/logging/log.h>
 #include <stdio.h>
 #include <display.h>
+#include <mod-can.h>
 
 LOG_MODULE_REGISTER(mod_display, LOG_LEVEL_INF);
 
-extern const font8x16_t font_8x16[];
-extern int font_8x16_len;
+/* ================================================================
+ * 字体定义 (font_8x16.c)
+ * ================================================================ */
+#define FONT_8X16_FIRST 0x20
+#define FONT_8X16_LAST  0x7E
+#define FONT_8X16_COUNT (FONT_8X16_LAST - FONT_8X16_FIRST + 1)
+
+extern const uint8_t font_8x16[FONT_8X16_COUNT][16];
 
 /* ================================================================
  * 显示设备 + 全局状态
@@ -31,25 +38,6 @@ static const struct device *display_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_display
 static struct display_capabilities capabilities;
 static struct display_buffer_descriptor buf_desc;
 static K_MUTEX_DEFINE(display_mutex);
-
-/* ================================================================
- * 初始化
- * ================================================================ */
-int mod_display_init(void)
-{
-	if (!device_is_ready(display_dev)) {
-		LOG_ERR("Device %s not found.", display_dev->name);
-		return -1;
-	}
-
-	display_get_capabilities(display_dev, &capabilities);
-	LOG_INF("Display %dx%d", capabilities.x_resolution, capabilities.y_resolution);
-
-	display_clear(display_dev);
-	display_blanking_off(display_dev);
-
-	return 0;
-}
 
 /* ================================================================
  * 低级渲染原语
@@ -68,14 +56,10 @@ static void display_write_buf(int x, int y, int w, int h, const void *data)
 /* 渲染单个 8x16 ASCII 字符 */
 static void display_char(char ch, int x, int y)
 {
-	for (int i = 0; i < font_8x16_len; i++) {
-		if (font_8x16[i].val == ch) {
-			display_write_buf(x, y, 8, 16, font_8x16[i].data);
-			return;
-		}
+	if (ch < FONT_8X16_FIRST || ch > FONT_8X16_LAST) {
+		ch = '?';
 	}
-	LOG_ERR("without '%c' in table", ch);
-	display_write_buf(x, y, 8, 16, font_8x16[0].data);
+	display_write_buf(x, y, 8, 16, font_8x16[ch - FONT_8X16_FIRST]);
 }
 
 /* 渲染字符串并用空格填充到指定宽度, 覆盖旧内容 */
@@ -98,11 +82,8 @@ static void display_str_pad(const char *s, int x, int y, int width)
 /* 用空格填充到行尾, 覆盖旧内容 */
 void mod_display_clear(void)
 {
-	uint8_t blank[16] = {0};
-	for (int i = 0; i < capabilities.x_resolution; i += 8) {
-		for (int j = 0; j < capabilities.y_resolution; j += 16) {
-			display_write_buf(i, j, 8, 16, blank);
-		}
+	for (int j = 0; j < capabilities.y_resolution; j += 16) {
+		display_str_pad(" ", 0, j, 128);
 	}
 }
 
@@ -124,81 +105,114 @@ void mod_display_clear(void)
 
 static const uint8_t battery_icons[5][BATTERY_ICON_SZ] = {
 	/* 0 格 — 空壳 */
-	{0x00, 0x7F, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40,
-	 0x40, 0x40, 0x40, 0x40, 0x40, 0x7F, 0x0F, 0x0F, 0x0F, 0x00, 0x00, 0x00,
+	{
 	 0x00, 0xFE, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
-	 0x02, 0x02, 0x02, 0x02, 0x02, 0xFE, 0xE0, 0xE0, 0xE0, 0x00, 0x00, 0x00},
+	 0x02, 0x02, 0x02, 0x02, 0x02, 0xFE, 0xE0, 0xE0, 0xE0, 0x00, 0x00, 0x00,
+	 0x00, 0x7F, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40,
+	 0x40, 0x40, 0x40, 0x40, 0x40, 0x7F, 0x0F, 0x0F, 0x0F, 0x00, 0x00, 0x00,
+	},
 	/* 1 格 — seg1 (cols 2-4) */
-	{0x00, 0x7F, 0x7F, 0x7F, 0x7F, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40,
-	 0x40, 0x40, 0x40, 0x40, 0x40, 0x7F, 0x0F, 0x0F, 0x0F, 0x00, 0x00, 0x00,
+	{
 	 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
-	 0x02, 0x02, 0x02, 0x02, 0x02, 0xFE, 0xE0, 0xE0, 0xE0, 0x00, 0x00, 0x00},
-	/* 2 格 — seg1 + seg2 (cols 2-4, 6-8) */
-	{0x00, 0x7F, 0x7F, 0x7F, 0x7F, 0x40, 0x7F, 0x7F, 0x7F, 0x40, 0x40, 0x40,
+	 0x02, 0x02, 0x02, 0x02, 0x02, 0xFE, 0xE0, 0xE0, 0xE0, 0x00, 0x00, 0x00,
+	 0x00, 0x7F, 0x7F, 0x7F, 0x7F, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40,
 	 0x40, 0x40, 0x40, 0x40, 0x40, 0x7F, 0x0F, 0x0F, 0x0F, 0x00, 0x00, 0x00,
+	},
+	/* 2 格 — seg1 + seg2 (cols 2-4, 6-8) */
+	{
 	 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0x02, 0xFE, 0xFE, 0xFE, 0x02, 0x02, 0x02,
-	 0x02, 0x02, 0x02, 0x02, 0x02, 0xFE, 0xE0, 0xE0, 0xE0, 0x00, 0x00, 0x00},
+	 0x02, 0x02, 0x02, 0x02, 0x02, 0xFE, 0xE0, 0xE0, 0xE0, 0x00, 0x00, 0x00,
+	 0x00, 0x7F, 0x7F, 0x7F, 0x7F, 0x40, 0x7F, 0x7F, 0x7F, 0x40, 0x40, 0x40,
+	 0x40, 0x40, 0x40, 0x40, 0x40, 0x7F, 0x0F, 0x0F, 0x0F, 0x00, 0x00, 0x00,
+	},
 	/* 3 格 — seg1-3 (cols 2-4, 6-8, 10-12) */
-	{0x00, 0x7F, 0x7F, 0x7F, 0x7F, 0x40, 0x7F, 0x7F, 0x7F, 0x40, 0x7F, 0x7F,
+	{
+	 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0x02, 0xFE, 0xFE, 0xFE, 0x02, 0xFE, 0xFE,
+	 0xFE, 0x02, 0x02, 0x02, 0x02, 0xFE, 0xE0, 0xE0, 0xE0, 0x00, 0x00, 0x00,
+	 0x00, 0x7F, 0x7F, 0x7F, 0x7F, 0x40, 0x7F, 0x7F, 0x7F, 0x40, 0x7F, 0x7F,
 	 0x7F, 0x40, 0x40, 0x40, 0x40, 0x7F, 0x0F, 0x0F, 0x0F, 0x00, 0x00, 0x00,
-	 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0x02, 0xFE, 0xFE, 0xFE, 0x02, 0xFE, 0xFE,
-	 0xFE, 0x02, 0x02, 0x02, 0x02, 0xFE, 0xE0, 0xE0, 0xE0, 0x00, 0x00, 0x00},
+	},
 	/* 4 格 — 满电 (cols 2-4, 6-8, 10-12, 14-16) */
-	{0x00, 0x7F, 0x7F, 0x7F, 0x7F, 0x40, 0x7F, 0x7F, 0x7F, 0x40, 0x7F, 0x7F,
-	 0x7F, 0x40, 0x7F, 0x7F, 0x7F, 0x7F, 0x0F, 0x0F, 0x0F, 0x00, 0x00, 0x00,
+	{
 	 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0x02, 0xFE, 0xFE, 0xFE, 0x02, 0xFE, 0xFE,
-	 0xFE, 0x02, 0xFE, 0xFE, 0xFE, 0xFE, 0xE0, 0xE0, 0xE0, 0x00, 0x00, 0x00},
+	 0xFE, 0x02, 0xFE, 0xFE, 0xFE, 0xFE, 0xE0, 0xE0, 0xE0, 0x00, 0x00, 0x00,
+	 0x00, 0x7F, 0x7F, 0x7F, 0x7F, 0x40, 0x7F, 0x7F, 0x7F, 0x40, 0x7F, 0x7F,
+	 0x7F, 0x40, 0x7F, 0x7F, 0x7F, 0x7F, 0x0F, 0x0F, 0x0F, 0x00, 0x00, 0x00,
+	},
 };
 
 /* ================================================================
  * 业务显示函数
  * ================================================================ */
 
-/* Row 0 左侧: 连接类型 CAN / LORA */
-void mod_display_lora_can(uint8_t connect_type)
+/* Row 0 左侧1: LORA 信号 0/1/2/3/4/5 */
+void mod_display_lora_rssi(uint8_t rssi)
 {
 	k_mutex_lock(&display_mutex, K_FOREVER);
-	const char *type = (connect_type == LORA_TYPE) ? "LORA" : "CAN ";
-	display_str_pad(type, 0, 0, 32);
+	if (rssi > 5) rssi = 5;
+	char rssi_str[2];
+	rssi_str[0] = '0' + rssi;
+	rssi_str[1] = '\0';
+	display_str_pad(rssi_str, 0, 0, 16);
 	k_mutex_unlock(&display_mutex);
 }
 
-/* Row 0 右侧: 电池图标 + 百分比 + 充电状态 */
+/* Row 0 左侧2: 电池图标 */
 void mod_display_battery(uint8_t power_level)
 {
 	k_mutex_lock(&display_mutex, K_FOREVER);
 
 	/* 选择对应格数的图标 */
-	int idx = power_level >= 100  ? 4
-		  : power_level >= 75 ? 3
-		  : power_level >= 50 ? 2
-		  : power_level >= 25 ? 1
+	int idx = power_level >= 80  ? 4
+		  : power_level >= 60 ? 3
+		  : power_level >= 40 ? 2
+		  : power_level >= 20 ? 1
 				      : 0;
-	display_write_buf(40, 0, BATTERY_ICON_W, BATTERY_ICON_H, battery_icons[idx]);
+	display_write_buf(16, 0, BATTERY_ICON_W, BATTERY_ICON_H, battery_icons[idx]);
 
 	k_mutex_unlock(&display_mutex);
 }
 
+/* Row 0 左侧3: 连接类型 CAN / LORA */
+void mod_display_lora_can(uint8_t connect_type)
+{
+	k_mutex_lock(&display_mutex, K_FOREVER);
+	const char *type = (connect_type == LORA_TYPE) ? " L" : " C";
+	display_str_pad(type, 40, 0, 24);
+	k_mutex_unlock(&display_mutex);
+}
+
+/* Row 0 左侧4: 网关ID */
+void mod_display_lora_gwid(uint32_t gwid)
+{
+	char line[32] = {0};
+	k_mutex_lock(&display_mutex, K_FOREVER);
+	snprintf(line, sizeof(line), "%08X", gwid);
+	display_str_pad(line, 64, 0, 64);
+	k_mutex_unlock(&display_mutex);
+}
+
+
 /* Row 1: 激光距离 + 超欠挖 (来自扫描仪 CAN 数据) */
 void mod_display_scanner(const scanner_data_t *s)
 {
-	char line[17] = {0};
+	char line[32] = {0};
 
 	k_mutex_lock(&display_mutex, K_FOREVER);
 
-	if (s->laser_valid == 1) {
-		snprintf(line, sizeof(line), "D:%-5ld", (long)s->laser_distance);
-	} else {
-		snprintf(line, sizeof(line), "D:---  ");
-	}
-	display_str_pad(line, 0, 16, 128);
-
 	if (s->overbreak_valid == 1) {
-		snprintf(line, sizeof(line), "OB:%-5ld", (long)s->overbreak_value);
+		snprintf(line, sizeof(line), "OB:%-5ld m", (long)s->overbreak_value);
 	} else {
-		snprintf(line, sizeof(line), "OB:--- ");
+		snprintf(line, sizeof(line), "OB: --- ");
 	}
-	display_str_pad(line, 80, 16, 48);
+	display_str_pad(line, 0, 16, 64);
+
+	if (s->laser_valid == 1) {
+		snprintf(line, sizeof(line), "Dis:%-5ld m", (long)s->laser_distance);
+	} else {
+		snprintf(line, sizeof(line), "Dis: ---");
+	}
+	display_str_pad(line, 64, 16, 128);
 
 	k_mutex_unlock(&display_mutex);
 }
@@ -212,9 +226,10 @@ void mod_display_handler_xy(int x, int y)
 	uint16_t ay = (uint16_t)(y < 0 ? -y : y);
 
 	k_mutex_lock(&display_mutex, K_FOREVER);
-	snprintf(line, sizeof(line), "X:%c%u.%u Y:%c%u.%u", x < 0 ? '-' : '+', ax / 10, ax % 10,
-		 y < 0 ? '-' : '+', ay / 10, ay % 10);
-	display_str_pad(line, 0, 32, 128);
+	snprintf(line, sizeof(line), "X:%c%u.%u ", x < 0 ? '-' : '+', ax / 10, ax % 10);
+	display_str_pad(line, 0, 32, 64);
+	snprintf(line, sizeof(line), "Y:%c%u.%u ", y < 0 ? '-' : '+', ay / 10, ay % 10);
+	display_str_pad(line, 64, 32, 64);
 	k_mutex_unlock(&display_mutex);
 }
 
@@ -232,9 +247,39 @@ void mod_display_handler_button(uint8_t h_button)
 /* 全屏刷新 */
 void mod_display_all(const gloval_params_t *params)
 {
-	mod_display_lora_can(params->connect_type);
+	mod_display_lora_rssi(params->rssi);
 	mod_display_battery(params->power_level);
+	mod_display_lora_can(params->connect_type);
+	mod_display_lora_gwid(params->gwid);
+
 	mod_display_scanner(&params->scanner);
 	mod_display_handler_xy(params->x_degree, params->y_degree);
 	mod_display_handler_button(params->h_button);
 }
+/* ================================================================
+ * 初始化
+ * ================================================================ */
+gloval_params_t global_params;
+
+int mod_display_init(void)
+{
+	global_params.can_heart_time = CAN_HEART_TIME;
+	global_params.connect_type = CAN_TYPE;
+	k_event_init(&global_params.event);
+
+	if (!device_is_ready(display_dev)) {
+		LOG_ERR("Device %s not found.", display_dev->name);
+		return -1;
+	}
+
+	display_get_capabilities(display_dev, &capabilities);
+	LOG_INF("Display %dx%d", capabilities.x_resolution, capabilities.y_resolution);
+
+	display_blanking_off(display_dev);
+	mod_display_all(&global_params);
+
+	return 0;
+}
+
+SYS_INIT(mod_display_init, APPLICATION, 1);
+

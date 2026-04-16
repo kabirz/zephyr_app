@@ -156,15 +156,6 @@ int lora_gw_query(struct lora_gw_config *cfg);
 #define LORA_FRAME_OVERHEAD	(LORA_FRAME_HEADER_SIZE + LORA_FRAME_CRC_SIZE) /* 8 */
 
 /**
- * @brief 获取当前节点 ID
- *
- * 返回模块缓存的 NID (SYS_INIT 时通过 AT+NID 读取).
- *
- * @return 节点 ID (uint32_t)
- */
-uint32_t lora_get_node_id(void);
-
-/**
  * @brief 设置节点 ID 并写入模块
  *
  * 进入 AT 模式, 发送 AT+NID, 保存并重启模块, 更新本地缓存.

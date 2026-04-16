@@ -96,7 +96,7 @@ static void lora_cfg_work_handler(struct k_work *work)
 		}
 		mod_can_send(&resp);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY_NID) {
-		uint32_t nid = lora_get_node_id();
+		uint32_t nid = global_params.nid;
 
 		resp.data[0] = LORA_CFG_OK;
 		memcpy(&resp.data[4], &nid, sizeof(uint32_t));

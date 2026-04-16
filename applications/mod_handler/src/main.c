@@ -12,11 +12,9 @@
 #include <zephyr/logging/log.h>
 #include <common.h>
 #include <mod-can.h>
-#include <display.h>
 
 LOG_MODULE_REGISTER(main_app, LOG_LEVEL_INF);
 
-gloval_params_t global_params;
 
 int main(void)
 {
@@ -24,22 +22,9 @@ int main(void)
 	       "version: %s\n",
 	       __DATE__, __TIME__, CONFIG_BOARD_TARGET, CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC / MHZ(1),
 	       CONFIG_FLASH_SIZE, CONFIG_SRAM_SIZE, APP_VERSION_STRING);
-	mod_display_init();
-	mod_display_clear();
-	mod_display_all(&global_params);
 	while (1) {
 		k_sleep(K_MSEC(500));
 	}
 
 	return 0;
 }
-
-static int main_init(void)
-{
-	global_params.can_heart_time = CAN_HEART_TIME;
-	global_params.connect_type = CAN_TYPE;
-	k_event_init(&global_params.event);
-	return 0;
-}
-
-SYS_INIT(main_init, APPLICATION, 10);
