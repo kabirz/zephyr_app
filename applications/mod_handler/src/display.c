@@ -88,17 +88,6 @@ static void display_char(char ch, int x, int y)
 	display_write_buf(x, y, 8, 16, font_8x16[0].data);
 }
 
-/* 渲染字符串, 返回末尾 x 坐标 */
-static int display_str(const char *s, int x, int y)
-{
-	while (*s && x + 8 <= 128) {
-		display_char(*s, x, y);
-		x += 8;
-		s++;
-	}
-	return x;
-}
-
 /* 渲染字符串并用空格填充到指定宽度, 覆盖旧内容 */
 static void display_str_pad(const char *s, int x, int y, int width)
 {
@@ -228,11 +217,13 @@ void mod_display_scanner(const scanner_data_t *s)
 /* Row 2: X/Y 角度 (紧凑格式, 整数运算避免 %f 代码膨胀) */
 void mod_display_handler_xy(int x, int y)
 {
-	char line[17] = {0};
-	int ax = x < 0 ? -x : x, ay = y < 0 ? -y : y;
+	char line[32];
+	/* 角度范围 ±20.0° → abs 值 0~200, uint16 足够且消除 snprintf 截断警告 */
+	uint16_t ax = (uint16_t)(x < 0 ? -x : x);
+	uint16_t ay = (uint16_t)(y < 0 ? -y : y);
 
 	k_mutex_lock(&display_mutex, K_FOREVER);
-	snprintf(line, sizeof(line), "X:%c%d.%d Y:%c%d.%d",
+	snprintf(line, sizeof(line), "X:%c%u.%u Y:%c%u.%u",
 		 x < 0 ? '-' : '+', ax / 10, ax % 10,
 		 y < 0 ? '-' : '+', ay / 10, ay % 10);
 	display_str_pad(line, 0, 32, 128);
