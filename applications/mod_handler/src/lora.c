@@ -45,6 +45,7 @@ enum lora_mode {
 
 static atomic_t lora_current_mode = ATOMIC_INIT(LORA_MODE_DATA);
 static K_MUTEX_DEFINE(lora_mode_mutex);
+static K_MUTEX_DEFINE(lora_tx_mutex); /* 保护 lora_data_send 多线程 TX 竞争 */
 
 /* ================================================================
  * DMA 双缓冲
@@ -91,6 +92,16 @@ static K_SEM_DEFINE(at_resp_sem, 0, 1);
  * ================================================================ */
 #define LORA_DATA_RX_TIMEOUT 20
 #define LORA_AT_RX_TIMEOUT   100
+
+/* ================================================================
+ * 链路检测 — 应用层心跳 + ACK
+ * ================================================================ */
+static atomic_t lora_connected = ATOMIC_INIT(false);
+static K_SEM_DEFINE(lora_ack_sem, 0, 1);
+
+#define LORA_HEART_PERIOD_MS	2000  /* 心跳发送周期 */
+#define LORA_ACK_TIMEOUT_MS	1500  /* ACK 等待超时 */
+#define LORA_HEART_FAIL_MAX	3     /* 连续失败判定断连 */
 
 /* ================================================================
  * HOSTWAKE 管理
@@ -201,38 +212,51 @@ static void lora_rx_disable_sync(void)
  * ================================================================ */
 bool lora_data_send(const uint8_t *data, size_t len)
 {
-	uint8_t tx_data[32];
+	uint8_t tx_data[64];
 	int offset = 0;
 
 	if (atomic_get(&lora_current_mode) != LORA_MODE_DATA) {
 		LOG_WRN("Not in data mode");
 		return false;
 	}
-	/* 节点ID */
-	snprintf(tx_data, 9, "%08x", node_id);
-	offset += 8;
 
-	/* 需要发送的数据 */
+	k_mutex_lock(&lora_tx_mutex, K_FOREVER);
+
+	/* NID (4 bytes LE) */
+	memcpy(tx_data + offset, &node_id, sizeof(uint32_t));
+	offset += LORA_FRAME_NID_SIZE;
+
+	/* Length (2 bytes LE) — Data 字段长度 */
+	uint16_t data_len = (uint16_t)len;
+
+	memcpy(tx_data + offset, &data_len, sizeof(uint16_t));
+	offset += LORA_FRAME_LEN_SIZE;
+
+	/* Data */
 	memcpy(tx_data + offset, data, len);
 	offset += len;
 
-	/* CRC16 */
-	*(uint16_t *)(tx_data + offset) = crc16_ccitt(0, tx_data, offset);
+	/* CRC16 — 覆盖 NID + Length + Data */
+	uint16_t crc = crc16_ccitt(0, tx_data, offset);
 
-	offset += 2;
+	memcpy(tx_data + offset, &crc, sizeof(uint16_t));
+	offset += LORA_FRAME_CRC_SIZE;
 
 	/* 等待模块空闲 (HOSTWAKE 低 = 模块未在无线收发) */
 	int retry = 10;
+
 	while (lora_get_hostwake_status() && retry-- > 0) {
 		k_msleep(5);
 	}
 	if (retry <= 0) {
 		LOG_WRN("LoRa module busy");
+		k_mutex_unlock(&lora_tx_mutex);
 		return false;
 	}
 
 	int ret = lora_async_tx(tx_data, offset);
 
+	k_mutex_unlock(&lora_tx_mutex);
 	return (ret == 0);
 }
 
@@ -430,7 +454,7 @@ int lora_gw_configure(const struct lora_gw_config *cfg)
 		.mode = LORA_GW_MODE_TRANS,
 		.spd = 10,
 		.ch = 72,
-		.nid = 0,
+		.gwid = 0,
 	};
 
 	if (!cfg) {
@@ -481,10 +505,10 @@ int lora_gw_configure(const struct lora_gw_config *cfg)
 
 	/* 组网模式: 设置网关 ID */
 	if (cfg->mode == LORA_GW_MODE_NETWORK) {
-		snprintf(cmd, sizeof(cmd), "AT+NID=%d", cfg->nid);
+		snprintf(cmd, sizeof(cmd), "AT+GWID=%x", cfg->gwid);
 		ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
 		if (ret) {
-			LOG_ERR("Set NID failed");
+			LOG_ERR("Set GWID failed");
 			goto out;
 		}
 	}
@@ -502,9 +526,9 @@ int lora_gw_configure(const struct lora_gw_config *cfg)
 	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
 	k_mutex_unlock(&lora_mode_mutex);
 
-	LOG_INF("Gateway configured: mode=%s spd=%d ch=%d nid=%d",
+	LOG_INF("Gateway configured: mode=%s spd=%d ch=%d gwid=%d",
 		cfg->mode == LORA_GW_MODE_NETWORK ? "network" : "trans", cfg->spd, cfg->ch,
-		cfg->nid);
+		cfg->gwid);
 	return 0;
 
 out:
@@ -518,7 +542,7 @@ out:
 static int parse_at_number(const char *resp)
 {
 	/* AT 查询响应格式: \r\n+CMD:<value>\r\n\r\nOK\r\n
-	 * 例: \r\n+NID:5\r\n\r\nOK\r\n
+	 * 例: \r\n+GWID:5\r\n\r\nOK\r\n
 	 *     \r\n+SPD:10\r\n\r\nOK\r\n
 	 * 查找 ':' 或 '=' 作为值分隔符
 	 */
@@ -537,13 +561,12 @@ static int parse_at_number(const char *resp)
 }
 
 /* ================================================================
- * LG210 网关参数查询 — 读取 NID
+ * LG210 网关参数查询 — 读取 GWID
  * ================================================================ */
-static int parse_at_nid(const char *resp)
+static int parse_at_gwid(const char *resp)
 {
 	/* AT 查询响应格式: \r\n+CMD:<value>\r\n\r\nOK\r\n
-	 * 例: \r\n+NID:5\r\n\r\nOK\r\n
-	 *     \r\n+SPD:10\r\n\r\nOK\r\n
+	 * 例: \r\n+GWID:5\r\n\r\nOK\r\n
 	 * 查找 ':' 或 '=' 作为值分隔符
 	 */
 	const char *p = strchr(resp, ':');
@@ -574,18 +597,29 @@ int lora_gw_query(struct lora_gw_config *cfg)
 	char resp[128];
 
 	/* 查询网关 ID — 有值则为组网模式, 否则为透传模式 */
-	cfg->nid = 0;
+	cfg->gwid = 0;
 	cfg->mode = LORA_GW_MODE_TRANS;
+	ret = lora_send_at("AT+GWID", resp, sizeof(resp), 2000);
+	if (ret == 0) {
+		int gwid_val = parse_at_gwid(resp);
+		if (gwid_val > 0) {
+			cfg->gwid = (uint32_t)gwid_val;
+			cfg->mode = LORA_GW_MODE_NETWORK;
+		}
+	} else {
+		LOG_WRN("Query GWID failed");
+	}
+
 	ret = lora_send_at("AT+NID", resp, sizeof(resp), 2000);
 	if (ret == 0) {
-		int nid_val = parse_at_nid(resp);
+		int nid_val = parse_at_gwid(resp);
 		if (nid_val > 0) {
 			cfg->nid = (uint32_t)nid_val;
-			cfg->mode = LORA_GW_MODE_NETWORK;
 		}
 	} else {
 		LOG_WRN("Query NID failed");
 	}
+
 
 	/* 查询速率 */
 	ret = lora_send_at("AT+SPD", resp, sizeof(resp), 2000);
@@ -610,7 +644,58 @@ int lora_gw_query(struct lora_gw_config *cfg)
 }
 
 /* ================================================================
- * 数据接收处理线程 — 从 msgq 取帧, 上报应用层
+ * 统一帧解析 — 验证 NID + Length + CRC16
+ *
+ * 输入: DMA 接收的原始数据
+ * 输出: payload 指向 Data 字段, payload_len 为 Data 长度
+ * 返回: true 帧合法 (NID 匹配 + CRC 正确)
+ * ================================================================ */
+static bool parse_lora_frame(const uint8_t *data, uint16_t len,
+			     const uint8_t **payload, uint16_t *payload_len)
+{
+	/* 最小帧: NID(4) + Length(2) + CRC(2) = 8 */
+	if (len < LORA_FRAME_OVERHEAD) {
+		return false;
+	}
+
+	/* 验证 NID */
+	uint32_t rx_nid;
+
+	memcpy(&rx_nid, data, sizeof(uint32_t));
+	if (rx_nid != node_id) {
+		return false;
+	}
+
+	/* 提取 Length (Data 字段长度) */
+	uint16_t data_len;
+
+	memcpy(&data_len, data + LORA_FRAME_NID_SIZE, sizeof(uint16_t));
+
+	/* 检查帧完整性 */
+	if (len != LORA_FRAME_HEADER_SIZE + data_len + LORA_FRAME_CRC_SIZE) {
+		return false;
+	}
+
+	/* 验证 CRC16 — 覆盖 NID + Length + Data */
+	uint16_t calc_crc = crc16_ccitt(0, data, LORA_FRAME_HEADER_SIZE + data_len);
+	uint16_t rx_crc;
+
+	memcpy(&rx_crc, data + LORA_FRAME_HEADER_SIZE + data_len, sizeof(uint16_t));
+	if (calc_crc != rx_crc) {
+		return false;
+	}
+
+	if (payload) {
+		*payload = data + LORA_FRAME_HEADER_SIZE;
+	}
+	if (payload_len) {
+		*payload_len = data_len;
+	}
+	return true;
+}
+
+/* ================================================================
+ * 数据接收处理线程 — 统一帧解析 + 链路检测
  * ================================================================ */
 static void lora_msg_process_thread(void)
 {
@@ -618,12 +703,92 @@ static void lora_msg_process_thread(void)
 
 	while (true) {
 		if (k_msgq_get(&lora_data_msgq, &msg, K_FOREVER) == 0) {
-			LOG_HEXDUMP_INF(msg.data, msg.len, "LoRa RX:");
-			/* TODO: 解析透传数据, 上报应用层 */
+			const uint8_t *payload;
+			uint16_t payload_len;
+
+			if (parse_lora_frame(msg.data, msg.len, &payload, &payload_len)) {
+				/* 合法帧 → 链路连通 */
+				atomic_set(&lora_connected, true);
+				k_sem_give(&lora_ack_sem);
+
+				if (payload_len > 0) {
+					LOG_HEXDUMP_INF(payload, payload_len, "LoRa RX:");
+					/* TODO: 上报应用层 */
+				} else {
+					LOG_DBG("LoRa ACK received (empty payload)");
+				}
+			} else {
+				LOG_HEXDUMP_INF(msg.data, msg.len, "LoRa RX (invalid):");
+			}
 		}
 	}
 }
 K_THREAD_DEFINE(lora_msg, 1024, lora_msg_process_thread, NULL, NULL, NULL, 12, 0, 0);
+
+/* ================================================================
+ * LoRa 心跳线程 — 仅 connect_type == LORA_TYPE 时运行
+ *
+ * 周期发送遥测帧, 等待网关 ACK.
+ * 连续 LORA_HEART_FAIL_MAX 次失败判定链路断开.
+ * ================================================================ */
+static void lora_heartbeat_thread(void)
+{
+	int fail_count = 0;
+
+	while (true) {
+		/* 仅在 LoRa 模式下运行 */
+		if (global_params.connect_type != LORA_TYPE) {
+			if (atomic_get(&lora_connected)) {
+				atomic_set(&lora_connected, false);
+			}
+			fail_count = 0;
+			k_sleep(K_MSEC(500));
+			continue;
+		}
+
+		k_sem_reset(&lora_ack_sem);
+
+		/* 发送遥测帧作为心跳 */
+		bool sent = lora_send_telemetry(&global_params);
+
+		if (sent) {
+			/* 等待网关 ACK (本心跳或期间事件驱动发送触发的 ACK) */
+			if (k_sem_take(&lora_ack_sem, K_MSEC(LORA_ACK_TIMEOUT_MS)) == 0) {
+				if (fail_count > 0) {
+					LOG_INF("LoRa link restored");
+				}
+				fail_count = 0;
+			} else {
+				fail_count++;
+				LOG_WRN("LoRa heartbeat ACK timeout (%d/%d)", fail_count,
+					LORA_HEART_FAIL_MAX);
+			}
+		} else {
+			fail_count++;
+			LOG_WRN("LoRa heartbeat send failed (%d/%d)", fail_count,
+				LORA_HEART_FAIL_MAX);
+		}
+
+		/* 连续失败达到阈值, 标记断连 */
+		if (fail_count >= LORA_HEART_FAIL_MAX) {
+			if (atomic_get(&lora_connected)) {
+				atomic_set(&lora_connected, false);
+				LOG_WRN("LoRa link lost");
+			}
+		}
+
+		k_sleep(K_MSEC(LORA_HEART_PERIOD_MS));
+	}
+}
+K_THREAD_DEFINE(lora_heart, 1024, lora_heartbeat_thread, NULL, NULL, NULL, 12, 0, 0);
+
+/* ================================================================
+ * 链路状态查询
+ * ================================================================ */
+bool lora_is_connected(void)
+{
+	return atomic_get(&lora_connected);
+}
 
 /* ================================================================
  * Shell 调试命令
@@ -699,7 +864,7 @@ static int cmd_gw_config(const struct shell *ctx, size_t argc, char **argv)
 		.mode = LORA_GW_MODE_TRANS,
 		.spd = 10,
 		.ch = 72,
-		.nid = 0,
+		.gwid = 0,
 	};
 
 	/* lora gw config [mode] [spd] [ch] [nid]
@@ -717,12 +882,12 @@ static int cmd_gw_config(const struct shell *ctx, size_t argc, char **argv)
 		cfg.ch = (uint8_t)strtol(argv[3], NULL, 10);
 	}
 	if (argc >= 5) {
-		cfg.nid = (uint16_t)strtol(argv[4], NULL, 16);
+		cfg.gwid = (uint16_t)strtol(argv[4], NULL, 16);
 	}
 
 	/* 组网模式必须提供网关 ID */
-	if (cfg.mode == LORA_GW_MODE_NETWORK && cfg.nid == 0) {
-		shell_error(ctx, "Network mode requires NID > 0");
+	if (cfg.mode == LORA_GW_MODE_NETWORK && cfg.gwid == 0) {
+		shell_error(ctx, "Network mode requires GWID > 0");
 		return -EINVAL;
 	}
 
@@ -732,8 +897,8 @@ static int cmd_gw_config(const struct shell *ctx, size_t argc, char **argv)
 		shell_error(ctx, "Gateway config failed (%d)", ret);
 		return ret;
 	}
-	shell_print(ctx, "Gateway configured: mode=%s spd=%d ch=%d nid=%x",
-		    cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans", cfg.spd, cfg.ch, cfg.nid);
+	shell_print(ctx, "Gateway configured: mode=%s spd=%d ch=%d gwid=%x",
+		    cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans", cfg.spd, cfg.ch, cfg.gwid);
 	return 0;
 }
 
@@ -749,8 +914,8 @@ static int cmd_gw_query(const struct shell *ctx, size_t argc, char **argv)
 		shell_error(ctx, "Query failed (%d)", ret);
 		return ret;
 	}
-	shell_print(ctx, "Gateway params: mode=%s spd=%d ch=%d nid=%x",
-		    cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans", cfg.spd, cfg.ch, cfg.nid);
+	shell_print(ctx, "Gateway params: mode=%s spd=%d ch=%d gwid=%x",
+		    cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans", cfg.spd, cfg.ch, cfg.gwid);
 	return 0;
 }
 
@@ -820,7 +985,7 @@ static int lora_serial_init(void)
 		return ret;
 	}
 
-	/* 进入 AT 模式读取模块参数 (NID/SPD/CH) */
+	/* 进入 AT 模式读取模块参数 (GWID/SPD/CH) */
 	struct lora_gw_config cfg;
 
 	ret = lora_gw_query(&cfg);

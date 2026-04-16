@@ -74,9 +74,9 @@ static void lora_cfg_work_handler(struct k_work *work)
 		int ret = lora_gw_configure(&pending_lora_cfg);
 
 		resp.data[0] = (ret == 0) ? LORA_CFG_OK : LORA_CFG_FAIL;
-		LOG_INF("LoRa config SET: ret=%d mode=%d spd=%d ch=%d nid=%d", ret,
+		LOG_INF("LoRa config SET: ret=%d mode=%d spd=%d ch=%d gwid=%d", ret,
 			pending_lora_cfg.mode, pending_lora_cfg.spd, pending_lora_cfg.ch,
-			pending_lora_cfg.nid);
+			pending_lora_cfg.gwid);
 		mod_can_send(&resp);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY) {
 		struct lora_gw_config cfg;
@@ -87,9 +87,9 @@ static void lora_cfg_work_handler(struct k_work *work)
 			resp.data[1] = (uint8_t)cfg.mode;
 			resp.data[2] = cfg.spd;
 			resp.data[3] = cfg.ch;
-			memcpy(&resp.data[4], &cfg.nid, sizeof(cfg.nid));
-			LOG_INF("LoRa config QUERY: mode=%d spd=%d ch=%d nid=%d", cfg.mode, cfg.spd,
-				cfg.ch, cfg.nid);
+			memcpy(&resp.data[4], &cfg.gwid, sizeof(cfg.gwid));
+			LOG_INF("LoRa config QUERY: mode=%d spd=%d ch=%d gwid=%d", cfg.mode, cfg.spd,
+				cfg.ch, cfg.gwid);
 		} else {
 			LOG_ERR("LoRa config QUERY failed: %d", ret);
 		}
@@ -106,7 +106,7 @@ static void can_lora_config_handler(struct can_frame *frame)
 			(frame->data[1] == 1) ? LORA_GW_MODE_NETWORK : LORA_GW_MODE_TRANS;
 		pending_lora_cfg.spd = frame->data[2];
 		pending_lora_cfg.ch = frame->data[3];
-		memcpy(&pending_lora_cfg.nid, &frame->data[4], sizeof(uint16_t));
+		memcpy(&pending_lora_cfg.gwid, &frame->data[4], sizeof(uint16_t));
 		k_work_submit(&lora_cfg_work);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY) {
 		k_work_submit(&lora_cfg_work);

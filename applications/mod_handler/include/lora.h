@@ -102,7 +102,8 @@ struct lora_gw_config {
 	enum lora_gw_mode mode; /* 通信模式 */
 	uint8_t spd;            /* 速率等级 1-12, 默认 10 */
 	uint8_t ch;             /* 信道 0-127, 默认 72 (470MHz) */
-	uint32_t nid;           /* 网关 ID, 组网模式有效 (0-2^32) */
+	uint32_t nid;           /* 节点 ID, 组网模式有效 (0-2^32) */
+	uint32_t gwid;           /* 网关 ID, 组网模式有效 (0-2^32) */
 };
 
 /**
@@ -125,5 +126,35 @@ int lora_gw_configure(const struct lora_gw_config *cfg);
  * @return 0 成功, 负数失败
  */
 int lora_gw_query(struct lora_gw_config *cfg);
+
+/* ================================================================
+ * LoRa 统一帧格式 (收发一致)
+ *
+ * [NID 4 bytes LE][Length 2 bytes LE][Data Length bytes][CRC16 2 bytes]
+ *
+ * NID:    uint32_t LE, 节点 ID
+ * Length: uint16_t LE, Data 字段长度
+ * Data:   变长数据 (遥测帧 8 字节, 心跳 ACK 0 字节等)
+ * CRC16:  CRC16-CCITT, 覆盖 NID + Length + Data (CRC 前所有字节)
+ *
+ * 遥测帧 (手柄→网关): Data = 8 字节 (与 CAN 0x1E3 一致)
+ * 心跳 ACK (网关→手柄): Data = 0 字节 (仅 NID + Length(0) + CRC)
+ * 网关数据帧 (网关→手柄): Data = 应用层变长数据
+ * ================================================================ */
+#define LORA_FRAME_NID_SIZE	4
+#define LORA_FRAME_LEN_SIZE	2
+#define LORA_FRAME_CRC_SIZE	2
+#define LORA_FRAME_HEADER_SIZE	(LORA_FRAME_NID_SIZE + LORA_FRAME_LEN_SIZE) /* 6 */
+#define LORA_FRAME_OVERHEAD	(LORA_FRAME_HEADER_SIZE + LORA_FRAME_CRC_SIZE) /* 8 */
+
+/**
+ * @brief 检查 LoRa 网关链路状态
+ *
+ * 基于应用层心跳 ACK 检测结果. 仅在 connect_type == LORA_TYPE 时
+ * 由心跳线程维护, 其他模式下返回 false.
+ *
+ * @return true 网关已响应 ACK, false 超时未响应或非 LoRa 模式
+ */
+bool lora_is_connected(void);
 
 #endif /* __LORA_H__ */
