@@ -90,10 +90,7 @@ void adc_read_thread(void)
 				break;
 			case 2:
 				// Power VCC → 电量百分比 (3.0V~4.2V 线性映射)
-				power_level =
-					(uint8_t)CLAMP(
-						(val_mv - 3000) * 100 / 1200,
-						0, 100);
+				power_level = (uint8_t)CLAMP((val_mv - 3000) * 100 / 1200, 0, 100);
 				break;
 			default:
 				break;

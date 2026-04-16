@@ -31,8 +31,7 @@ static const struct gpio_dt_spec lora_reset_pin =
 	GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), lorareset_gpios);
 static const struct gpio_dt_spec lora_hostwake_pin =
 	GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), hostwake_gpios);
-static const struct device *uart_dev =
-	DEVICE_DT_GET(DT_NODELABEL(usart2));
+static const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(usart2));
 
 /* hostwake_mutex 已移除: HOSTWAKE 仅作输入读取, 无需互斥 */
 
@@ -40,8 +39,8 @@ static const struct device *uart_dev =
  * 模式状态机
  * ================================================================ */
 enum lora_mode {
-	LORA_MODE_DATA,	/* 透传收发 */
-	LORA_MODE_AT,	/* AT 配置 */
+	LORA_MODE_DATA, /* 透传收发 */
+	LORA_MODE_AT,   /* AT 配置 */
 };
 
 static atomic_t lora_current_mode = ATOMIC_INIT(LORA_MODE_DATA);
@@ -108,8 +107,7 @@ bool lora_get_hostwake_status(void)
 /* ================================================================
  * UART Async 回调 — 所有 DMA 事件在此处理
  * ================================================================ */
-static void lora_uart_cb(const struct device *dev,
-			  struct uart_event *evt, void *user_data)
+static void lora_uart_cb(const struct device *dev, struct uart_event *evt, void *user_data)
 {
 	ARG_UNUSED(user_data);
 
@@ -121,8 +119,7 @@ static void lora_uart_cb(const struct device *dev,
 			uint16_t off = evt->data.rx.offset;
 
 			if (at_resp_len + len < sizeof(at_resp_buf) - 1) {
-				memcpy(at_resp_buf + at_resp_len,
-				       evt->data.rx.buf + off, len);
+				memcpy(at_resp_buf + at_resp_len, evt->data.rx.buf + off, len);
 				at_resp_len += len;
 				at_resp_buf[at_resp_len] = '\0';
 			}
@@ -216,11 +213,11 @@ bool lora_data_send(const uint8_t *data, size_t len)
 	offset += 8;
 
 	/* 需要发送的数据 */
-	memcpy(tx_data+offset, data, len);
+	memcpy(tx_data + offset, data, len);
 	offset += len;
 
 	/* CRC16 */
-	*(uint16_t *)(tx_data+offset) = crc16_ccitt(0, tx_data, offset);
+	*(uint16_t *)(tx_data + offset) = crc16_ccitt(0, tx_data, offset);
 
 	offset += 2;
 
@@ -302,8 +299,7 @@ int lora_enter_at(void)
 	k_sem_reset(&at_resp_sem);
 
 	/* 以 AT 超时重启 RX */
-	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE,
-		       LORA_AT_RX_TIMEOUT);
+	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_AT_RX_TIMEOUT);
 
 	/* Step 1: 发送 +++ */
 	ret = lora_async_tx((const uint8_t *)"+++", 3);
@@ -339,8 +335,7 @@ fail:
 	LOG_ERR("Enter AT mode failed, restoring data mode");
 	lora_rx_disable_sync();
 	atomic_set(&lora_current_mode, LORA_MODE_DATA);
-	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE,
-		       LORA_DATA_RX_TIMEOUT);
+	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
 	k_mutex_unlock(&lora_mode_mutex);
 	return -ETIMEDOUT;
 }
@@ -361,8 +356,7 @@ int lora_exit_at(void)
 
 	/* 切换回数据模式 */
 	atomic_set(&lora_current_mode, LORA_MODE_DATA);
-	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE,
-		       LORA_DATA_RX_TIMEOUT);
+	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
 
 	LOG_INF("Exited AT mode, back to data mode");
 	k_mutex_unlock(&lora_mode_mutex);
@@ -372,8 +366,7 @@ int lora_exit_at(void)
 /* ================================================================
  * AT 指令收发 — 一问一答, 等待 OK/ERR 判定响应完整
  * ================================================================ */
-int lora_send_at(const char *cmd, char *resp, size_t resp_size,
-		 uint32_t timeout_ms)
+int lora_send_at(const char *cmd, char *resp, size_t resp_size, uint32_t timeout_ms)
 {
 	if (atomic_get(&lora_current_mode) != LORA_MODE_AT) {
 		return -EPERM;
@@ -406,7 +399,7 @@ int lora_send_at(const char *cmd, char *resp, size_t resp_size,
 
 		ret = k_sem_take(&at_resp_sem, K_MSEC(remaining));
 		if (ret != 0) {
-			break;	/* 超时 */
+			break; /* 超时 */
 		}
 
 		/* 响应包含 OK 或 ERR, 认为完整 */
@@ -506,13 +499,12 @@ int lora_gw_configure(const struct lora_gw_config *cfg)
 	k_msleep(1000);
 	lora_rx_disable_sync();
 	atomic_set(&lora_current_mode, LORA_MODE_DATA);
-	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE,
-		       LORA_DATA_RX_TIMEOUT);
+	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
 	k_mutex_unlock(&lora_mode_mutex);
 
 	LOG_INF("Gateway configured: mode=%s spd=%d ch=%d nid=%d",
-		cfg->mode == LORA_GW_MODE_NETWORK ? "network" : "trans",
-		cfg->spd, cfg->ch, cfg->nid);
+		cfg->mode == LORA_GW_MODE_NETWORK ? "network" : "trans", cfg->spd, cfg->ch,
+		cfg->nid);
 	return 0;
 
 out:
@@ -631,8 +623,7 @@ static void lora_msg_process_thread(void)
 		}
 	}
 }
-K_THREAD_DEFINE(lora_msg, 1024, lora_msg_process_thread,
-		NULL, NULL, NULL, 12, 0, 0);
+K_THREAD_DEFINE(lora_msg, 1024, lora_msg_process_thread, NULL, NULL, NULL, 12, 0, 0);
 
 /* ================================================================
  * Shell 调试命令
@@ -702,8 +693,7 @@ static int cmd_exit(const struct shell *ctx, size_t argc, char **argv)
 	return lora_exit_at();
 }
 
-static int cmd_gw_config(const struct shell *ctx, size_t argc,
-			 char **argv)
+static int cmd_gw_config(const struct shell *ctx, size_t argc, char **argv)
 {
 	struct lora_gw_config cfg = {
 		.mode = LORA_GW_MODE_TRANS,
@@ -743,13 +733,11 @@ static int cmd_gw_config(const struct shell *ctx, size_t argc,
 		return ret;
 	}
 	shell_print(ctx, "Gateway configured: mode=%s spd=%d ch=%d nid=%x",
-		    cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans",
-		    cfg.spd, cfg.ch, cfg.nid);
+		    cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans", cfg.spd, cfg.ch, cfg.nid);
 	return 0;
 }
 
-static int cmd_gw_query(const struct shell *ctx, size_t argc,
-			char **argv)
+static int cmd_gw_query(const struct shell *ctx, size_t argc, char **argv)
 {
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
@@ -762,40 +750,34 @@ static int cmd_gw_query(const struct shell *ctx, size_t argc,
 		return ret;
 	}
 	shell_print(ctx, "Gateway params: mode=%s spd=%d ch=%d nid=%x",
-		    cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans",
-		    cfg.spd, cfg.ch, cfg.nid);
+		    cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans", cfg.spd, cfg.ch, cfg.nid);
 	return 0;
 }
 
-SHELL_STATIC_SUBCMD_SET_CREATE(
-	sub_lora_gw_cmds,
-	SHELL_CMD_ARG(config, NULL,
-		      "Configure gateway params and reboot\n"
-		      "Usage: config [trans|net] [spd] [ch] [nid]\n"
-		      "  trans  Transparent mode (default)\n"
-		      "  net    Network mode (requires nid)",
-		      cmd_gw_config, 1, 4),
-	SHELL_CMD_ARG(query, NULL,
-		      "Query current gateway params",
-		      cmd_gw_query, 1, 0),
-	SHELL_SUBCMD_SET_END);
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_gw_cmds,
+			       SHELL_CMD_ARG(config, NULL,
+					     "Configure gateway params and reboot\n"
+					     "Usage: config [trans|net] [spd] [ch] [nid]\n"
+					     "  trans  Transparent mode (default)\n"
+					     "  net    Network mode (requires nid)",
+					     cmd_gw_config, 1, 4),
+			       SHELL_CMD_ARG(query, NULL, "Query current gateway params",
+					     cmd_gw_query, 1, 0),
+			       SHELL_SUBCMD_SET_END);
 
-SHELL_STATIC_SUBCMD_SET_CREATE(
-	sub_lora_cmds,
-	SHELL_CMD_ARG(send, NULL,
-		      "Send data in transparent mode\n"
-		      "Usage: send <data>",
-		      cmd_send, 2, 0),
-	SHELL_CMD_ARG(at, NULL,
-		      "Send AT command (auto enter AT mode)\n"
-		      "Usage: at <command>",
-		      cmd_at, 2, 0),
-	SHELL_CMD_ARG(exit, NULL,
-		      "Exit AT mode, return to data mode",
-		      cmd_exit, 1, 0),
-	SHELL_CMD(gw, &sub_lora_gw_cmds,
-		  "LG210 gateway operations", NULL),
-	SHELL_SUBCMD_SET_END);
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_cmds,
+			       SHELL_CMD_ARG(send, NULL,
+					     "Send data in transparent mode\n"
+					     "Usage: send <data>",
+					     cmd_send, 2, 0),
+			       SHELL_CMD_ARG(at, NULL,
+					     "Send AT command (auto enter AT mode)\n"
+					     "Usage: at <command>",
+					     cmd_at, 2, 0),
+			       SHELL_CMD_ARG(exit, NULL, "Exit AT mode, return to data mode",
+					     cmd_exit, 1, 0),
+			       SHELL_CMD(gw, &sub_lora_gw_cmds, "LG210 gateway operations", NULL),
+			       SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(lora, &sub_lora_cmds, "LoRa WH-L101-L commands", NULL);
 #endif /* CONFIG_SHELL */
@@ -832,13 +814,11 @@ static int lora_serial_init(void)
 	uart_callback_set(uart_dev, lora_uart_cb, NULL);
 
 	/* 启动 DMA 接收 — 数据模式, 20ms 帧间超时 */
-	ret = uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE,
-			     LORA_DATA_RX_TIMEOUT);
+	ret = uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
 	if (ret != 0) {
 		LOG_ERR("Failed to enable UART RX: %d", ret);
 		return ret;
 	}
-
 
 	/* 进入 AT 模式读取模块参数 (NID/SPD/CH) */
 	struct lora_gw_config cfg;
@@ -847,13 +827,13 @@ static int lora_serial_init(void)
 	if (ret == 0) {
 		node_id = cfg.nid;
 		LOG_INF("LoRa params: mode=%s nid=0x%08x spd=%d ch=%d",
-			cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans",
-			node_id, cfg.spd, cfg.ch);
+			cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans", node_id, cfg.spd,
+			cfg.ch);
 	} else {
 		LOG_WRN("LoRa param query failed (%d), using defaults", ret);
 	}
-	LOG_INF("LoRa WH-L101-L initialized (async DMA, buf=%d, timeout=%dms)",
-		LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
+	LOG_INF("LoRa WH-L101-L initialized (async DMA, buf=%d, timeout=%dms)", LORA_BUF_SIZE,
+		LORA_DATA_RX_TIMEOUT);
 	return 0;
 }
 

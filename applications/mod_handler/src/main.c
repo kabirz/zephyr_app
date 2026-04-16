@@ -20,7 +20,8 @@ gloval_params_t global_params;
 
 int main(void)
 {
-	printk("build time: %s-%s, board: %s, system clk: %dMHz, flash size: %dKB, ram size: %dKB, version: %s\n",
+	printk("build time: %s-%s, board: %s, system clk: %dMHz, flash size: %dKB, ram size: %dKB, "
+	       "version: %s\n",
 	       __DATE__, __TIME__, CONFIG_BOARD_TARGET, CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC / MHZ(1),
 	       CONFIG_FLASH_SIZE, CONFIG_SRAM_SIZE, APP_VERSION_STRING);
 	mod_display_init();

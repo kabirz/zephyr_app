@@ -118,7 +118,7 @@ static int gpio_init(void)
 		return ret;
 	}
 	gpio_init_callback(&power_button_cb_data, gpio_irq,
-		    BIT(power_button.pin) | BIT(handle_button.pin));
+			   BIT(power_button.pin) | BIT(handle_button.pin));
 	gpio_add_callback(power_button.port, &power_button_cb_data);
 
 	k_work_init(&btn_display_work, btn_display_work_handler);

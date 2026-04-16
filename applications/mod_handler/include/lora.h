@@ -71,8 +71,7 @@ int lora_exit_at(void);
  * @param timeout_ms 等待响应超时 (ms)
  * @return 0 成功, -EPERM 未进入 AT 模式, -ETIMEDOUT 超时
  */
-int lora_send_at(const char *cmd, char *resp, size_t resp_size,
-                 uint32_t timeout_ms);
+int lora_send_at(const char *cmd, char *resp, size_t resp_size, uint32_t timeout_ms);
 
 /**
  * @brief 读取 HOSTWAKE 引脚状态 (模块是否繁忙)
@@ -92,18 +91,18 @@ bool lora_get_hostwake_status(void);
  * 组网模式: 需 NETID + SPD + CH 同时匹配
  */
 enum lora_gw_mode {
-	LORA_GW_MODE_TRANS,	/* 透传模式 (默认) */
-	LORA_GW_MODE_NETWORK,	/* 组网模式 */
+	LORA_GW_MODE_TRANS,   /* 透传模式 (默认) */
+	LORA_GW_MODE_NETWORK, /* 组网模式 */
 };
 
 /**
  * @brief LG210 网关连接参数
  */
 struct lora_gw_config {
-	enum lora_gw_mode mode;	/* 通信模式 */
-	uint8_t spd;		/* 速率等级 1-12, 默认 10 */
-	uint8_t ch;		/* 信道 0-127, 默认 72 (470MHz) */
-	uint32_t nid;		/* 网关 ID, 组网模式有效 (0-2^32) */
+	enum lora_gw_mode mode; /* 通信模式 */
+	uint8_t spd;            /* 速率等级 1-12, 默认 10 */
+	uint8_t ch;             /* 信道 0-127, 默认 72 (470MHz) */
+	uint32_t nid;           /* 网关 ID, 组网模式有效 (0-2^32) */
 };
 
 /**

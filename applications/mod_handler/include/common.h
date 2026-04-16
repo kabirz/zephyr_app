@@ -5,24 +5,22 @@
 #include <zephyr/kernel.h>
 
 typedef enum {
-    BATTERY_STATUS_UNKNOWN = 0,
-    BATTERY_STATUS_FULL,
-    BATTERY_STATUS_CHARGING,
-    BATTERY_STATUS_NOT_CHARGING,
-    BATTERY_STATUS_DISCHARGING,
+	BATTERY_STATUS_UNKNOWN = 0,
+	BATTERY_STATUS_FULL,
+	BATTERY_STATUS_CHARGING,
+	BATTERY_STATUS_NOT_CHARGING,
+	BATTERY_STATUS_DISCHARGING,
 } battery_status_t;
 
-
-
 typedef struct {
-	int8_t  overbreak_valid;
+	int8_t overbreak_valid;
 	int32_t overbreak_value;
-	int8_t  laser_valid;
+	int8_t laser_valid;
 	int32_t laser_distance;
-	int8_t  coord_xy_valid;
+	int8_t coord_xy_valid;
 	int32_t coord_x;
 	int32_t coord_y;
-	int8_t  coord_z_valid;
+	int8_t coord_z_valid;
 	int32_t coord_z;
 } scanner_data_t;
 

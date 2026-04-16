@@ -5,10 +5,14 @@
 #include <common.h>
 LOG_MODULE_REGISTER(mod_power, LOG_LEVEL_INF);
 
-static const struct gpio_dt_spec can_power_gpio = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), canpower_gpios);
-static const struct gpio_dt_spec lora_power_gpio = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), lorapower_gpios);
-static const struct gpio_dt_spec dis_power_gpio = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), dispower_gpios);
-static const struct gpio_dt_spec p5_power_gpio = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), power5en_gpios);
+static const struct gpio_dt_spec can_power_gpio =
+	GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), canpower_gpios);
+static const struct gpio_dt_spec lora_power_gpio =
+	GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), lorapower_gpios);
+static const struct gpio_dt_spec dis_power_gpio =
+	GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), dispower_gpios);
+static const struct gpio_dt_spec p5_power_gpio =
+	GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), power5en_gpios);
 
 void can_power_enable(bool up)
 {

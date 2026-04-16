@@ -74,9 +74,9 @@ static void lora_cfg_work_handler(struct k_work *work)
 		int ret = lora_gw_configure(&pending_lora_cfg);
 
 		resp.data[0] = (ret == 0) ? LORA_CFG_OK : LORA_CFG_FAIL;
-		LOG_INF("LoRa config SET: ret=%d mode=%d spd=%d ch=%d nid=%d",
-			ret, pending_lora_cfg.mode, pending_lora_cfg.spd,
-			pending_lora_cfg.ch, pending_lora_cfg.nid);
+		LOG_INF("LoRa config SET: ret=%d mode=%d spd=%d ch=%d nid=%d", ret,
+			pending_lora_cfg.mode, pending_lora_cfg.spd, pending_lora_cfg.ch,
+			pending_lora_cfg.nid);
 		mod_can_send(&resp);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY) {
 		struct lora_gw_config cfg;
@@ -88,8 +88,8 @@ static void lora_cfg_work_handler(struct k_work *work)
 			resp.data[2] = cfg.spd;
 			resp.data[3] = cfg.ch;
 			memcpy(&resp.data[4], &cfg.nid, sizeof(cfg.nid));
-			LOG_INF("LoRa config QUERY: mode=%d spd=%d ch=%d nid=%d",
-				cfg.mode, cfg.spd, cfg.ch, cfg.nid);
+			LOG_INF("LoRa config QUERY: mode=%d spd=%d ch=%d nid=%d", cfg.mode, cfg.spd,
+				cfg.ch, cfg.nid);
 		} else {
 			LOG_ERR("LoRa config QUERY failed: %d", ret);
 		}
@@ -102,8 +102,8 @@ static void can_lora_config_handler(struct can_frame *frame)
 	lora_cfg_cmd = frame->data[0];
 
 	if (lora_cfg_cmd == LORA_CMD_SET) {
-		pending_lora_cfg.mode = (frame->data[1] == 1)
-			? LORA_GW_MODE_NETWORK : LORA_GW_MODE_TRANS;
+		pending_lora_cfg.mode =
+			(frame->data[1] == 1) ? LORA_GW_MODE_NETWORK : LORA_GW_MODE_TRANS;
 		pending_lora_cfg.spd = frame->data[2];
 		pending_lora_cfg.ch = frame->data[3];
 		memcpy(&pending_lora_cfg.nid, &frame->data[4], sizeof(uint16_t));
@@ -296,9 +296,8 @@ void mod_can_parse_scanner(struct can_frame *frame)
 		s->laser_valid = (frame->data[0] & 0x02) ? 1 : -1;
 		s->overbreak_value = (int16_t)sys_get_be16(&frame->data[2]);
 		s->laser_distance = (int32_t)sys_get_be32(&frame->data[4]);
-		LOG_DBG("Overbreak: valid=%d val=%d, Laser: valid=%d val=%d",
-			s->overbreak_valid, s->overbreak_value,
-			s->laser_valid, s->laser_distance);
+		LOG_DBG("Overbreak: valid=%d val=%d, Laser: valid=%d val=%d", s->overbreak_valid,
+			s->overbreak_value, s->laser_valid, s->laser_distance);
 		break;
 
 	case COORD_XY:
