@@ -408,10 +408,6 @@ int lora_send_at(const char *cmd, char *resp, size_t resp_size, uint32_t timeout
 			break;
 		}
 	}
-	if (strncmp("AT+Z", cmd, 4) == 0) {
-		LOG_INF("reboot WH-L101-L");
-		atomic_set(&lora_current_mode, LORA_MODE_DATA);
-	}
 
 	if (resp && resp_size > 0) {
 		strncpy(resp, (const char *)at_resp_buf, resp_size - 1);
@@ -453,7 +449,6 @@ int lora_gw_configure(const struct lora_gw_config *cfg)
 		.prot = LORA_PROT_LG210,
 		.spd = 10,
 		.ch = 72,
-		.gwid = 0,
 	};
 
 	if (!cfg) {
@@ -538,21 +533,6 @@ int lora_gw_configure(const struct lora_gw_config *cfg)
 		goto out;
 	}
 
-	/* 组网模式: 设置网关 ID */
-	if (cfg->mode == LORA_GW_MODE_NETWORK) {
-		snprintf(cmd, sizeof(cmd), "AT+GWID=%08X", cfg->gwid);
-		ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
-		if (ret) {
-			LOG_ERR("Set GWID failed");
-			goto out;
-		}
-		global_params.gwid = cfg->gwid;
-		mod_display_lora_gwid(global_params.gwid);
-	}
-
-	/* 保存为出厂默认 */
-	lora_send_at("AT+CFGTF", resp, sizeof(resp), 2000);
-
 	/* 重启使配置生效 */
 	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
 
@@ -563,10 +543,9 @@ int lora_gw_configure(const struct lora_gw_config *cfg)
 	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
 	k_mutex_unlock(&lora_mode_mutex);
 
-	LOG_INF("Gateway configured: prot=%s mode=%s spd=%d ch=%d gwid=%d",
+	LOG_INF("Gateway configured: prot=%s mode=%s spd=%d ch=%d",
 		prot_str,
-		cfg->mode == LORA_GW_MODE_NETWORK ? "network" : "trans", cfg->spd, cfg->ch,
-		cfg->gwid);
+		cfg->mode == LORA_GW_MODE_NETWORK ? "network" : "trans", cfg->spd, cfg->ch);
 	return 0;
 
 out:
@@ -663,32 +642,6 @@ int lora_gw_query(struct lora_gw_config *cfg)
 		/* TRANS 或默认都是透传模式 */
 	} else {
 		LOG_WRN("Query WMODE failed");
-	}
-
-	/* 查询网关 ID (组网模式下有效) */
-	cfg->gwid = 0;
-	ret = lora_send_at("AT+GWID", resp, sizeof(resp), 2000);
-	if (ret == 0) {
-		int gwid_val = parse_at_gwid(resp);
-		if (gwid_val > 0) {
-			cfg->gwid = (uint32_t)gwid_val;
-			global_params.gwid = cfg->gwid;
-		}
-	} else {
-		LOG_WRN("Query GWID failed");
-	}
-
-	/* 查询节点 ID */
-	cfg->nid = 0;
-	ret = lora_send_at("AT+NID", resp, sizeof(resp), 2000);
-	if (ret == 0) {
-		int nid_val = parse_at_gwid(resp);
-		if (nid_val > 0) {
-			cfg->nid = (uint32_t)nid_val;
-			global_params.nid = cfg->nid;
-		}
-	} else {
-		LOG_WRN("Query NID failed");
 	}
 
 	/* 查询速率 */
@@ -866,6 +819,43 @@ static void lora_heartbeat_thread(void)
 }
 K_THREAD_DEFINE(lora_heart, 1024, lora_heartbeat_thread, NULL, NULL, NULL, 12, 0, 0);
 
+/* ================================================================
+ * 网关 ID 设置 — 独立于通信参数
+ * ================================================================ */
+int lora_set_gw_id(uint32_t gwid)
+{
+	int ret = lora_enter_at();
+
+	if (ret) {
+		return ret;
+	}
+
+	char resp[128];
+	char cmd[64];
+
+	snprintf(cmd, sizeof(cmd), "AT+GWID=%08X", gwid);
+	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	if (ret) {
+		LOG_ERR("Set GWID failed");
+		lora_exit_at();
+		return ret;
+	}
+
+	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
+
+	/* 模块重启后直接进入透传模式, 更新本地缓存 */
+	global_params.gwid = gwid;
+	mod_display_lora_gwid(global_params.gwid);
+	k_msleep(1000);
+	lora_rx_disable_sync();
+	atomic_set(&lora_current_mode, LORA_MODE_DATA);
+	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
+	k_mutex_unlock(&lora_mode_mutex);
+
+	LOG_INF("GWID set to %08X", gwid);
+	return 0;
+}
+
 int lora_set_node_id(uint32_t nid)
 {
 	int ret = lora_enter_at();
@@ -885,7 +875,6 @@ int lora_set_node_id(uint32_t nid)
 		return ret;
 	}
 
-	lora_send_at("AT+CFGTF", resp, sizeof(resp), 2000);
 	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
 
 	/* 模块重启后直接进入透传模式, 更新本地缓存 */
@@ -961,7 +950,18 @@ static int cmd_at(const struct shell *ctx, size_t argc, char **argv)
 	} else {
 		shell_error(ctx, "AT command timeout");
 	}
-	return lora_exit_at();
+	if (strncmp("AT+Z", at_cmd, 4) == 0) {
+		shell_print(ctx, "reboot WH-L101-L");
+		/* 停止 AT 模式 RX */
+		lora_rx_disable_sync();
+
+		/* 切换回数据模式 */
+		atomic_set(&lora_current_mode, LORA_MODE_DATA);
+		uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
+		return 0;
+	} else {
+		return lora_exit_at();
+	}
 }
 
 static int cmd_gw_config(const struct shell *ctx, size_t argc, char **argv)
@@ -971,12 +971,11 @@ static int cmd_gw_config(const struct shell *ctx, size_t argc, char **argv)
 		.prot = LORA_PROT_LG210,
 		.spd = 10,
 		.ch = 72,
-		.gwid = 0,
 	};
 
-	/* lora gw config [prot] [mode] [spd] [ch] [gwid]
-	 * prot: "node" (默认), "lg210", "lg220"
-	 * mode: "trans" (默认) 或 "net"
+	/* lora gw config [prot] [mode] [spd] [ch]
+	 * prot: "node" (default), "lg210", "lg220"
+	 * mode: "trans" (default), "fp", "net"
 	 */
 	if (argc >= 2) {
 		if (strcmp(argv[1], "lg210") == 0) {
@@ -998,15 +997,6 @@ static int cmd_gw_config(const struct shell *ctx, size_t argc, char **argv)
 	if (argc >= 5) {
 		cfg.ch = (uint8_t)strtol(argv[4], NULL, 10);
 	}
-	if (argc >= 6) {
-		cfg.gwid = (uint16_t)strtol(argv[5], NULL, 16);
-	}
-
-	/* 组网模式必须提供网关 ID */
-	if (cfg.mode == LORA_GW_MODE_NETWORK && cfg.gwid == 0) {
-		shell_error(ctx, "Network mode requires GWID > 0");
-		return -EINVAL;
-	}
 
 	int ret = lora_gw_configure(&cfg);
 
@@ -1016,11 +1006,12 @@ static int cmd_gw_config(const struct shell *ctx, size_t argc, char **argv)
 	}
 	const char *prot_str = cfg.prot == LORA_PROT_LG210 ? "lg210"
 			     : cfg.prot == LORA_PROT_LG220  ? "lg220"
-							    : "node";
-	shell_print(ctx, "Gateway configured: prot=%s mode=%s spd=%d ch=%d nid=%08X, gwid=%08X",
+								    : "node";
+	shell_print(ctx, "Gateway configured: prot=%s mode=%s spd=%d ch=%d",
 		    prot_str,
-		    cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans", cfg.spd, cfg.ch,
-		    cfg.nid, cfg.gwid);
+		    cfg.mode == LORA_GW_MODE_NETWORK ? "net"
+		    : cfg.mode == LORA_GW_MODE_FP    ? "fp" : "trans",
+		    cfg.spd, cfg.ch);
 	return 0;
 }
 
@@ -1037,25 +1028,57 @@ static int cmd_gw_query(const struct shell *ctx, size_t argc, char **argv)
 		return ret;
 	}
 	const char *prot_str = cfg.prot == LORA_PROT_LG210 ? "lg210"
-			     : cfg.prot == LORA_PROT_LG220  ? "lg220"
-							    : "node";
-	shell_print(ctx, "Gateway params: prot=%s mode=%s spd=%d ch=%d nid=%08X, gwid=%08X",
+			     : cfg.prot == LORA_PROT_LG220  ? "lg220" : "node";
+	shell_print(ctx, "Gateway params: prot=%s mode=%s spd=%d ch=%d",
 		    prot_str,
-		    cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans", cfg.spd, cfg.ch,
-		    cfg.nid, cfg.gwid);
+		    cfg.mode == LORA_GW_MODE_NETWORK ? "net"
+		    : cfg.mode == LORA_GW_MODE_FP    ? "fp" : "trans",
+		    cfg.spd, cfg.ch);
+	return 0;
+}
+
+static int cmd_gwid(const struct shell *ctx, size_t argc, char **argv)
+{
+	if (argc < 2) {
+		shell_print(ctx, "GWID: %08X", global_params.gwid);
+		return 0;
+	}
+	uint32_t gwid = (uint32_t)strtol(argv[1], NULL, 16);
+	int ret = lora_set_gw_id(gwid);
+	if (ret) {
+		shell_error(ctx, "Set GWID failed (%d)", ret);
+		return ret;
+	}
+	shell_print(ctx, "GWID set to %08X", gwid);
+	return 0;
+}
+
+static int cmd_nid(const struct shell *ctx, size_t argc, char **argv)
+{
+	if (argc < 2) {
+		shell_print(ctx, "NID: %08X", global_params.nid);
+		return 0;
+	}
+	uint32_t nid = (uint32_t)strtol(argv[1], NULL, 16);
+	int ret = lora_set_node_id(nid);
+	if (ret) {
+		shell_error(ctx, "Set NID failed (%d)", ret);
+		return ret;
+	}
+	shell_print(ctx, "NID set to %08X", nid);
 	return 0;
 }
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_gw_cmds,
-			       SHELL_CMD_ARG(config, NULL,
-					     "Configure gateway params and reboot\n"
-					     "Usage: config [prot] [mode] [spd] [ch] [gwid]\n"
-					     "  prot: node (default), lg210, lg220\n"
-					     "  mode: trans (default), fp, net",
-					     cmd_gw_config, 1, 5),
-			       SHELL_CMD_ARG(query, NULL, "Query current gateway params",
+				       SHELL_CMD_ARG(config, NULL,
+						     "Configure gateway params and reboot\n"
+						     "Usage: config [prot] [mode] [spd] [ch]\n"
+						     "  prot: node (default), lg210, lg220\n"
+						     "  mode: trans (default), fp, net",
+					     cmd_gw_config, 1, 4),
+				       SHELL_CMD_ARG(query, NULL, "Query current gateway params",
 					     cmd_gw_query, 1, 0),
-			       SHELL_SUBCMD_SET_END);
+				       SHELL_SUBCMD_SET_END);
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_cmds,
 			       SHELL_CMD_ARG(send, NULL,
@@ -1067,6 +1090,14 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_cmds,
 					     "Usage: at <command>",
 					     cmd_at, 2, 0),
 			       SHELL_CMD(gw, &sub_lora_gw_cmds, "LG210 gateway operations", NULL),
+			       SHELL_CMD_ARG(nid, NULL,
+					     "Get/set node ID\n"
+					     "Usage: nid [hex_value]",
+					     cmd_nid, 1, 1),
+			       SHELL_CMD_ARG(gwid, NULL,
+					     "Get/set gateway ID\n"
+					     "Usage: gwid [hex_value]",
+					     cmd_gwid, 1, 1),
 			       SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(lora, &sub_lora_cmds, "LoRa WH-L101-L commands", NULL);
@@ -1115,14 +1146,35 @@ static int lora_serial_init(void)
 
 	ret = lora_gw_query(&cfg);
 	if (ret == 0) {
-		LOG_INF("LoRa params: prot=%s mode=%s nid=%08X spd=%d ch=%d, gwid=%08X",
+		LOG_INF("LoRa params: prot=%s mode=%s spd=%d ch=%d",
 			cfg.prot == LORA_PROT_LG210 ? "LG210" : cfg.prot == LORA_PROT_LG220 ? "LG220" : "NODE",
 			cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans",
-			cfg.nid, cfg.spd, cfg.ch, cfg.gwid);
-		mod_display_lora_gwid(cfg.gwid);
+			cfg.spd, cfg.ch);
 	} else {
 		LOG_WRN("LoRa param query failed (%d), using defaults", ret);
 	}
+
+	/* 读取 NID 和 GWID */
+	ret = lora_enter_at();
+	if (ret == 0) {
+		char resp[128];
+
+		ret = lora_send_at("AT+NID", resp, sizeof(resp), 2000);
+		if (ret == 0) {
+			global_params.nid = (uint32_t)parse_at_number(resp);
+			LOG_INF("LoRa NID: 0x%08X", global_params.nid);
+		}
+
+		ret = lora_send_at("AT+GWID", resp, sizeof(resp), 2000);
+		if (ret == 0) {
+			global_params.gwid = (uint32_t)parse_at_gwid(resp);
+			mod_display_lora_gwid(global_params.gwid);
+			LOG_INF("LoRa GWID: 0x%08X", global_params.gwid);
+		}
+
+		lora_exit_at();
+	}
+
 	LOG_INF("LoRa WH-L101-L initialized (async DMA, buf=%d, timeout=%dms)", LORA_BUF_SIZE,
 		LORA_DATA_RX_TIMEOUT);
 	return 0;

@@ -110,8 +110,6 @@ struct lora_gw_config {
 	enum lora_gw_prot prot; /* 通信协议 */
 	uint8_t spd;            /* 速率等级 1-12, 默认 10 */
 	uint8_t ch;             /* 信道 0-127, 默认 72 (470MHz) */
-	uint32_t nid;           /* 节点 ID, 组网模式有效 (0-2^32) */
-	uint32_t gwid;          /* 网关 ID, 组网模式有效 (0-2^32) */
 };
 
 /**
@@ -154,6 +152,17 @@ int lora_gw_query(struct lora_gw_config *cfg);
 #define LORA_FRAME_CRC_SIZE	2
 #define LORA_FRAME_HEADER_SIZE	(LORA_FRAME_NID_SIZE + LORA_FRAME_LEN_SIZE) /* 6 */
 #define LORA_FRAME_OVERHEAD	(LORA_FRAME_HEADER_SIZE + LORA_FRAME_CRC_SIZE) /* 8 */
+
+/**
+ * @brief 设置网关 ID 并写入模块
+ *
+ * 进入 AT 模式, 发送 AT+GWID, 保存并重启模块, 更新本地缓存.
+ * 仅组网模式 (NET) 下有效.
+ *
+ * @param gwid 网关 ID
+ * @return 0 成功, 负数失败
+ */
+int lora_set_gw_id(uint32_t gwid);
 
 /**
  * @brief 设置节点 ID 并写入模块
