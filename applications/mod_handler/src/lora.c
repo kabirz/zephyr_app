@@ -19,7 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <power.h>
+#include <mod-gpio.h>
 #include <lora.h>
 #include <mod-can.h>
 
@@ -97,7 +97,6 @@ static K_SEM_DEFINE(at_resp_sem, 0, 1);
 /* ================================================================
  * 链路检测 — 应用层心跳 + ACK
  * ================================================================ */
-static atomic_t lora_connected = ATOMIC_INIT(false);
 static K_SEM_DEFINE(lora_ack_sem, 0, 1);
 
 #define LORA_HEART_PERIOD_MS 2000 /* 心跳发送周期 */
@@ -722,15 +721,12 @@ static void lora_msg_process_thread(void)
 	struct lora_data_msg msg;
 
 	while (true) {
-		if (global_params.sleeping) {
-			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
-		} else if (k_msgq_get(&lora_data_msgq, &msg, K_SECONDS(1)) == 0) {
+		if (k_msgq_get(&lora_data_msgq, &msg, K_FOREVER) == 0) {
 			const uint8_t *payload;
 			uint16_t payload_len;
 
 			if (parse_lora_frame(msg.data, msg.len, &payload, &payload_len)) {
 				/* 合法帧 → 链路连通 */
-				atomic_set(&lora_connected, true);
 				if (payload_len == 0) {
 					k_sem_give(&lora_ack_sem);
 				} else if (payload_len >= 2) {
@@ -754,7 +750,7 @@ static void lora_msg_process_thread(void)
 					LOG_DBG("LoRa ACK received (empty payload)");
 				}
 			} else if (strncmp(msg.data, "LoRa Start!", sizeof("LoRa Start!") - 1) ==
-				   0) {
+				0) {
 				LOG_INF("Lora start!");
 			} else {
 				LOG_HEXDUMP_INF(msg.data, msg.len, "LoRa RX (invalid):");
@@ -779,16 +775,7 @@ static void lora_heartbeat_thread(void)
 			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
 			continue;
 		}
-
-		/* 仅在 LoRa 模式下运行 */
-		if (global_params.connect_type != LORA_TYPE) {
-			if (atomic_get(&lora_connected)) {
-				atomic_set(&lora_connected, false);
-			}
-			fail_count = 0;
-			k_sleep(K_MSEC(500));
-			continue;
-		}
+		k_event_wait(&global_params.event, LORA_EVENT, false, K_FOREVER);
 
 		k_sem_reset(&lora_ack_sem);
 
@@ -811,14 +798,6 @@ static void lora_heartbeat_thread(void)
 			fail_count++;
 			LOG_WRN("LoRa heartbeat send failed (%d/%d)", fail_count,
 				LORA_HEART_FAIL_MAX);
-		}
-
-		/* 连续失败达到阈值, 标记断连 */
-		if (fail_count >= LORA_HEART_FAIL_MAX) {
-			if (atomic_get(&lora_connected)) {
-				atomic_set(&lora_connected, false);
-				LOG_WRN("LoRa link lost");
-			}
 		}
 
 		k_sleep(K_MSEC(LORA_HEART_PERIOD_MS));
@@ -894,14 +873,6 @@ int lora_set_node_id(uint32_t nid)
 
 	LOG_INF("Node ID set to %08X", nid);
 	return 0;
-}
-
-/* ================================================================
- * 链路状态查询
- * ================================================================ */
-bool lora_is_connected(void)
-{
-	return atomic_get(&lora_connected);
 }
 
 /* ================================================================

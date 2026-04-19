@@ -12,7 +12,7 @@
 #include <common.h>
 #include <mod-can.h>
 #include <display.h>
-#include <power.h>
+#include <mod-gpio.h>
 
 LOG_MODULE_REGISTER(main_app, LOG_LEVEL_INF);
 
@@ -29,6 +29,7 @@ int main(void)
 	LOG_INF("version: %s", APP_VERSION_STRING);
 
 	last_activity_time = k_uptime_get_32();
+	gpio_init();
 
 	while (1) {
 		if (global_params.sleeping) {
@@ -42,7 +43,7 @@ int main(void)
 			can_power_enable(false);
 			lora_power_enable(false);
 			dis_power_enable(false);
-			p5_power_enable(false);
+			handler_power_enable(false);
 			LOG_INF("system entering sleep (inactivity timeout)");
 			continue;
 		}

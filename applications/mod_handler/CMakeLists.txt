@@ -8,13 +8,12 @@ project(mod_handler)
 target_include_directories(app PRIVATE include)
 target_sources(app PRIVATE
   src/adc.c
-  src/battery.c
   src/can.c
   src/display.c
   src/firmware.c
   src/font_8x16.c
+  src/gpio.c
   src/lora.c
   src/main.c
-  src/power.c
 )
 

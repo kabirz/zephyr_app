@@ -2,16 +2,12 @@
 #define _MOD_DISPLAY_H
 #include <common.h>
 
-typedef struct {
-	char val;
-	uint8_t data[16];
-} font8x16_t;
-
+void mod_display_reinit(void);
 int mod_display_init(void);
 void mod_display_clear(void);
-void mod_display_loar_rssi(uint8_t rssi);
-void mod_display_battery(uint8_t power_level);
-void mod_display_lora_can(uint8_t connect_type);
+void mod_display_lora(uint8_t rssi);
+void mod_display_battery(uint8_t power_level, battery_status_t status);
+void mod_display_can(void);
 void mod_display_lora_nid(uint32_t nid);
 
 void mod_display_scanner(const scanner_data_t *s);

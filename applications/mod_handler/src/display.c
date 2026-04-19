@@ -82,6 +82,14 @@ static void display_str_pad(const char *s, int x, int y, int width)
 	}
 }
 
+void mod_display_reinit(void)
+{
+	if (display_dev->ops.init) {
+		display_dev->ops.init(display_dev);
+	}
+
+}
+
 /* 用空格填充到行尾, 覆盖旧内容 */
 void mod_display_clear(void)
 {
@@ -94,51 +102,56 @@ void mod_display_clear(void)
  * 业务显示函数
  * ================================================================ */
 
-/* Row 0 左侧1(16x16): LORA 信号 0/1/2/3/4 */
-void mod_display_lora_rssi(uint8_t rssi)
+/* Row 0 左侧1(8x16, 16x16): LORA 信号 0/1/2/3/4 */
+void mod_display_lora(uint8_t rssi)
 {
 	k_mutex_lock(&display_mutex, K_FOREVER);
 	if (rssi > 4) {
 		rssi = 4;
 	}
-	display_write_buf(0, 0, SIGNAL_ICON_W, SIGNAL_ICON_H, signal_levels[rssi]);
+	display_write_buf(0, 0, LABEL_ICON_W, LABEL_ICON_H, label_can);
+	display_write_buf(8, 0, SIGNAL_ICON_W, SIGNAL_ICON_H, signal_levels[rssi]);
+	display_char(' ', 24, 0);
 	k_mutex_unlock(&display_mutex);
 }
 
-/* Row 0 左侧2(24x16): 电池图标 */
-void mod_display_battery(uint8_t power_level)
+/* Row 0 左侧1(8x16): 连接 CAN */
+void mod_display_can(void)
 {
 	k_mutex_lock(&display_mutex, K_FOREVER);
-
-	int idx = power_level >= 75 ? 3 : power_level >= 50 ? 2 : power_level >= 25 ? 1 : 0;
-	display_write_buf(16, 0, BATTERY_ICON_W, BATTERY_ICON_H, battery_charging[idx]);
-
+	display_write_buf(0, 0, LABEL_ICON_W, LABEL_ICON_H, label_can);
+	display_char(' ', 8, 0);
+	display_char(' ', 16, 0);
+	display_char(' ', 24, 0);
 	k_mutex_unlock(&display_mutex);
 }
 
-/* Row 0 左侧3(8x16): 连接类型 CAN / LORA */
-void mod_display_lora_can(uint8_t connect_type)
-{
-	k_mutex_lock(&display_mutex, K_FOREVER);
-	display_char(' ', 40, 0);
-	if (connect_type == CAN_TYPE) {
-		display_write_buf(48, 0, LABEL_ICON_W, LABEL_ICON_H, label_can);
-	} else if (connect_type == LORA_TYPE) {
-		display_write_buf(48, 0, LABEL_ICON_W, LABEL_ICON_H, label_lora);
-	} else {
-		display_char(' ', 48, 0);
-	}
-	display_char(' ', 56, 0);
-	k_mutex_unlock(&display_mutex);
-}
-
-/* Row 0 左侧4: 节点ID */
+/* Row 0 左侧2: 节点ID */
 void mod_display_lora_nid(uint32_t nid)
 {
 	char line[32] = {0};
 	k_mutex_lock(&display_mutex, K_FOREVER);
 	snprintf(line, sizeof(line), "%08X", nid);
-	display_str_pad(line, 64, 0, 64);
+	display_str_pad(line, 32, 0, 64);
+	k_mutex_unlock(&display_mutex);
+}
+
+
+/* Row 0 左侧3(24x16): 电池图标 */
+void mod_display_battery(uint8_t power_level, battery_status_t status)
+{
+	k_mutex_lock(&display_mutex, K_FOREVER);
+
+	display_char(' ', 96, 0);
+	int idx = power_level >= 75 ? 3 : power_level >= 50 ? 2 : power_level >= 25 ? 1 : 0;
+	if (status == BATTERY_STATUS_FULL) {
+		display_write_buf(104, 0, BATTERY_ICON_W, BATTERY_ICON_H, battery_full);
+	} else if (status == BATTERY_STATUS_CHARGING) {
+		display_write_buf(104, 0, BATTERY_ICON_W, BATTERY_ICON_H, battery_charging[idx]);
+	} else {
+		display_write_buf(104, 0, BATTERY_ICON_W, BATTERY_ICON_H, battery_levels[idx]);
+	}
+
 	k_mutex_unlock(&display_mutex);
 }
 
@@ -196,10 +209,13 @@ void mod_display_handler_button(uint8_t h_button)
 /* 全屏刷新 */
 void mod_display_all(const gloval_params_t *params)
 {
-	mod_display_lora_rssi(params->rssi);
-	mod_display_battery(params->power_level);
-	mod_display_lora_can(params->connect_type);
+	if (params->connect_type == CAN_TYPE) {
+		mod_display_can();
+	} else {
+		mod_display_lora(params->rssi);
+	}
 	mod_display_lora_nid(params->nid);
+	mod_display_battery(params->power_level, params->battery_status);
 
 	mod_display_scanner(&params->scanner);
 	mod_display_handler_xy(params->x_degree, params->y_degree);
@@ -212,10 +228,6 @@ gloval_params_t global_params;
 
 int mod_display_init(void)
 {
-	global_params.can_heart_time = CAN_HEART_TIME;
-	global_params.connect_type = CAN_TYPE;
-	k_event_init(&global_params.event);
-
 	if (!device_is_ready(display_dev)) {
 		LOG_ERR("Device %s not found.", display_dev->name);
 		return -1;

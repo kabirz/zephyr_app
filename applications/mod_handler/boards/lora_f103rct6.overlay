@@ -9,7 +9,7 @@
 		canpower-gpios = <&gpioc 7 GPIO_ACTIVE_HIGH>;
 		dispower-gpios = <&gpioc 8 GPIO_ACTIVE_HIGH>;
 		lorapower-gpios = <&gpioc 9 GPIO_ACTIVE_HIGH>;
-		power5en-gpios = <&gpioa 8 GPIO_ACTIVE_HIGH>;
+		handlerpower-gpios = <&gpioa 8 GPIO_ACTIVE_HIGH>;
 
 		hostwake-gpios = <&gpioa 0 GPIO_ACTIVE_HIGH>;
 		lorawake-gpios = <&gpioa 1 GPIO_ACTIVE_HIGH>;

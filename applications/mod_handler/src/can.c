@@ -10,15 +10,12 @@ LOG_MODULE_REGISTER(mod_can, LOG_LEVEL_INF);
 static const struct device *can_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_canbus));
 CAN_MSGQ_DEFINE(mod_can_msgq, 8);
 
-static K_SEM_DEFINE(heart_wake_sem, 1, 1);
 static atomic_t heart_send_success = ATOMIC_INIT(0);
 
 static void can_lora_config_handler(struct can_frame *frame);
 
 static void mod_canrx_msg_handler(struct can_frame *frame)
 {
-	k_sem_give(&heart_wake_sem);
-
 	switch (frame->id) {
 	case PLATFORM_RX:
 	case FW_DATA_RX:
@@ -236,17 +233,16 @@ void mod_can_process_thread(void)
 	}
 
 	while (true) {
-		if (k_msgq_get(&mod_can_msgq, &frame, K_SECONDS(1)) == 0) {
+		if (k_msgq_get(&mod_can_msgq, &frame, K_FOREVER) == 0) {
 			mod_canrx_msg_handler(&frame);
-		} else if (global_params.sleeping) {
-			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
+			k_event_set(&global_params.event, CAN_RX_EVENT);
 		}
 	}
 }
 
 K_THREAD_DEFINE(mod_can, 2048, mod_can_process_thread, NULL, NULL, NULL, 11, 0, 0);
 
-void mod_can_thread(void)
+static void can_heart_thread(void)
 {
 	struct can_frame frame = {
 		.data[0] = 5,
@@ -256,45 +252,41 @@ void mod_can_thread(void)
 	int fail_count = 0, ret;
 
 	while (true) {
-		k_event_wait(&global_params.event, TIMEOUT_EVENT, false, K_FOREVER);
-
-		k_sem_take(&heart_wake_sem, K_FOREVER);
-
-		while (true) {
-			uint32_t t1 = k_uptime_get_32();
-			if (global_params.sleeping) {
-				k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
-				continue;
-			}
-
-			atomic_set(&heart_send_success, 0);
-
-			ret = can_send(can_dev, &frame, K_MSEC(100), heart_tx_callback, NULL);
-
-			k_sleep(K_MSEC(50));
-
-			if (atomic_get(&heart_send_success) || ret == 0) {
-				fail_count = 0;
-				mod_can_send_handler_state(&global_params);
-			} else {
-				fail_count++;
-				LOG_WRN("heartbeat send failed, count: %d", fail_count);
-			}
-
-			if (fail_count >= 3) {
-				LOG_WRN("heartbeat failed 3 times");
-				k_sem_reset(&heart_wake_sem);
-				k_event_clear(&global_params.event, TIMEOUT_EVENT);
-				break;
-			}
-			uint32_t diff = k_uptime_get_32() - t1;
-
-			k_sleep(K_MSEC(global_params.can_heart_time - diff));
+		k_event_wait(&global_params.event, CAN_RX_EVENT, false, K_FOREVER);
+		uint32_t t1 = k_uptime_get_32();
+		if (global_params.sleeping) {
+			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
+			continue;
 		}
+		k_event_wait(&global_params.event, CAN_EVENT, false, K_FOREVER);
+
+		atomic_set(&heart_send_success, 0);
+
+		ret = can_send(can_dev, &frame, K_MSEC(100), heart_tx_callback, NULL);
+
+		k_sleep(K_MSEC(50));
+
+		if (atomic_get(&heart_send_success) || ret == 0) {
+			fail_count = 0;
+			mod_can_send_handler_state(&global_params);
+		} else {
+			fail_count++;
+			LOG_WRN("heartbeat send failed, count: %d", fail_count);
+		}
+
+		if (fail_count >= 3) {
+			LOG_WRN("heartbeat failed 3 times");
+			k_event_clear(&global_params.event, CAN_RX_EVENT);
+			break;
+		}
+		uint32_t diff = k_uptime_get_32() - t1;
+
+		if (global_params.can_heart_time - diff > 5)
+			k_sleep(K_MSEC(global_params.can_heart_time - diff));
 	}
 }
 
-K_THREAD_DEFINE(can_heart, 1024, mod_can_thread, NULL, NULL, NULL, 11, 0, 0);
+K_THREAD_DEFINE(can_heart, 1024, can_heart_thread, NULL, NULL, NULL, 11, 0, 0);
 
 /* ================================================================
  * 手柄状态帧发送 — 0x1E3, 大端序, 8 字节

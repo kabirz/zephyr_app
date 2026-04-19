@@ -5,6 +5,7 @@
 #include <common.h>
 #include <display.h>
 #include <mod-can.h>
+#include <mod-gpio.h>
 #include <lora.h>
 
 LOG_MODULE_REGISTER(adc_reader, LOG_LEVEL_INF);
@@ -113,14 +114,17 @@ void adc_read_thread(void)
 				lora_send_telemetry(&global_params);
 			}
 		}
-
-		if (power_level != global_params.power_level) {
-			mod_display_battery(power_level);
+		battery_status_t battery_status = read_battery_status();
+		if (power_level != global_params.power_level ||
+			global_params.battery_status != battery_status) {
+			mod_display_battery(power_level, battery_status);
 			global_params.power_level = power_level;
+			global_params.battery_status = battery_status;
 		}
 
 		uint32_t diff = k_uptime_get_32() - t1;
-		k_sleep(K_MSEC(500 - diff));
+		if (diff > 5)
+			k_sleep(K_MSEC(500 - diff));
 	}
 }
 

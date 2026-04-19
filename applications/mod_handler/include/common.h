@@ -24,8 +24,10 @@ typedef struct {
 	int32_t coord_z;
 } scanner_data_t;
 
-#define TIMEOUT_EVENT 0x1
-#define WAKE_EVENT    0x2
+#define WAKE_EVENT     BIT(0)
+#define CAN_RX_EVENT   BIT(1)
+#define CAN_EVENT      BIT(2)
+#define LORA_EVENT     BIT(3)
 
 typedef struct {
 	int x_degree;
