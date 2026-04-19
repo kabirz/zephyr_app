@@ -1,7 +1,6 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
-#include <zephyr/pm/pm.h>
 #include <common.h>
 LOG_MODULE_REGISTER(mod_power, LOG_LEVEL_INF);
 
@@ -33,30 +32,6 @@ void p5_power_enable(bool up)
 {
 	gpio_pin_set_dt(&p5_power_gpio, up);
 }
-static void notify_pm_state_entry(enum pm_state state)
-{
-	if (state == PM_STATE_SUSPEND_TO_IDLE) {
-		p5_power_enable(true);
-		dis_power_enable(true);
-	} else {
-		LOG_ERR("power pm error state");
-	}
-}
-
-static void notify_pm_state_exit(enum pm_state state)
-{
-
-	if (state == PM_STATE_SUSPEND_TO_IDLE) {
-		p5_power_enable(false);
-		dis_power_enable(false);
-	} else {
-		LOG_ERR("power pm error state");
-	}
-}
-static struct pm_notifier notifier = {
-	.state_entry = notify_pm_state_entry,
-	.state_exit = notify_pm_state_exit,
-};
 
 static int can_power_init(void)
 {
@@ -89,7 +64,6 @@ static int can_power_init(void)
 	can_power_enable(true);
 	p5_power_enable(true);
 
-	pm_notifier_register(&notifier);
 	return 0;
 }
 SYS_INIT(can_power_init, PRE_KERNEL_2, 1);

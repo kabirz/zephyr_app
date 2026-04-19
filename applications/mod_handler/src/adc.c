@@ -55,6 +55,11 @@ void adc_read_thread(void)
 	}
 
 	while (true) {
+		if (global_params.sleeping) {
+			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
+			continue;
+		}
+
 		uint32_t t1 = k_uptime_get_32();
 		adc_times++;
 		for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++) {
@@ -98,6 +103,7 @@ void adc_read_thread(void)
 		}
 
 		if (x_degree != global_params.x_degree || y_degree != global_params.y_degree) {
+			last_activity_time = k_uptime_get_32();
 			mod_display_handler_xy(x_degree, y_degree);
 			global_params.x_degree = x_degree;
 			global_params.y_degree = y_degree;

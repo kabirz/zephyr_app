@@ -24,6 +24,9 @@ typedef struct {
 	int32_t coord_z;
 } scanner_data_t;
 
+#define TIMEOUT_EVENT 0x1
+#define WAKE_EVENT    0x2
+
 typedef struct {
 	int x_degree;
 	int y_degree;
@@ -38,10 +41,11 @@ typedef struct {
 	uint8_t rssi;
 	uint32_t gwid;
 	uint32_t nid;
-#define TIMEOUT_EVENT 0x1
+	volatile bool sleeping;
 	struct k_event event;
 } gloval_params_t;
 
 extern gloval_params_t global_params;
+extern volatile uint32_t last_activity_time;
 
 #endif

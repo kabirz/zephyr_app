@@ -724,7 +724,9 @@ static void lora_msg_process_thread(void)
 	struct lora_data_msg msg;
 
 	while (true) {
-		if (k_msgq_get(&lora_data_msgq, &msg, K_FOREVER) == 0) {
+		if (global_params.sleeping) {
+			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
+		} else if (k_msgq_get(&lora_data_msgq, &msg, K_SECONDS(1)) == 0) {
 			const uint8_t *payload;
 			uint16_t payload_len;
 
@@ -745,6 +747,7 @@ static void lora_msg_process_thread(void)
 						};
 
 						memcpy(frame.data, payload + 2, data_len);
+						last_activity_time = k_uptime_get_32();
 						mod_can_parse_scanner(&frame);
 					} else {
 						LOG_WRN("LoRa RX data too long: %d", data_len);
@@ -773,6 +776,11 @@ static void lora_heartbeat_thread(void)
 	int fail_count = 0;
 
 	while (true) {
+		if (global_params.sleeping) {
+			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
+			continue;
+		}
+
 		/* 仅在 LoRa 模式下运行 */
 		if (global_params.connect_type != LORA_TYPE) {
 			if (atomic_get(&lora_connected)) {

@@ -30,6 +30,7 @@ static void mod_canrx_msg_handler(struct can_frame *frame)
 	case OVERBREAK_LASER:
 	case COORD_XY:
 	case COORD_Z:
+			last_activity_time = k_uptime_get_32();
 		mod_can_parse_scanner(frame);
 		break;
 	default:
@@ -235,8 +236,10 @@ void mod_can_process_thread(void)
 	}
 
 	while (true) {
-		if (k_msgq_get(&mod_can_msgq, &frame, K_FOREVER) == 0) {
+		if (k_msgq_get(&mod_can_msgq, &frame, K_SECONDS(1)) == 0) {
 			mod_canrx_msg_handler(&frame);
+		} else if (global_params.sleeping) {
+			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
 		}
 	}
 }
@@ -254,10 +257,15 @@ void mod_can_thread(void)
 
 	while (true) {
 		k_event_wait(&global_params.event, TIMEOUT_EVENT, false, K_FOREVER);
+
 		k_sem_take(&heart_wake_sem, K_FOREVER);
 
 		while (true) {
 			uint32_t t1 = k_uptime_get_32();
+			if (global_params.sleeping) {
+				k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
+				continue;
+			}
 
 			atomic_set(&heart_send_success, 0);
 
