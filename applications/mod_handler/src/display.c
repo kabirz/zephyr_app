@@ -22,6 +22,7 @@
 #include <battery_icons.h>
 #include <signal_icons.h>
 #include <mod-can.h>
+#include <mod-gpio.h>
 
 LOG_MODULE_REGISTER(mod_display, LOG_LEVEL_INF);
 
@@ -239,6 +240,7 @@ int mod_display_init(void)
 	LOG_INF("Display %dx%d", capabilities.x_resolution, capabilities.y_resolution);
 
 	display_blanking_off(display_dev);
+	global_params.h_button = handler_get_btn();
 	mod_display_all(&global_params);
 
 	return 0;

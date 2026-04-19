@@ -741,7 +741,6 @@ static void lora_msg_process_thread(void)
 						};
 
 						memcpy(frame.data, payload + 2, data_len);
-						last_activity_time = k_uptime_get_32();
 						mod_can_parse_scanner(&frame);
 					} else {
 						LOG_WRN("LoRa RX data too long: %d", data_len);

@@ -33,7 +33,7 @@ static void btn_display_work_handler(struct k_work *work)
 		return;
 	}
 	if (gpio_pin_get_dt(&handle_button) == 0 && global_params.h_button) {
-		global_params.h_button = 0;
+		global_params.h_button = !global_params.h_button;
 		last_activity_time = k_uptime_get_32();
 		mod_display_handler_button(global_params.h_button);
 
@@ -51,10 +51,10 @@ void canlora_switch(uint8_t type)
 		k_event_clear(&global_params.event, LORA_EVENT);
 		lora_deinit();
 		can_power_enable(true);
-		k_event_set(&global_params.event, CAN_EVENT);
+		k_event_set(&global_params.event, CAN_EVENT | CAN_RX_EVENT);
 		mod_display_can();
 	} else {
-		k_event_clear(&global_params.event, CAN_EVENT);
+		k_event_clear(&global_params.event, CAN_EVENT | CAN_RX_EVENT);
 		can_power_enable(false);
 		lora_init();
 		k_event_set(&global_params.event, LORA_EVENT);
@@ -67,6 +67,11 @@ static void linksw_work_handler(struct k_work *work)
 {
 	global_params.connect_type = (global_params.connect_type == CAN_TYPE) ? LORA_TYPE : CAN_TYPE;
 	canlora_switch(global_params.connect_type);
+}
+
+int handler_get_btn(void)
+{
+	return gpio_pin_get_dt(&handle_button);
 }
 
 void can_power_enable(bool up)
@@ -281,7 +286,7 @@ int gpio_init(void)
 				   BIT(power_button.pin) | BIT(handle_button.pin));
 	gpio_add_callback(power_button.port, &power_button_cb_data);
 
-	ret = gpio_pin_interrupt_configure_dt(&link_switch, GPIO_INT_EDGE_FALLING);
+	ret = gpio_pin_interrupt_configure_dt(&link_switch, GPIO_INT_EDGE_BOTH);
 	if (ret < 0) {
 		LOG_ERR("Failed to configure link switch interrupt: %d", ret);
 		return ret;

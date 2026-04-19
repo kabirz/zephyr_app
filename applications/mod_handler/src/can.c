@@ -27,7 +27,6 @@ static void mod_canrx_msg_handler(struct can_frame *frame)
 	case OVERBREAK_LASER:
 	case COORD_XY:
 	case COORD_Z:
-		last_activity_time = k_uptime_get_32();
 		mod_can_parse_scanner(frame);
 		break;
 	default:
@@ -260,24 +259,21 @@ static void can_heart_thread(void)
 			continue;
 		}
 
-		atomic_set(&heart_send_success, 0);
-
 		ret = can_send(can_dev, &frame, K_MSEC(100), heart_tx_callback, NULL);
 
 		k_sleep(K_MSEC(50));
 
-		if (atomic_get(&heart_send_success) || ret == 0) {
-			fail_count = 0;
-			mod_can_send_handler_state(&global_params);
-		} else {
+		if (atomic_get(&heart_send_success) == 0) {
 			fail_count++;
 			LOG_WRN("heartbeat send failed, count: %d", fail_count);
 		}
 
 		if (fail_count >= 3) {
 			LOG_WRN("heartbeat failed 3 times");
+			fail_count = 0;
 			k_event_clear(&global_params.event, CAN_RX_EVENT);
-			break;
+			atomic_set(&heart_send_success, 0);
+			continue;
 		}
 		uint32_t diff = k_uptime_get_32() - t1;
 
@@ -298,6 +294,9 @@ K_THREAD_DEFINE(can_heart, 1024, can_heart_thread, NULL, NULL, NULL, 11, 0, 0);
  * ================================================================ */
 int mod_can_send_handler_state(const gloval_params_t *params)
 {
+	if (atomic_get(&heart_send_success) == 0) {
+		return -1;
+	}
 	struct can_frame frame = {
 		.id = HANDLER_STATE,
 		.dlc = can_bytes_to_dlc(8),
