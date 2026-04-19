@@ -808,7 +808,7 @@ static void lora_heartbeat_thread(void)
 		k_sleep(K_MSEC(LORA_HEART_PERIOD_MS));
 	}
 }
-K_THREAD_DEFINE(lora_heart, 1024, lora_heartbeat_thread, NULL, NULL, NULL, 12, 0, 0);
+// K_THREAD_DEFINE(lora_heart, 1024, lora_heartbeat_thread, NULL, NULL, NULL, 12, 0, 0);
 
 /* ================================================================
  * 网关 ID 设置 — 独立于通信参数

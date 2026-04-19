@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2026 Kabirz.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * ADC 操纵杆角度采集 + 电源电压采样
+ * 基于 Zephyr ADC API, 500ms 周期采集 X/Y 角度, 5s 周期采集电压
+ */
+
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/util.h>

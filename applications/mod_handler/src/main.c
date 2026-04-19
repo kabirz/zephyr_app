@@ -1,7 +1,8 @@
 /*
  * Copyright (c) 2026 Kabirz.
- *
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * 主入口 + 主循环 (休眠/唤醒事件驱动, 10 分钟无操作自动休眠)
  */
 
 #include <zephyr/app_version.h>

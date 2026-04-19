@@ -3,12 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * SH1106 OLED 显示驱动 (128x64, I2C)
- * 基于 Zephyr display API, 8x16 ASCII 字体
+ * 基于 Zephyr display API, 8x16 ASCII 字体 + 独立位图图标
+ * global_params 定义在此文件
  *
  * 布局 (4 行 × 16 列):
- *   Row 0 (y=0-15):  连接类型 (CAN/LORA) + 电量/充电状态
- *   Row 1 (y=16-31): X 轴角度
- *   Row 2 (y=32-47): Y 轴角度
+ *   Row 0 (y=0-15):  连接类型图标(8x16) + 信号图标(16x16) + NID + 电池图标(24x16)
+ *   Row 1 (y=16-31): 超欠挖 (OB:) + 激光距离 (Dis:)  ← 扫描仪 CAN/LoRa 数据
+ *   Row 2 (y=32-47): X/Y 轴角度
  *   Row 3 (y=48-63): 按键状态
  */
 

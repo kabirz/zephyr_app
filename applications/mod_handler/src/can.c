@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2026 Kabirz.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * CAN 总线收发 + 心跳线程 + 手柄状态上报 (0x1E3 BE)
+ * + 扫描仪数据解析 (0x263/0x363/0x463)
+ * + LoRa 远程配参 (0x105/0x106, k_work 异步)
+ */
+
 #include <zephyr/kernel.h>
 #include <mod-can.h>
 #include <lora.h>

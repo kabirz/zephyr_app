@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2026 Kabirz.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * GPIO 按键检测 + 外设电源管理 + CAN/LoRa 切换 + 系统休眠/唤醒
+ * 按键防抖: ISR → k_work_delayable, 延时读 GPIO 电平确认
+ * 电源控制: CAN/LoRa/显示/手柄 4 路 GPIO 独立使能
+ */
+
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
