@@ -67,7 +67,7 @@ main() + SYS_INIT
 - **连接类型切换**: 通过 link_switch 按键 (PA10) 手动切换 CAN/LoRa。ISR 中提交 k_work，工作队列中调用 `canlora_switch()` 关闭对方电源 + 重新初始化 + 即时刷新 OLED Row 0。启动默认 CAN_TYPE。
 - **系统休眠/唤醒**: 电源键触发或 10 分钟无操作自动休眠，关闭所有外设电源 (can_power_enable/dis_power_enable/handler_power_enable + lora_deinit)。唤醒时重新上电、lora_init (若 LoRa 模式)、等待 200ms 后 reinit 显示并全屏刷新。
 - **外设独立供电**: CAN、LoRa、显示屏、手柄电源各有独立 GPIO 使能引脚，整合在 `gpio.c` 统一管理 (`power_init` PRE_KERNEL_2 初始化)。
-- **按键防抖**: 所有按键 (电源键、操纵手柄键) 使用 `k_work_delayable` + `k_work_reschedule` 实现延时防抖。ISR 中提交延时 work (10ms)，work handler 中读取 GPIO 电平确认后执行业务逻辑。
+- **按键防抖**: 所有按键 (电源键、操纵手柄键) 使用 `k_work_delayable` + `k_work_reschedule` 实现延时防抖。ISR 中提交延时 work (10ms)，work handler 中读取 GPIO 电平确认后执行业务逻辑。操纵手柄按键使用边沿检测 (`gpio_pin_get_dt() != global_params.h_button`)，电源键使用电平确认 (`gpio_pin_get_dt() == 0`)。
 - **OTA 通过 CAN**: 固件升级完全通过 CAN 总线传输，分两阶段 -- 控制帧走 `PLATFORM_RX` (0x101)，数据帧走 `FW_DATA_RX` (0x103)。使用 MCUBoot swap-with-scratch 确保掉电安全。
 - **线程间通信**: CAN 和 LoRa 各自使用 `k_msgq`，LoRa ACK 使用 `k_sem`，按键/配参使用 `k_work`/`k_work_delayable`，显示使用 `display_mutex`。
 - **LoRa 双模式驱动**: `lora.c` 基于 UART async API + DMA 实现。数据模式使用 DMA 双缓冲 + `rx_timeout=20ms` 判定帧边界；AT 模式通过 `+++` → `a` → `+OK` 握手进入，支持同步指令收发。`lora_mode_mutex` 保护 AT 模式切换，`lora_tx_mutex` 保护多线程 TX 竞争。
@@ -78,7 +78,7 @@ main() + SYS_INIT
 - **LoRa init/deinit 生命周期**: `lora_init()` = 上电 + GPIO 硬件复位 + 2s 等待启动 + 停止旧 DMA + 重新启动 DMA 双缓冲接收。`lora_deinit()` = 停止 DMA + 断电。CAN/LoRa 切换、系统休眠/唤醒时调用，避免 UART 悬空导致 DMA 状态损坏。
 - **CAN 手柄状态协议**: 帧 ID 0x1E3 (`HANDLER_STATE`)，8 字节 payload (X/Y int16 BE + 按键反转 + 0xFF 保留)，由心跳线程在心跳成功时随周期发送，同时在角度/按键变化时由 ADC/按键模块即时发送。所有多字节数据使用大端序 (网络字节序)，按键 btnHandler 反转 (按下=0, 松开=1)。
 - **CAN 扫描仪数据接收**: 帧 ID 0x263 (`OVERBREAK_LASER`), 0x363 (`COORD_XY`), 0x463 (`COORD_Z`)，接收扫描仪下发的超欠挖+激光测距、X/Y/Z 坐标数据。解析后存入 `global_params.scanner` 并即时触发显示刷新。Z 坐标有效标志同时设置 X/Y/Z 三者的有效性。
-- **CAN/LoRa 切换**: 通过 link_switch 按键手动切换 `connect_type`。`canlora_switch()` 在 k_work 中执行：切换时 clear 对方事件、调用 lora_deinit()/can_power_enable(false) 关闭对方电源、重新初始化活跃方电源、set 事件、刷新 OLED Row 0。
+- **CAN/LoRa 切换**: 通过 link_switch 按键手动切换 `connect_type`。`canlora_switch()` 在 k_work 中执行：切换时 clear 对方事件 (CAN_EVENT|CAN_RX_EVENT 或 LORA_EVENT)、调用 lora_deinit()/can_power_enable(false) 关闭对方电源、重新初始化活跃方电源、set 事件 (CAN_EVENT|CAN_RX_EVENT 或 LORA_EVENT)、刷新 OLED Row 0。
 - **LoRa 网关管理**: 支持三种通信协议 (`LORA_PROT_NODE`/`LORA_PROT_LG210`/`LORA_PROT_LG220`, AT+LORAPROT) 和三种工作模式 (`LORA_GW_MODE_FP` 点对点 / `LORA_GW_MODE_TRANS` 透传 / `LORA_GW_MODE_NETWORK` 组网, AT+WMODE)。透传/点对点模式仅需 SPD+CH，组网模式额外需要 GWID。默认 prot=LG210, mode=TRANS。GWID 和 NID 通过独立的 AT 指令 (AT+GWID/AT+NID) 设置，与通信参数 (prot/mode/spd/ch) 分离管理。
 - **CAN 远程配参**: Host 通过 CAN 帧 `LORA_CONFIG_RX` (0x105) 发送 SET/QUERY/QUERY_NID/SET_NID/QUERY_GWID/SET_GWID 命令，设备通过 `LORA_CONFIG_TX` (0x106) 响应。0x105 SET 格式: data[0]=0x01(SET), data[1]=prot[7:4]|mode[3:0], data[2]=SPD, data[3]=CH (不再包含 GWID)。0x105 QUERY: data[0]=0x02。0x105 QUERY_NID: data[0]=0x03。0x105 SET_NID: data[0]=0x04, data[4-7]=NID(BE)。0x105 QUERY_GWID: data[0]=0x05。0x105 SET_GWID: data[0]=0x06, data[4-7]=GWID(BE)。所有多字节字段使用大端序。配置操作耗时 10s+（AT 模式握手 + 模块重启），使用 `k_work` 异步执行，不阻塞 CAN 接收线程。命令/结果枚举定义在 `mod-can.h`。
 - **OLED 显示**: 事件驱动刷新。启动时 `mod_display_all` 全屏刷新，之后各模块在数据变化时调用对应行刷新函数。Row 0 使用独立位图图标：连接类型图标 (`label_icons.h`, 8x16, CAN/LORA)、信号强度图标 (`signal_icons.h`, 16x16, 0-4级)、NID 文本、电池图标 (`battery_icons.h`, 24x16, 4级电量+充电动画)。`display_str_pad` 渲染后用空格填充行尾清除旧数据残留。所有 `display_write` 通过 `display_mutex` 保护。显示函数接口为细粒度参数（如 `mod_display_handler_xy(int x, int y)`），不依赖完整 `gloval_params_t` 指针。
@@ -344,8 +344,9 @@ VERSION                  -- 版本号 (0.1.2-release)
 - 字体/图标位图取模方式: Column-major, page-interleaved, LSB=top pixel (与 SH1106 原生格式一致)。图标数据按 page0 cols[0..N-1] 然后 page1 cols[0..N-1] 排列
 - 图标位图定义在独立头文件: `battery_icons.h` (24x16, 电池)、`label_icons.h` (8x16, 连接类型标签)、`signal_icons.h` (16x16, 信号强度)
 - Row 0 显示布局: 连接类型图标 (8x16) + 信号图标 (16x16) + NID 文本 + 电池图标 (24x16)
-- 显示接口: `mod_display_lora(rssi)`, `mod_display_can()`, `mod_display_lora_nid(nid)`, `mod_display_battery(mv, status)`, `mod_display_scanner(s)`, `mod_display_handler_xy(x, y)`, `mod_display_handler_button(btn)`
-- `mod_display_battery` 参数从 `(uint8_t power_level)` 改为 `(uint32_t mv, battery_status_t status)`，电源电压使用 ADC 毫伏值
+- 显示接口: `mod_display_lora(rssi)`, `mod_display_can()`, `mod_display_lora_nid(nid)`, `mod_display_battery(power_mv, status)`, `mod_display_scanner(s)`, `mod_display_handler_xy(x, y)`, `mod_display_handler_button(btn)`
+- `mod_display_init` 中通过 `handler_get_btn()` 读取初始按键状态写入 `global_params.h_button`
+- `mod_display_battery` 参数从 `(uint8_t power_level)` 改为 `(uint32_t power_mv, battery_status_t status)`，电源电压使用 ADC 毫伏值，毫伏阈值映射电量图标 (≥3850mV=4级, ≥3750mV=3级, ≥3550mV=2级, ≥3400mV=1级, <3400mV=0级)
 - NID 显示函数: `mod_display_lora_nid(uint32_t nid)`, Row 0 显示 8 位十六进制 NID
 - LoRa AT 十六进制参数解析使用通用函数 `parse_at_hex`，NID/GWID 查询均使用此函数
 - LoRa AT 指令格式参考 `doc/` 目录下的 WH-L101-L AT 指令集和 LG210 协议说明书
@@ -357,8 +358,8 @@ VERSION                  -- 版本号 (0.1.2-release)
 - CAN 0x105 SET 帧格式: data[1] 高 4 位 = prot, 低 4 位 = mode, data[2]=SPD, data[3]=CH (不含 GWID)。NID/GWID 独立命令: QUERY_NID(0x03)/SET_NID(0x04), QUERY_GWID(0x05)/SET_GWID(0x06)。NID/GWID 数据使用 BE (sys_put_be32/sys_get_be32)。SET_NID/SET_GWID 需 AT 模式写模块并重启, 通过 k_work 异步执行
 - `lora_cfg_work`、`pending_lora_cfg`、`pending_nid`、`pending_gwid`、`lora_cfg_cmd` 为 `can.c` 内部 static 变量，由 CAN 接收线程写入、系统工作队列读取，单生产者单消费者无需锁
 - `btn_display_work`、`sleep_work`、`linksw_work` 为 `gpio.c` 内部 static 变量，ISR 中 `k_work_reschedule`/`k_work_submit`，工作队列线程执行
-- 按键防抖: `btn_display_work` 和 `sleep_work` 使用 `k_work_delayable`，ISR 中 reschedule，work handler 中 `gpio_pin_get_dt()` 确认电平
-- 电源控制函数定义在 `gpio.c`，声明在 `mod-gpio.h`: `can_power_enable()`, `lora_power_enable()`, `dis_power_enable()`, `handler_power_enable()`
+- 按键防抖: `btn_display_work` 和 `sleep_work` 使用 `k_work_delayable`，ISR 中 reschedule，work handler 中 `gpio_pin_get_dt()` 确认。操纵手柄按键使用边沿检测 (`!= global_params.h_button`)，电源键使用低电平确认 (`== 0`)
+- 电源控制函数定义在 `gpio.c`，声明在 `mod-gpio.h`: `can_power_enable()`, `lora_power_enable()`, `dis_power_enable()`, `handler_power_enable()`, `handler_get_btn()`
 - 电池状态读取: `read_battery_status()` 定义在 `gpio.c`，声明在 `mod-gpio.h`，返回 `battery_status_t` 枚举
 - LoRa TX 线程安全: `lora_tx_mutex` 保护 `lora_data_send()`，防止 ADC 线程、按键 k_work、心跳线程并发 TX 竞争
 - LoRa 链路状态: `lora_connected` 为 `atomic_t`，接收线程置 true，心跳线程连续超时置 false，`lora_is_connected()` 供外部无锁读取
@@ -368,7 +369,7 @@ VERSION                  -- 版本号 (0.1.2-release)
 - LoRa 工作模式枚举: `LORA_GW_MODE_FP(0)` / `LORA_GW_MODE_TRANS(1)` / `LORA_GW_MODE_NETWORK(2)`，对应 AT+WMODE 的 FP/TRANS/NET
 - LoRa 初始化 (`lora_serial_init`, SYS_INIT APPLICATION level 10): GPIO 配置 → HOSTWAKE 配置 → 注册 UART async 回调 → `lora_init()` (上电+复位+2s等待+重启DMA) → AT 模式读取通信参数 (prot/mode/spd/ch) → AT 模式读取 NID/GWID → 写入 `global_params` → 刷新 NID 显示 → 恢复数据模式
 - LoRa deinit: `lora_deinit()` = `lora_rx_disable_sync()` (停止 DMA) + `lora_power_enable(false)` (断电)，用于 CAN/LoRa 切换和系统休眠
-- 系统休眠: `system_sleep()` 关闭所有外设电源 (can/lora/dis/handler)，设置 `sleeping = true`
+- 系统休眠: `system_sleep()` 关闭所有外设电源 (can_power_enable/lora_power_enable/dis_power_enable/handler_power_enable)，设置 `sleeping = true`，clear WAKE_EVENT
 - 系统唤醒: `system_wake()` 重新上电所有外设，LoRa 模式下调用 `lora_init()`，等待 200ms 后 `mod_display_reinit()` + `mod_display_all()`，设置 `sleeping = false`
 - `power.c` 和 `power.h` 已删除，电源管理代码整合到 `gpio.c`，接口声明在 `mod-gpio.h`
 - `battery.c` 已删除，电池/按键/电源管理整合到 `gpio.c`
