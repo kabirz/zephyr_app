@@ -675,12 +675,14 @@ static bool parse_lora_frame(const uint8_t *data, uint16_t len, const uint8_t **
 {
 	/* 最小帧: NID(4) + Length(2) + CRC(2) = 8 */
 	if (len < LORA_FRAME_OVERHEAD) {
+		LOG_ERR("size(%d) < 8", len);
 		return false;
 	}
 
 	/* 验证 NID */
 	uint32_t rx_nid = sys_get_be32(data);
 	if (rx_nid != global_params.nid) {
+		LOG_ERR("NID is not right: %x", rx_nid);
 		return false;
 	}
 
@@ -689,6 +691,7 @@ static bool parse_lora_frame(const uint8_t *data, uint16_t len, const uint8_t **
 
 	/* 检查帧完整性 */
 	if (len != LORA_FRAME_HEADER_SIZE + data_len + LORA_FRAME_CRC_SIZE) {
+		LOG_ERR("frame is not right");
 		return false;
 	}
 
@@ -697,6 +700,7 @@ static bool parse_lora_frame(const uint8_t *data, uint16_t len, const uint8_t **
 	uint16_t rx_crc = sys_get_be16(data + LORA_FRAME_HEADER_SIZE + data_len);
 
 	if (calc_crc != rx_crc) {
+		LOG_ERR("crc is not right");
 		return false;
 	}
 
@@ -728,6 +732,7 @@ static void lora_msg_process_thread(void)
 			if (parse_lora_frame(msg.data, msg.len, &payload, &payload_len)) {
 				/* 合法帧 → 链路连通 */
 				if (payload_len == 0) {
+					/* 收到的ack回复 */
 					k_sem_give(&lora_ack_sem);
 				} else if (payload_len >= 2) {
 					/* Data[0-1]: CAN frame ID (BE) */
@@ -745,6 +750,8 @@ static void lora_msg_process_thread(void)
 					} else {
 						LOG_WRN("LoRa RX data too long: %d", data_len);
 					}
+					/* 需要回复ack */
+					// TODO
 				} else {
 					LOG_DBG("LoRa ACK received (empty payload)");
 				}

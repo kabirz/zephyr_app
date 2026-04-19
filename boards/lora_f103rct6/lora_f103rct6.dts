@@ -109,7 +109,8 @@
 
 &i2c2 {
 	pinctrl-0 = <&i2c2_scl_pb10 &i2c2_sda_pb11>;
-	pinctrl-names = "default";
+	pinctrl-1 = <&analog_pb11 &analog_pb11>;
+	pinctrl-names = "default", "sleep";
 	status = "okay";
 
 	sh1106_sh1106_128x64: ssd1306@3c {

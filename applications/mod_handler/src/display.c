@@ -145,9 +145,8 @@ void mod_display_battery(uint32_t power_mv, battery_status_t status)
 	k_mutex_lock(&display_mutex, K_FOREVER);
 
 	display_char(' ', 96, 0);
-	int idx = power_mv >= 3850 ? 3 : power_mv >= 3750 ? 3 : power_mv >= 3550 ? 3 :
+	int idx = power_mv >= 3850 ? 4 : power_mv >= 3750 ? 3 : power_mv >= 3550 ? 3 :
 		power_mv >= 3400 ? 1 : 0;
-	// TODO idx == 4
 	if (status == BATTERY_STATUS_FULL) {
 		display_write_buf(104, 0, BATTERY_ICON_W, BATTERY_ICON_H, battery_full);
 	} else if (status == BATTERY_STATUS_CHARGING) {
