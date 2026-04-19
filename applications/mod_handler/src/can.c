@@ -267,10 +267,6 @@ void mod_can_thread(void)
 
 			if (atomic_get(&heart_send_success) || ret == 0) {
 				fail_count = 0;
-				if (global_params.connect_type != CAN_TYPE) {
-					global_params.connect_type = CAN_TYPE;
-					mod_display_lora_can(global_params.connect_type);
-				}
 				mod_can_send_handler_state(&global_params);
 			} else {
 				fail_count++;
@@ -278,11 +274,7 @@ void mod_can_thread(void)
 			}
 
 			if (fail_count >= 3) {
-				LOG_WRN("heartbeat failed 3 times, switching to LoRa");
-				if (global_params.connect_type != LORA_TYPE) {
-					global_params.connect_type = LORA_TYPE;
-					mod_display_lora_can(global_params.connect_type);
-				}
+				LOG_WRN("heartbeat failed 3 times");
 				k_sem_reset(&heart_wake_sem);
 				k_event_clear(&global_params.event, TIMEOUT_EVENT);
 				break;

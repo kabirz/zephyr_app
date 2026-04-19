@@ -12,10 +12,13 @@ static const struct gpio_dt_spec charge_full = GPIO_DT_SPEC_GET(DT_PATH(zephyr_u
 static const struct gpio_dt_spec charging = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), charging_gpios);
 static const struct gpio_dt_spec power_button = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), power_gpios);
 static const struct gpio_dt_spec handle_button = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), handlebt_gpios);
+static const struct gpio_dt_spec link_switch = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), linksw_gpios);
 static struct gpio_callback power_button_cb_data;
+static struct gpio_callback linksw_cb_data;
 
 /* 按键显示 work — ISR 中 submit, 工作队列线程中刷新 OLED */
 static struct k_work btn_display_work;
+static struct k_work linksw_work;
 
 static void btn_display_work_handler(struct k_work *work)
 {
@@ -58,6 +61,18 @@ void gpio_irq(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 	}
 }
 
+static void linksw_irq(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
+{
+	k_work_submit(&linksw_work);
+}
+
+static void linksw_work_handler(struct k_work *work)
+{
+	global_params.connect_type = (global_params.connect_type == CAN_TYPE) ? LORA_TYPE : CAN_TYPE;
+	mod_display_lora_can(global_params.connect_type);
+	LOG_INF("Link switch: %s", global_params.connect_type == CAN_TYPE ? "CAN" : "LoRa");
+}
+
 static int gpio_init(void)
 {
 	int ret;
@@ -79,6 +94,11 @@ static int gpio_init(void)
 
 	if (!gpio_is_ready_dt(&handle_button)) {
 		LOG_ERR("handle button GPIO device not ready");
+		return -ENODEV;
+	}
+
+	if (!gpio_is_ready_dt(&link_switch)) {
+		LOG_ERR("link switch GPIO device not ready");
 		return -ENODEV;
 	}
 
@@ -106,6 +126,12 @@ static int gpio_init(void)
 		return ret;
 	}
 
+	ret = gpio_pin_configure_dt(&link_switch, GPIO_INPUT);
+	if (ret < 0) {
+		LOG_ERR("Failed to configure link switch pin: %d", ret);
+		return ret;
+	}
+
 	ret = gpio_pin_interrupt_configure_dt(&power_button, GPIO_INT_EDGE_FALLING);
 	if (ret < 0) {
 		LOG_ERR("Failed to configure power button interrupt: %d", ret);
@@ -121,7 +147,16 @@ static int gpio_init(void)
 			   BIT(power_button.pin) | BIT(handle_button.pin));
 	gpio_add_callback(power_button.port, &power_button_cb_data);
 
+	ret = gpio_pin_interrupt_configure_dt(&link_switch, GPIO_INT_EDGE_FALLING);
+	if (ret < 0) {
+		LOG_ERR("Failed to configure link switch interrupt: %d", ret);
+		return ret;
+	}
+	gpio_init_callback(&linksw_cb_data, linksw_irq, BIT(link_switch.pin));
+	gpio_add_callback(link_switch.port, &linksw_cb_data);
+
 	k_work_init(&btn_display_work, btn_display_work_handler);
+	k_work_init(&linksw_work, linksw_work_handler);
 
 	LOG_INF("GPIO initialized successfully");
 	LOG_INF("  PB12 (Charge Full): %s", gpio_pin_get_dt(&charge_full) ? "HIGH" : "LOW");

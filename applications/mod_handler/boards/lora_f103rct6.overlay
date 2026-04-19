@@ -21,6 +21,7 @@
 		chargefull-gpios = <&gpiob 12 GPIO_PULL_UP>;
 		charging-gpios = <&gpiob 13 GPIO_PULL_UP>;
 		power-gpios = <&gpiob 14 GPIO_PULL_UP>;
+		linksw-gpios = <&gpioa 10 GPIO_PULL_UP>;
 
         	io-channels = <&adc1 14>, <&adc1 15>, <&adc1 9>;
         	io-channel-names = "adc_x", "adc_y", "adc_vcc";
