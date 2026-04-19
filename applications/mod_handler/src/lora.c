@@ -100,9 +100,9 @@ static K_SEM_DEFINE(at_resp_sem, 0, 1);
 static atomic_t lora_connected = ATOMIC_INIT(false);
 static K_SEM_DEFINE(lora_ack_sem, 0, 1);
 
-#define LORA_HEART_PERIOD_MS	2000  /* 心跳发送周期 */
-#define LORA_ACK_TIMEOUT_MS	1500  /* ACK 等待超时 */
-#define LORA_HEART_FAIL_MAX	3     /* 连续失败判定断连 */
+#define LORA_HEART_PERIOD_MS 2000 /* 心跳发送周期 */
+#define LORA_ACK_TIMEOUT_MS  1500 /* ACK 等待超时 */
+#define LORA_HEART_FAIL_MAX  3    /* 连续失败判定断连 */
 
 /* ================================================================
  * HOSTWAKE 管理
@@ -438,7 +438,6 @@ int lora_exit_at(void)
 	return 0;
 }
 
-
 /* ================================================================
  * LG210 网关配置 — LORAPROT + SPD + CH + 保存 + 重启
  * ================================================================ */
@@ -543,8 +542,7 @@ int lora_gw_configure(const struct lora_gw_config *cfg)
 	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
 	k_mutex_unlock(&lora_mode_mutex);
 
-	LOG_INF("Gateway configured: prot=%s mode=%s spd=%d ch=%d",
-		prot_str,
+	LOG_INF("Gateway configured: prot=%s mode=%s spd=%d ch=%d", prot_str,
 		cfg->mode == LORA_GW_MODE_NETWORK ? "network" : "trans", cfg->spd, cfg->ch);
 	return 0;
 
@@ -673,8 +671,8 @@ int lora_gw_query(struct lora_gw_config *cfg)
  * 输出: payload 指向 Data 字段, payload_len 为 Data 长度
  * 返回: true 帧合法 (NID 匹配 + CRC 正确)
  * ================================================================ */
-static bool parse_lora_frame(const uint8_t *data, uint16_t len,
-			     const uint8_t **payload, uint16_t *payload_len)
+static bool parse_lora_frame(const uint8_t *data, uint16_t len, const uint8_t **payload,
+			     uint16_t *payload_len)
 {
 	/* 最小帧: NID(4) + Length(2) + CRC(2) = 8 */
 	if (len < LORA_FRAME_OVERHEAD) {
@@ -755,7 +753,8 @@ static void lora_msg_process_thread(void)
 				} else {
 					LOG_DBG("LoRa ACK received (empty payload)");
 				}
-			} else if (strncmp(msg.data, "LoRa Start!", sizeof("LoRa Start!")-1) == 0) {
+			} else if (strncmp(msg.data, "LoRa Start!", sizeof("LoRa Start!") - 1) ==
+				   0) {
 				LOG_INF("Lora start!");
 			} else {
 				LOG_HEXDUMP_INF(msg.data, msg.len, "LoRa RX (invalid):");
@@ -950,10 +949,11 @@ static int cmd_at(const struct shell *ctx, size_t argc, char **argv)
 	char resp[256];
 	char at_cmd[256] = {0};
 
-	if (strncmp(argv[1], "AT+", 3))
+	if (strncmp(argv[1], "AT+", 3)) {
 		snprintf(at_cmd, sizeof(at_cmd), "AT+%s\r\n", argv[1]);
-	else
+	} else {
 		snprintf(at_cmd, sizeof(at_cmd), "%s\r\n", argv[1]);
+	}
 	int ret = lora_send_at(at_cmd, resp, sizeof(resp), 2000);
 
 	if (ret == 0) {
@@ -1015,13 +1015,13 @@ static int cmd_gw_config(const struct shell *ctx, size_t argc, char **argv)
 		shell_error(ctx, "Gateway config failed (%d)", ret);
 		return ret;
 	}
-	const char *prot_str = cfg.prot == LORA_PROT_LG210 ? "lg210"
-			     : cfg.prot == LORA_PROT_LG220  ? "lg220"
-								    : "node";
-	shell_print(ctx, "Gateway configured: prot=%s mode=%s spd=%d ch=%d",
-		    prot_str,
+	const char *prot_str = cfg.prot == LORA_PROT_LG210   ? "lg210"
+			       : cfg.prot == LORA_PROT_LG220 ? "lg220"
+							     : "node";
+	shell_print(ctx, "Gateway configured: prot=%s mode=%s spd=%d ch=%d", prot_str,
 		    cfg.mode == LORA_GW_MODE_NETWORK ? "net"
-		    : cfg.mode == LORA_GW_MODE_FP    ? "fp" : "trans",
+		    : cfg.mode == LORA_GW_MODE_FP    ? "fp"
+						     : "trans",
 		    cfg.spd, cfg.ch);
 	return 0;
 }
@@ -1038,12 +1038,13 @@ static int cmd_gw_query(const struct shell *ctx, size_t argc, char **argv)
 		shell_error(ctx, "Query failed (%d)", ret);
 		return ret;
 	}
-	const char *prot_str = cfg.prot == LORA_PROT_LG210 ? "lg210"
-			     : cfg.prot == LORA_PROT_LG220  ? "lg220" : "node";
-	shell_print(ctx, "Gateway params: prot=%s mode=%s spd=%d ch=%d",
-		    prot_str,
+	const char *prot_str = cfg.prot == LORA_PROT_LG210   ? "lg210"
+			       : cfg.prot == LORA_PROT_LG220 ? "lg220"
+							     : "node";
+	shell_print(ctx, "Gateway params: prot=%s mode=%s spd=%d ch=%d", prot_str,
 		    cfg.mode == LORA_GW_MODE_NETWORK ? "net"
-		    : cfg.mode == LORA_GW_MODE_FP    ? "fp" : "trans",
+		    : cfg.mode == LORA_GW_MODE_FP    ? "fp"
+						     : "trans",
 		    cfg.spd, cfg.ch);
 	return 0;
 }
@@ -1081,15 +1082,15 @@ static int cmd_nid(const struct shell *ctx, size_t argc, char **argv)
 }
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_gw_cmds,
-				       SHELL_CMD_ARG(config, NULL,
-						     "Configure gateway params and reboot\n"
-						     "Usage: config [prot] [mode] [spd] [ch]\n"
-						     "  prot: node (default), lg210, lg220\n"
-						     "  mode: trans (default), fp, net",
+			       SHELL_CMD_ARG(config, NULL,
+					     "Configure gateway params and reboot\n"
+					     "Usage: config [prot] [mode] [spd] [ch]\n"
+					     "  prot: node (default), lg210, lg220\n"
+					     "  mode: trans (default), fp, net",
 					     cmd_gw_config, 1, 4),
-				       SHELL_CMD_ARG(query, NULL, "Query current gateway params",
+			       SHELL_CMD_ARG(query, NULL, "Query current gateway params",
 					     cmd_gw_query, 1, 0),
-				       SHELL_SUBCMD_SET_END);
+			       SHELL_SUBCMD_SET_END);
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_cmds,
 			       SHELL_CMD_ARG(send, NULL,
@@ -1158,9 +1159,10 @@ static int lora_serial_init(void)
 	ret = lora_gw_query(&cfg);
 	if (ret == 0) {
 		LOG_INF("LoRa params: prot=%s mode=%s spd=%d ch=%d",
-			cfg.prot == LORA_PROT_LG210 ? "LG210" : cfg.prot == LORA_PROT_LG220 ? "LG220" : "NODE",
-			cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans",
-			cfg.spd, cfg.ch);
+			cfg.prot == LORA_PROT_LG210   ? "LG210"
+			: cfg.prot == LORA_PROT_LG220 ? "LG220"
+						      : "NODE",
+			cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans", cfg.spd, cfg.ch);
 	} else {
 		LOG_WRN("LoRa param query failed (%d), using defaults", ret);
 	}

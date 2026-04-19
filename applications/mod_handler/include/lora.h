@@ -97,7 +97,7 @@ enum lora_gw_mode {
  * @brief LoRa 通信协议类型
  */
 enum lora_gw_prot {
-	LORA_PROT_NODE,	 /* 点对点 (默认) */
+	LORA_PROT_NODE,  /* 点对点 (默认) */
 	LORA_PROT_LG210, /* LG210 网关 */
 	LORA_PROT_LG220, /* LG220 网关 */
 };
@@ -147,11 +147,11 @@ int lora_gw_query(struct lora_gw_config *cfg);
  * 心跳 ACK (网关→手柄): Data = 0 字节 (仅 NID + Length(0) + CRC)
  * 网关数据帧 (网关→手柄): Data = 应用层变长数据
  * ================================================================ */
-#define LORA_FRAME_NID_SIZE	4
-#define LORA_FRAME_LEN_SIZE	2
-#define LORA_FRAME_CRC_SIZE	2
-#define LORA_FRAME_HEADER_SIZE	(LORA_FRAME_NID_SIZE + LORA_FRAME_LEN_SIZE) /* 6 */
-#define LORA_FRAME_OVERHEAD	(LORA_FRAME_HEADER_SIZE + LORA_FRAME_CRC_SIZE) /* 8 */
+#define LORA_FRAME_NID_SIZE    4
+#define LORA_FRAME_LEN_SIZE    2
+#define LORA_FRAME_CRC_SIZE    2
+#define LORA_FRAME_HEADER_SIZE (LORA_FRAME_NID_SIZE + LORA_FRAME_LEN_SIZE)    /* 6 */
+#define LORA_FRAME_OVERHEAD    (LORA_FRAME_HEADER_SIZE + LORA_FRAME_CRC_SIZE) /* 8 */
 
 /**
  * @brief 设置网关 ID 并写入模块

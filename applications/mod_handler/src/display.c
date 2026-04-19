@@ -98,7 +98,9 @@ void mod_display_clear(void)
 void mod_display_lora_rssi(uint8_t rssi)
 {
 	k_mutex_lock(&display_mutex, K_FOREVER);
-	if (rssi > 4) rssi = 4;
+	if (rssi > 4) {
+		rssi = 4;
+	}
 	display_write_buf(0, 0, SIGNAL_ICON_W, SIGNAL_ICON_H, signal_levels[rssi]);
 	k_mutex_unlock(&display_mutex);
 }
@@ -108,10 +110,7 @@ void mod_display_battery(uint8_t power_level)
 {
 	k_mutex_lock(&display_mutex, K_FOREVER);
 
-	int idx = power_level >= 75  ? 3
-		  : power_level >= 50 ? 2
-		  : power_level >= 25 ? 1
-				      : 0;
+	int idx = power_level >= 75 ? 3 : power_level >= 50 ? 2 : power_level >= 25 ? 1 : 0;
 	display_write_buf(16, 0, BATTERY_ICON_W, BATTERY_ICON_H, battery_charging[idx]);
 
 	k_mutex_unlock(&display_mutex);
@@ -142,7 +141,6 @@ void mod_display_lora_nid(uint32_t nid)
 	display_str_pad(line, 64, 0, 64);
 	k_mutex_unlock(&display_mutex);
 }
-
 
 /* Row 1: 激光距离 + 超欠挖 (来自扫描仪 CAN 数据) */
 void mod_display_scanner(const scanner_data_t *s)
@@ -233,4 +231,3 @@ int mod_display_init(void)
 }
 
 SYS_INIT(mod_display_init, APPLICATION, 1);
-

@@ -24,7 +24,7 @@ int main(void)
 {
 	LOG_INF("build time: %s-%s", __DATE__, __TIME__);
 	LOG_INF("board: %s, system clk: %dMHz", CONFIG_BOARD_TARGET,
-			CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC / MHZ(1));
+		CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC / MHZ(1));
 	LOG_INF("flash size: %dKB, ram size: %dKB", CONFIG_FLASH_SIZE, CONFIG_SRAM_SIZE);
 	LOG_INF("version: %s", APP_VERSION_STRING);
 

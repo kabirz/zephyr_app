@@ -30,7 +30,7 @@ static void mod_canrx_msg_handler(struct can_frame *frame)
 	case OVERBREAK_LASER:
 	case COORD_XY:
 	case COORD_Z:
-			last_activity_time = k_uptime_get_32();
+		last_activity_time = k_uptime_get_32();
 		mod_can_parse_scanner(frame);
 		break;
 	default:
@@ -90,8 +90,8 @@ static void lora_cfg_work_handler(struct k_work *work)
 			resp.data[1] = (uint8_t)((cfg.prot << 4) | (cfg.mode & 0x0F));
 			resp.data[2] = cfg.spd;
 			resp.data[3] = cfg.ch;
-			LOG_INF("LoRa config QUERY: prot=%d mode=%d spd=%d ch=%d",
-				cfg.prot, cfg.mode, cfg.spd, cfg.ch);
+			LOG_INF("LoRa config QUERY: prot=%d mode=%d spd=%d ch=%d", cfg.prot,
+				cfg.mode, cfg.spd, cfg.ch);
 		} else {
 			LOG_ERR("LoRa config QUERY failed: %d", ret);
 		}
