@@ -12,7 +12,7 @@ void mod_display_clear(void);
 void mod_display_loar_rssi(uint8_t rssi);
 void mod_display_battery(uint8_t power_level);
 void mod_display_lora_can(uint8_t connect_type);
-void mod_display_lora_gwid(uint32_t gwid);
+void mod_display_lora_nid(uint32_t nid);
 
 void mod_display_scanner(const scanner_data_t *s);
 void mod_display_handler_xy(int x, int y);

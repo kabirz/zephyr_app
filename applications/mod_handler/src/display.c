@@ -133,12 +133,12 @@ void mod_display_lora_can(uint8_t connect_type)
 	k_mutex_unlock(&display_mutex);
 }
 
-/* Row 0 左侧4: 网关ID */
-void mod_display_lora_gwid(uint32_t gwid)
+/* Row 0 左侧4: 节点ID */
+void mod_display_lora_nid(uint32_t nid)
 {
 	char line[32] = {0};
 	k_mutex_lock(&display_mutex, K_FOREVER);
-	snprintf(line, sizeof(line), "%08X", gwid);
+	snprintf(line, sizeof(line), "%08X", nid);
 	display_str_pad(line, 64, 0, 64);
 	k_mutex_unlock(&display_mutex);
 }
@@ -201,7 +201,7 @@ void mod_display_all(const gloval_params_t *params)
 	mod_display_lora_rssi(params->rssi);
 	mod_display_battery(params->power_level);
 	mod_display_lora_can(params->connect_type);
-	mod_display_lora_gwid(params->gwid);
+	mod_display_lora_nid(params->nid);
 
 	mod_display_scanner(&params->scanner);
 	mod_display_handler_xy(params->x_degree, params->y_degree);

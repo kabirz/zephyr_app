@@ -578,9 +578,9 @@ static int parse_at_number(const char *resp)
 }
 
 /* ================================================================
- * LG210 网关参数查询 — 读取 GWID
+ * LG210 十六进制参数查询
  * ================================================================ */
-static int parse_at_gwid(const char *resp)
+static int parse_at_hex(const char *resp)
 {
 	/* AT 查询响应格式: \r\n+CMD:<value>\r\n\r\nOK\r\n
 	 * 例: \r\n+GWID:5\r\n\r\nOK\r\n
@@ -845,8 +845,7 @@ int lora_set_gw_id(uint32_t gwid)
 
 	/* 模块重启后直接进入透传模式, 更新本地缓存 */
 	global_params.gwid = gwid;
-	mod_display_lora_gwid(global_params.gwid);
-	k_msleep(1000);
+	k_msleep(50);
 	lora_rx_disable_sync();
 	atomic_set(&lora_current_mode, LORA_MODE_DATA);
 	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
@@ -879,13 +878,14 @@ int lora_set_node_id(uint32_t nid)
 
 	/* 模块重启后直接进入透传模式, 更新本地缓存 */
 	global_params.nid = nid;
-	k_msleep(1000);
+	mod_display_lora_nid(global_params.nid);
+	k_msleep(50);
 	lora_rx_disable_sync();
 	atomic_set(&lora_current_mode, LORA_MODE_DATA);
 	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
 	k_mutex_unlock(&lora_mode_mutex);
 
-	LOG_INF("Node ID set to %08x", nid);
+	LOG_INF("Node ID set to %08X", nid);
 	return 0;
 }
 
@@ -942,7 +942,10 @@ static int cmd_at(const struct shell *ctx, size_t argc, char **argv)
 	char resp[256];
 	char at_cmd[256] = {0};
 
-	snprintf(at_cmd, sizeof(at_cmd), "AT+%s\r\n", argv[1]);
+	if (strncmp(argv[1], "AT+", 3))
+		snprintf(at_cmd, sizeof(at_cmd), "AT+%s\r\n", argv[1]);
+	else
+		snprintf(at_cmd, sizeof(at_cmd), "%s\r\n", argv[1]);
 	int ret = lora_send_at(at_cmd, resp, sizeof(resp), 2000);
 
 	if (ret == 0) {
@@ -1161,14 +1164,14 @@ static int lora_serial_init(void)
 
 		ret = lora_send_at("AT+NID", resp, sizeof(resp), 2000);
 		if (ret == 0) {
-			global_params.nid = (uint32_t)parse_at_number(resp);
+			global_params.nid = (uint32_t)parse_at_hex(resp);
+			mod_display_lora_nid(global_params.nid);
 			LOG_INF("LoRa NID: 0x%08X", global_params.nid);
 		}
 
 		ret = lora_send_at("AT+GWID", resp, sizeof(resp), 2000);
 		if (ret == 0) {
-			global_params.gwid = (uint32_t)parse_at_gwid(resp);
-			mod_display_lora_gwid(global_params.gwid);
+			global_params.gwid = (uint32_t)parse_at_hex(resp);
 			LOG_INF("LoRa GWID: 0x%08X", global_params.gwid);
 		}
 
