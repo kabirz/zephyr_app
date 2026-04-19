@@ -175,13 +175,22 @@ int lora_set_gw_id(uint32_t gwid);
 int lora_set_node_id(uint32_t nid);
 
 /**
- * @brief 检查 LoRa 网关链路状态
+ * @brief LoRa 模块运行时初始化 (上电 + 硬件复位 + 启动 DMA)
  *
- * 基于应用层心跳 ACK 检测结果. 仅在 connect_type == LORA_TYPE 时
- * 由心跳线程维护, 其他模式下返回 false.
+ * 上电并通过 RESET 引脚硬件复位模块, 等待 2s 启动完成,
+ * 然后重启 DMA 双缓冲接收. 用于 CAN/LoRa 切换和系统唤醒.
  *
- * @return true 网关已响应 ACK, false 超时未响应或非 LoRa 模式
+ * 注意: UART 回调必须在首次调用前已注册 (由 SYS_INIT 完成).
+ *       AT 参数读取仅在 SYS_INIT 中执行一次, 此函数不读参数.
  */
-bool lora_is_connected(void);
+void lora_init(void);
+
+/**
+ * @brief LoRa 模块去初始化 (停止 DMA + 断电)
+ *
+ * 先停止 DMA 接收, 再关闭模块电源. 用于 CAN/LoRa 切换和系统休眠,
+ * 避免 UART 引脚悬空导致 DMA 状态损坏.
+ */
+void lora_deinit(void);
 
 #endif /* __LORA_H__ */

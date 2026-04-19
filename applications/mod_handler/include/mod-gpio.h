@@ -5,6 +5,7 @@
 #include <common.h>
 battery_status_t read_battery_status(void);
 int gpio_init(void);
+void canlora_switch(uint8_t type);
 void can_power_enable(bool up);
 void lora_power_enable(bool up);
 void dis_power_enable(bool up);

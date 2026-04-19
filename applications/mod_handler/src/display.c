@@ -109,7 +109,7 @@ void mod_display_lora(uint8_t rssi)
 	if (rssi > 4) {
 		rssi = 4;
 	}
-	display_write_buf(0, 0, LABEL_ICON_W, LABEL_ICON_H, label_can);
+	display_write_buf(0, 0, LABEL_ICON_W, LABEL_ICON_H, label_lora);
 	display_write_buf(8, 0, SIGNAL_ICON_W, SIGNAL_ICON_H, signal_levels[rssi]);
 	display_char(' ', 24, 0);
 	k_mutex_unlock(&display_mutex);
@@ -138,12 +138,14 @@ void mod_display_lora_nid(uint32_t nid)
 
 
 /* Row 0 左侧3(24x16): 电池图标 */
-void mod_display_battery(uint8_t power_level, battery_status_t status)
+void mod_display_battery(uint32_t power_mv, battery_status_t status)
 {
 	k_mutex_lock(&display_mutex, K_FOREVER);
 
 	display_char(' ', 96, 0);
-	int idx = power_level >= 75 ? 3 : power_level >= 50 ? 2 : power_level >= 25 ? 1 : 0;
+	int idx = power_mv >= 3850 ? 3 : power_mv >= 3750 ? 3 : power_mv >= 3550 ? 3 :
+		power_mv >= 3400 ? 1 : 0;
+	// TODO idx == 4
 	if (status == BATTERY_STATUS_FULL) {
 		display_write_buf(104, 0, BATTERY_ICON_W, BATTERY_ICON_H, battery_full);
 	} else if (status == BATTERY_STATUS_CHARGING) {
@@ -215,7 +217,7 @@ void mod_display_all(const gloval_params_t *params)
 		mod_display_lora(params->rssi);
 	}
 	mod_display_lora_nid(params->nid);
-	mod_display_battery(params->power_level, params->battery_status);
+	mod_display_battery(params->power_mv, params->battery_status);
 
 	mod_display_scanner(&params->scanner);
 	mod_display_handler_xy(params->x_degree, params->y_degree);

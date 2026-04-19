@@ -99,9 +99,9 @@ static K_SEM_DEFINE(at_resp_sem, 0, 1);
  * ================================================================ */
 static K_SEM_DEFINE(lora_ack_sem, 0, 1);
 
-#define LORA_HEART_PERIOD_MS 2000 /* 心跳发送周期 */
-#define LORA_ACK_TIMEOUT_MS  1500 /* ACK 等待超时 */
-#define LORA_HEART_FAIL_MAX  3    /* 连续失败判定断连 */
+#define LORA_HEART_PERIOD_MS 20000 /* 心跳发送周期 20s */
+#define LORA_ACK_TIMEOUT_MS  1500  /* ACK 等待超时 */
+#define LORA_HEART_FAIL_MAX  3     /* 连续失败判定断连 */
 
 /* ================================================================
  * HOSTWAKE 管理
@@ -241,7 +241,7 @@ bool lora_data_send(const uint8_t *data, size_t len)
 	offset += LORA_FRAME_CRC_SIZE;
 
 	/* 等待模块空闲 (HOSTWAKE 低 = 模块未在无线收发) */
-	int retry = 10;
+	int retry = 40;
 
 	while (lora_get_hostwake_status() && retry-- > 0) {
 		k_msleep(5);
@@ -777,7 +777,13 @@ static void lora_heartbeat_thread(void)
 		}
 		k_event_wait(&global_params.event, LORA_EVENT, false, K_FOREVER);
 
-		k_sem_reset(&lora_ack_sem);
+			/* AT mode: skip heartbeat */
+			if (atomic_get(&lora_current_mode) == LORA_MODE_AT) {
+				k_sleep(K_MSEC(LORA_HEART_PERIOD_MS));
+				continue;
+			}
+
+			k_sem_reset(&lora_ack_sem);
 
 		/* 发送遥测帧作为心跳 */
 		bool sent = lora_send_telemetry(&global_params);
@@ -1086,6 +1092,35 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_cmds,
 SHELL_CMD_REGISTER(lora, &sub_lora_cmds, "LoRa WH-L101-L commands", NULL);
 #endif /* CONFIG_SHELL */
 
+void lora_init(void)
+{
+	/* 上电 + 硬件复位 */
+	lora_power_enable(true);
+	gpio_pin_set_dt(&lora_reset_pin, 0);
+	k_msleep(10);
+	gpio_pin_set_dt(&lora_reset_pin, 1);
+	k_msleep(10);
+
+	/* 等待模块就绪 (HOSTWAKE 低 = 空闲) */
+	int retry = 100;
+	while (lora_get_hostwake_status() && retry-- > 0) {
+		k_msleep(20);
+	}
+	if (retry <= 0) {
+		LOG_WRN("LoRa module boot timeout");
+	}
+
+	lora_rx_disable_sync();
+	rx_next_buf = rx_buf_b;
+	atomic_set(&lora_current_mode, LORA_MODE_DATA);
+	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
+}
+
+void lora_deinit(void)
+{
+	lora_rx_disable_sync();
+	lora_power_enable(false);
+}
 /* ================================================================
  * 初始化 — 上电复位 + 注册 async 回调 + 启动 DMA 接收
  * ================================================================ */
@@ -1104,25 +1139,14 @@ static int lora_serial_init(void)
 		return ret;
 	}
 
-	/* 上电 + 硬件复位 */
-	lora_power_enable(true);
-	gpio_pin_set_dt(&lora_reset_pin, 0);
-	k_msleep(10);
-	gpio_pin_set_dt(&lora_reset_pin, 1);
-	k_msleep(10);
-
 	/* HOSTWAKE 初始化为输入 */
 	gpio_pin_configure_dt(&lora_hostwake_pin, GPIO_INPUT | GPIO_PULL_UP);
 
-	/* 注册 async 回调 */
+	/* 注册 async 回调 (必须在 lora_init 之前) */
 	uart_callback_set(uart_dev, lora_uart_cb, NULL);
 
-	/* 启动 DMA 接收 — 数据模式, 20ms 帧间超时 */
-	ret = uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
-	if (ret != 0) {
-		LOG_ERR("Failed to enable UART RX: %d", ret);
-		return ret;
-	}
+	/* 上电 + 复位 + 等待就绪 + 启动 DMA */
+	lora_init();
 
 	/* 进入 AT 模式读取模块参数 (NID/GWID/SPD/CH) */
 	struct lora_gw_config cfg;

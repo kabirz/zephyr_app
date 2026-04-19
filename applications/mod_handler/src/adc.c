@@ -43,9 +43,8 @@ void adc_read_thread(void)
 	int ret;
 	uint16_t buf;
 	struct adc_sequence sequence = {.buffer = &buf, .buffer_size = sizeof(buf)};
-	int32_t val_mv, power_level = 0;
+	int32_t val_mv, power_mv = 0;
 	int x_degree = 0, y_degree = 0;
-	int adc_times = 0;
 
 	LOG_INF("ADC read thread started");
 
@@ -62,15 +61,7 @@ void adc_read_thread(void)
 		}
 
 		uint32_t t1 = k_uptime_get_32();
-		adc_times++;
 		for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++) {
-			// 电量采集间隔: 每 10 个 ADC 周期 (5s)
-			if (i == 2) {
-				if (adc_times < 10) {
-					continue;
-				}
-				adc_times = 0;
-			}
 			(void)adc_sequence_init_dt(&adc_channels[i], &sequence);
 			ret = adc_read_dt(&adc_channels[i], &sequence);
 			if (ret < 0) {
@@ -95,8 +86,8 @@ void adc_read_thread(void)
 				y_degree = (CLAMP(val_mv * 10 / 6, 500, 4500) - 500) * 400 / 4000 - 200;
 				break;
 			case 2:
-				// Power VCC → 电量百分比 (3.0V~4.2V 线性映射)
-				power_level = (uint8_t)CLAMP((val_mv - 3000) * 100 / 1200, 0, 100);
+				// Power VCC
+				power_mv = val_mv*2;
 				break;
 			default:
 				break;
@@ -115,16 +106,17 @@ void adc_read_thread(void)
 			}
 		}
 		battery_status_t battery_status = read_battery_status();
-		if (power_level != global_params.power_level ||
+		if (power_mv != global_params.power_mv ||
 			global_params.battery_status != battery_status) {
-			mod_display_battery(power_level, battery_status);
-			global_params.power_level = power_level;
+			power_mv = power_mv > global_params.power_mv ? power_mv - 50 : power_mv + 50;
+			mod_display_battery(power_mv, battery_status);
+			global_params.power_mv = power_mv;
 			global_params.battery_status = battery_status;
 		}
 
 		uint32_t diff = k_uptime_get_32() - t1;
 		if (diff > 5)
-			k_sleep(K_MSEC(500 - diff));
+			k_sleep(K_MSEC(2000 - diff));
 	}
 }
 

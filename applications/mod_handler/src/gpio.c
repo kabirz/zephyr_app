@@ -45,23 +45,28 @@ static void btn_display_work_handler(struct k_work *work)
 	}
 }
 
-static void linksw_work_handler(struct k_work *work)
+void canlora_switch(uint8_t type)
 {
-	global_params.connect_type = (global_params.connect_type == CAN_TYPE) ? LORA_TYPE : CAN_TYPE;
 	if (global_params.connect_type == CAN_TYPE) {
-		lora_power_enable(false);
-		can_power_enable(true);
 		k_event_clear(&global_params.event, LORA_EVENT);
+		lora_deinit();
+		can_power_enable(true);
 		k_event_set(&global_params.event, CAN_EVENT);
 		mod_display_can();
 	} else {
-		can_power_enable(false);
-		lora_power_enable(true);
 		k_event_clear(&global_params.event, CAN_EVENT);
+		can_power_enable(false);
+		lora_init();
 		k_event_set(&global_params.event, LORA_EVENT);
 		mod_display_lora(global_params.rssi);
 	}
 	LOG_INF("Link switch: %s", global_params.connect_type == CAN_TYPE ? "CAN" : "LoRa");
+}
+
+static void linksw_work_handler(struct k_work *work)
+{
+	global_params.connect_type = (global_params.connect_type == CAN_TYPE) ? LORA_TYPE : CAN_TYPE;
+	canlora_switch(global_params.connect_type);
 }
 
 void can_power_enable(bool up)
@@ -87,8 +92,11 @@ static void system_sleep(void)
 {
 	k_event_clear(&global_params.event, WAKE_EVENT);
 	global_params.sleeping = true;
-	can_power_enable(false);
-	lora_power_enable(false);
+	if (global_params.connect_type == CAN_TYPE) {
+		can_power_enable(false);
+	} else {
+		lora_power_enable(false);
+	}
 	dis_power_enable(false);
 	handler_power_enable(false);
 	LOG_INF("system entering sleep");
@@ -98,8 +106,11 @@ static void system_wake(void)
 {
 	handler_power_enable(true);
 	dis_power_enable(true);
-	can_power_enable(true);
-	lora_power_enable(true);
+	if (global_params.connect_type == CAN_TYPE) {
+		can_power_enable(true);
+	} else {
+		lora_init();
+	}
 	k_msleep(200);
 	mod_display_reinit();
 	mod_display_all(&global_params);
@@ -291,3 +302,31 @@ int gpio_init(void)
 }
 
 SYS_INIT(power_init, PRE_KERNEL_2, 1);
+
+#ifdef CONFIG_SHELL
+#include <zephyr/shell/shell.h>
+static int cmd_link_can(const struct shell *ctx, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+	global_params.connect_type = CAN_TYPE;
+	canlora_switch(global_params.connect_type);
+	return 0;
+}
+
+static int cmd_link_lora(const struct shell *ctx, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+	global_params.connect_type = LORA_TYPE;
+	canlora_switch(global_params.connect_type);
+	return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_link_cmds,
+	SHELL_CMD(can, NULL, "Switch to CAN", cmd_link_can),
+	SHELL_CMD(lora, NULL, "Switch to LoRa", cmd_link_lora),
+	SHELL_SUBCMD_SET_END);
+
+SHELL_CMD_REGISTER(link, &sub_link_cmds, "Link switch commands", NULL);
+#endif

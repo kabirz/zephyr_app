@@ -252,13 +252,13 @@ static void can_heart_thread(void)
 	int fail_count = 0, ret;
 
 	while (true) {
+		k_event_wait(&global_params.event, CAN_EVENT, false, K_FOREVER);
 		k_event_wait(&global_params.event, CAN_RX_EVENT, false, K_FOREVER);
 		uint32_t t1 = k_uptime_get_32();
 		if (global_params.sleeping) {
 			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
 			continue;
 		}
-		k_event_wait(&global_params.event, CAN_EVENT, false, K_FOREVER);
 
 		atomic_set(&heart_send_success, 0);
 

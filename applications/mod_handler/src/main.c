@@ -13,6 +13,7 @@
 #include <mod-can.h>
 #include <display.h>
 #include <mod-gpio.h>
+#include <lora.h>
 
 LOG_MODULE_REGISTER(main_app, LOG_LEVEL_INF);
 
@@ -30,6 +31,7 @@ int main(void)
 
 	last_activity_time = k_uptime_get_32();
 	gpio_init();
+	canlora_switch(global_params.connect_type);
 
 	while (1) {
 		if (global_params.sleeping) {
@@ -40,8 +42,11 @@ int main(void)
 		if ((k_uptime_get_32() - last_activity_time) > ACTIVITY_TIMEOUT_MS) {
 			k_event_clear(&global_params.event, WAKE_EVENT);
 			global_params.sleeping = true;
-			can_power_enable(false);
-			lora_power_enable(false);
+			if (global_params.connect_type == CAN_TYPE) {
+				can_power_enable(false);
+			} else {
+				lora_deinit();
+			}
 			dis_power_enable(false);
 			handler_power_enable(false);
 			LOG_INF("system entering sleep (inactivity timeout)");

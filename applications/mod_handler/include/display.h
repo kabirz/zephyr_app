@@ -6,7 +6,7 @@ void mod_display_reinit(void);
 int mod_display_init(void);
 void mod_display_clear(void);
 void mod_display_lora(uint8_t rssi);
-void mod_display_battery(uint8_t power_level, battery_status_t status);
+void mod_display_battery(uint32_t mv, battery_status_t status);
 void mod_display_can(void);
 void mod_display_lora_nid(uint32_t nid);
 
