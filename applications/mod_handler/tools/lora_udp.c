@@ -594,6 +594,39 @@ static void udp_process_response(net_ctx_t *ctx,
                         }
                     }
                 }
+
+                /* 解析 NINFO 响应: "+NINFO:<info>"
+                 * 格式: 节点信息字符串，包含 RSSI 信号强度
+                 * 若有 pending RSSI 请求，提取信号值回复 TCP */
+                {
+                    const char *p = strstr(val, "+NINFO:");
+                    if (p) {
+                        const char *info = p + 7;
+                        ctx->cb.cfg_log_append(ctx->user_data, info);
+
+                        if (g_pending_rssi_nid != 0) {
+                            /* 尝试从 NINFO 中提取 RSSI/信号强度
+                             * NINFO 格式示例: "NID:XXXX,RSSI:YY,..."
+                             * 或包含 "RSSI" 字段 */
+                            const char *rssi_p = strstr(info, "RSSI");
+                            uint8_t rssi_level = 0;
+                            if (rssi_p) {
+                                rssi_p += 4;
+                                while (*rssi_p == ':' || *rssi_p == ' ') rssi_p++;
+                                int rssi_val = atoi(rssi_p);
+                                /* 映射到 0-4 等级:
+                                 * 假设 RSSI 范围 -120~-40, 每 20dB 一级 */
+                                if (rssi_val >= -60) rssi_level = 4;
+                                else if (rssi_val >= -80) rssi_level = 3;
+                                else if (rssi_val >= -100) rssi_level = 2;
+                                else if (rssi_val >= -110) rssi_level = 1;
+                                else rssi_level = 0;
+                            }
+                            net_send_rssi_response(ctx, g_pending_rssi_nid, rssi_level);
+                            g_pending_rssi_nid = 0;
+                        }
+                    }
+                }
             }
         }
     }

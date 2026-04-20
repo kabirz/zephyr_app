@@ -27,6 +27,17 @@
 #define RX_BUF_MAX    4096
 
 /* ----------------------------------------------------------------
+ * 数据类型 — 与 lora.h enum lora_data_type 一致
+ * Data 字段首字节为类型标识
+ * ---------------------------------------------------------------- */
+enum lora_data_type {
+    LORA_DATA_HANDLER = 0x01,   /* 手柄遥测 / CAN 扫描仪数据 */
+    LORA_DATA_TEST    = 0x02,   /* 测试数据 */
+    LORA_DATA_RSSI    = 0x03,   /* RSSI 信号强度请求/响应 */
+    LORA_DATA_ACK     = 0x04,   /* ACK 确认 */
+};
+
+/* ----------------------------------------------------------------
  * 回调结构体 — UI 层填写并传入 net_init()
  * ---------------------------------------------------------------- */
 typedef struct {
@@ -108,6 +119,8 @@ extern int  g_connected;
 /* 协议状态 (跨模块共享) */
 extern uint32_t g_nid;
 extern int      g_auto_ack;
+extern uint32_t g_pending_rssi_nid;   /* RSSI 请求方 NID (TCP 写, UDP 读) */
+extern int      g_ack_pending;        /* 等待发送 ACK 确认 (TCP 读写) */
 
 /* 计数器 (lora_tcp.c 写, UI 读) */
 extern int g_rx_count;
@@ -148,6 +161,7 @@ int  net_on_socket_event(net_ctx_t *ctx, int event, int error);
 void net_send_ack(net_ctx_t *ctx, uint32_t nid);
 void net_send_data_frame(net_ctx_t *ctx, uint32_t nid,
                          const uint8_t *data, uint16_t data_len);
+void net_send_rssi_response(net_ctx_t *ctx, uint32_t nid, uint8_t rssi);
 
 /* ----------------------------------------------------------------
  * UDP 配置操作 (lora_udp.c)

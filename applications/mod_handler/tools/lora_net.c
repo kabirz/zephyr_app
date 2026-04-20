@@ -30,6 +30,8 @@ int    g_connected = 0;
 /* 协议状态 */
 uint32_t g_nid = 0;
 int      g_auto_ack = 1;
+uint32_t g_pending_rssi_nid = 0;
+int      g_ack_pending = 0;
 
 /* 计数器 */
 int g_rx_count = 0;

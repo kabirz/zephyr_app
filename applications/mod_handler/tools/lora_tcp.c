@@ -34,11 +34,12 @@ static void send_ack(net_ctx_t *ctx, uint32_t nid)
 {
     if (tcp_sock == INVALID_SOCKET) return;
 
-    uint8_t buf[4 + 8];
+    uint8_t ack_type = LORA_DATA_ACK;
+    uint8_t buf[4 + LORA_FRAME_OVERHEAD + 1];
     put_be32(buf, nid);
     int len = net_build_frame(buf + LORA_GATEWAY_PREFIX,
                               sizeof(buf) - LORA_GATEWAY_PREFIX,
-                              nid, NULL, 0);
+                              nid, &ack_type, 1);
     if (len <= 0) return;
 
     send(tcp_sock, (const char *)buf, LORA_GATEWAY_PREFIX + len, 0);
@@ -70,8 +71,30 @@ void net_send_data_frame(net_ctx_t *ctx, uint32_t nid,
 
     send(tcp_sock, (const char *)buf, LORA_GATEWAY_PREFIX + len, 0);
     g_tx_count++;
+    g_ack_pending = 1;
     ctx->cb.log_hex(ctx->user_data, "TX", buf, LORA_GATEWAY_PREFIX + len);
     ctx->cb.add_history_entry(ctx->user_data, nid, "TX", data, data_len);
+    ctx->cb.update_stats(ctx->user_data);
+}
+
+void net_send_rssi_response(net_ctx_t *ctx, uint32_t nid, uint8_t rssi)
+{
+    if (tcp_sock == INVALID_SOCKET) return;
+
+    uint8_t payload[2] = { LORA_DATA_RSSI, rssi };
+    uint8_t buf[4 + LORA_FRAME_OVERHEAD + 2];
+    put_be32(buf, nid);
+    int len = net_build_frame(buf + LORA_GATEWAY_PREFIX,
+                              sizeof(buf) - LORA_GATEWAY_PREFIX,
+                              nid, payload, 2);
+    if (len <= 0) return;
+
+    send(tcp_sock, (const char *)buf, LORA_GATEWAY_PREFIX + len, 0);
+    g_tx_count++;
+    char desc[64];
+    snprintf(desc, sizeof(desc), "TX RSSI response: level %d", rssi);
+    ctx->cb.log_append(ctx->user_data, desc);
+    ctx->cb.log_hex(ctx->user_data, "TX RSSI", buf, LORA_GATEWAY_PREFIX + len);
     ctx->cb.update_stats(ctx->user_data);
 }
 
@@ -118,44 +141,96 @@ static int parse_frame(net_ctx_t *ctx, const uint8_t *data, int len)
     g_rx_count++;
     const uint8_t *payload = data + LORA_FRAME_HEADER_SIZE;
 
+    /* 无载荷或载荷不足 1 字节: 跳过类型解析 */
     if (data_len == 0) {
-        ctx->cb.log_append(ctx->user_data, "RX ACK (empty payload)");
+        ctx->cb.log_append(ctx->user_data, "RX (empty payload, ignored)");
+        ctx->cb.add_history_entry(ctx->user_data, nid, "Empty", NULL, 0);
+        ctx->cb.log_hex(ctx->user_data, "RX", data, total);
+        ctx->cb.update_stats(ctx->user_data);
+        return total;
+    }
+
+    /* Data 首字节为类型标识 */
+    uint8_t type = payload[0];
+    const uint8_t *body = payload + 1;
+    uint16_t body_len = data_len - 1;
+
+    switch (type) {
+
+    case LORA_DATA_ACK:
+        ctx->cb.log_append(ctx->user_data, "RX ACK");
         ctx->cb.add_history_entry(ctx->user_data, nid, "ACK", NULL, 0);
-    } else if (data_len == 8 &&
-               payload[5] == 0xFF && payload[6] == 0xFF && payload[7] == 0xFF) {
-        g_last_x = (int16_t)get_be16(payload);
-        g_last_y = (int16_t)get_be16(payload + 2);
-        g_last_btn = payload[4] & 0x01;
-
-        char desc[128];
-        snprintf(desc, sizeof(desc), "Telemetry: X=%.1f Y=%.1f Btn=%s",
-                 g_last_x / 10.0, g_last_y / 10.0,
-                 g_last_btn ? "Released" : "Pressed");
-        ctx->cb.log_append(ctx->user_data, desc);
-
-        char detail[64];
-        snprintf(detail, sizeof(detail), "X=%.1f Y=%.1f Btn=%d",
-                 g_last_x / 10.0, g_last_y / 10.0, g_last_btn);
-        ctx->cb.add_history_entry(ctx->user_data, nid, "Telemetry",
-                                  (const uint8_t *)detail, (uint16_t)strlen(detail));
-
-        ctx->cb.update_telemetry(ctx->user_data);
-
-        if (g_auto_ack) {
-            send_ack(ctx, nid);
+        if (g_ack_pending) {
+            g_ack_pending = 0;
+            ctx->cb.log_append(ctx->user_data, "  Send confirmed");
         }
-    } else if (data_len >= 2) {
-        uint16_t can_id = get_be16(payload);
-        char desc[256];
-        int off = snprintf(desc, sizeof(desc), "Scanner CAN=0x%03X Data:", can_id);
-        for (int i = 2; i < data_len && off < (int)sizeof(desc) - 4; i++) {
-            off += snprintf(desc + off, sizeof(desc) - off, " %02X", payload[i]);
+        break;
+
+    case LORA_DATA_HANDLER:
+        /* 遥测数据: 只接收方向 (手柄→网关→工具)
+         * 扫描仪数据由工具端发出, 不会在此收到 */
+        if (body_len == 8 &&
+            body[5] == 0xFF && body[6] == 0xFF && body[7] == 0xFF) {
+            g_last_x = (int16_t)get_be16(body);
+            g_last_y = (int16_t)get_be16(body + 2);
+            g_last_btn = body[4] & 0x01;
+
+            char desc[128];
+            snprintf(desc, sizeof(desc), "Telemetry: X=%.1f Y=%.1f Btn=%s",
+                     g_last_x / 10.0, g_last_y / 10.0,
+                     g_last_btn ? "Released" : "Pressed");
+            ctx->cb.log_append(ctx->user_data, desc);
+
+            char detail[64];
+            snprintf(detail, sizeof(detail), "X=%.1f Y=%.1f Btn=%d",
+                     g_last_x / 10.0, g_last_y / 10.0, g_last_btn);
+            ctx->cb.add_history_entry(ctx->user_data, nid, "Telemetry",
+                                      (const uint8_t *)detail, (uint16_t)strlen(detail));
+            ctx->cb.update_telemetry(ctx->user_data);
+        } else {
+            /* 非标准遥测格式: 记录原始数据 */
+            char desc[64];
+            snprintf(desc, sizeof(desc), "RX HANDLER (unexpected %d bytes)", body_len);
+            ctx->cb.log_append(ctx->user_data, desc);
+            ctx->cb.log_hex(ctx->user_data, "RX HANDLER data", body, body_len);
+            ctx->cb.add_history_entry(ctx->user_data, nid, "Handler", body, body_len);
         }
+
+        if (g_auto_ack) send_ack(ctx, nid);
+        break;
+
+    case LORA_DATA_TEST:
+        ctx->cb.log_append(ctx->user_data, "RX TEST");
+        ctx->cb.log_hex(ctx->user_data, "RX TEST data", body, body_len);
+        ctx->cb.add_history_entry(ctx->user_data, nid, "Test", body, body_len);
+        if (g_auto_ack) send_ack(ctx, nid);
+        break;
+
+    case LORA_DATA_RSSI:
+        if (body_len == 0) {
+            /* RSSI 请求: 存 NID, 通过 UDP 查询 AT+NINFO 获取信号强度 */
+            g_pending_rssi_nid = nid;
+            ctx->cb.log_append(ctx->user_data, "RX RSSI request -> querying NINFO");
+            net_cfg_send(ctx, "AT+NINFO?\r\n");
+        } else if (body_len >= 1) {
+            /* RSSI 响应: 对方回复的信号强度 */
+            uint8_t rssi = body[0];
+            if (rssi > 4) rssi = 4;
+            char desc[64];
+            snprintf(desc, sizeof(desc), "RX RSSI: level %d", rssi);
+            ctx->cb.log_append(ctx->user_data, desc);
+            ctx->cb.add_history_entry(ctx->user_data, nid, "RSSI", body, body_len);
+        }
+        break;
+
+    default: {
+        char desc[64];
+        snprintf(desc, sizeof(desc), "RX unknown type 0x%02X", type);
         ctx->cb.log_append(ctx->user_data, desc);
-        ctx->cb.add_history_entry(ctx->user_data, nid, "Scanner", payload, data_len);
-    } else {
         ctx->cb.log_hex(ctx->user_data, "RX Data", data, total);
         ctx->cb.add_history_entry(ctx->user_data, nid, "Data", payload, data_len);
+        break;
+    }
     }
 
     ctx->cb.log_hex(ctx->user_data, "RX", data, total);
