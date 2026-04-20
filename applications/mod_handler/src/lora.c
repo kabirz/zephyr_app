@@ -95,13 +95,17 @@ static K_SEM_DEFINE(at_resp_sem, 0, 1);
 #define LORA_AT_RX_TIMEOUT   100
 
 /* ================================================================
- * 链路检测 — 应用层心跳 + ACK
+ * 链路检测 — RSSI 轮询 + ACK
  * ================================================================ */
-static K_SEM_DEFINE(lora_ack_sem, 0, 1);
+static K_SEM_DEFINE(lora_rssi_sem, 0, 1);
+static K_SEM_DEFINE(lora_data_ack_sem, 0, 1); /* 数据发送 ACK 确认 */
 
-#define LORA_HEART_PERIOD_MS 20000 /* 心跳发送周期 20s */
-#define LORA_ACK_TIMEOUT_MS  1500  /* ACK 等待超时 */
-#define LORA_HEART_FAIL_MAX  3     /* 连续失败判定断连 */
+#define LORA_RSSI_PERIOD_MS  20000 /* RSSI 轮询周期 20s */
+#define LORA_RSSI_TIMEOUT_MS 1500  /* RSSI 响应等待超时 */
+#define LORA_RSSI_FAIL_MAX   3     /* 连续失败判定断连 */
+#define LORA_ACK_WAIT_TIMEOUT_MS 1500 /* 数据 ACK 等待超时 */
+
+static bool lora_ack_wait; /* ACK 确认开关 (默认关闭) */
 
 /* ================================================================
  * HOSTWAKE 管理
@@ -208,7 +212,9 @@ static void lora_rx_disable_sync(void)
 }
 
 /* ================================================================
- * 数据模式发送
+ * 数据模式发送 — 可选 ACK 确认
+ *
+ * 发送完成后, 若 lora_ack_wait 启用且类型非 RSSI, 等待网关 ACK.
  * ================================================================ */
 bool lora_data_send(const uint8_t *data, size_t len)
 {
@@ -240,6 +246,13 @@ bool lora_data_send(const uint8_t *data, size_t len)
 	sys_put_be16(crc, tx_data + offset);
 	offset += LORA_FRAME_CRC_SIZE;
 
+	/* 发送前重置 ACK 信号量 (在 mutex 内, 防止竞态) */
+	bool need_ack = lora_ack_wait && len > 0 && data[0] != LORA_DATA_RSSI && data[0] != LORA_DATA_ACK;
+
+	if (need_ack) {
+		k_sem_reset(&lora_data_ack_sem);
+	}
+
 	/* 等待模块空闲 (HOSTWAKE 低 = 模块未在无线收发) */
 	int retry = 40;
 
@@ -255,33 +268,71 @@ bool lora_data_send(const uint8_t *data, size_t len)
 	int ret = lora_async_tx(tx_data, offset);
 
 	k_mutex_unlock(&lora_tx_mutex);
-	return (ret == 0);
+
+	if (ret != 0) {
+		return false;
+	}
+
+	/* 可选: 等待网关 ACK 确认 (mutex 已释放, 不阻塞其他线程发送) */
+	if (need_ack) {
+		if (k_sem_take(&lora_data_ack_sem, K_MSEC(LORA_ACK_WAIT_TIMEOUT_MS)) != 0) {
+			LOG_WRN("LoRa data ACK timeout");
+			return false;
+		}
+	}
+
+	return true;
 }
 
 /* ================================================================
- * 遥测数据帧打包发送 — 与 CAN 手柄状态帧 (0x1E3) 格式一致
- *
- * 帧格式 (8 字节, 大端序):
- *   [0-1] X 角度 (int16_t BE, 0.1° 单位)
- *   [2-3] Y 角度 (int16_t BE, 0.1° 单位)
- *   [4]   按键 (bit0: btnHandler 反转, 按下=0, 松开=1)
- *   [5-7] reserved (0xFF)
+ * ACK 确认开关
+ * ================================================================ */
+void lora_set_ack_wait(bool enable)
+{
+	lora_ack_wait = enable;
+}
+
+bool lora_get_ack_wait(void)
+{
+	return lora_ack_wait;
+}
+
+/* ================================================================
+ * 遥测数据帧打包发送 — Data: [0x01][X 2B BE][Y 2B BE][btn][0xFF 3B]
  * ================================================================ */
 bool lora_send_telemetry(const gloval_params_t *params)
 {
-	uint8_t frame[8];
+	uint8_t frame[9];
 
-	/* 大端序写入角度 */
-	sys_put_be16((uint16_t)params->x_degree, &frame[0]);
-	sys_put_be16((uint16_t)params->y_degree, &frame[2]);
-
-	/* 按键: btnHandler 反转逻辑 (按下=0, 松开=1) */
-	frame[4] = params->h_button ? 0x00 : 0x01;
-	frame[5] = 0xFF;
+	frame[0] = LORA_DATA_HANDLER;
+	sys_put_be16((uint16_t)params->x_degree, &frame[1]);
+	sys_put_be16((uint16_t)params->y_degree, &frame[3]);
+	frame[5] = params->h_button ? 0x00 : 0x01;
 	frame[6] = 0xFF;
 	frame[7] = 0xFF;
+	frame[8] = 0xFF;
 
 	return lora_data_send(frame, sizeof(frame));
+}
+
+/* ================================================================
+ * RSSI 信号强度请求 — Data: [0x03]
+ * ================================================================ */
+bool lora_send_rssi_request(void)
+{
+	uint8_t type = LORA_DATA_RSSI;
+
+	return lora_data_send(&type, 1);
+}
+
+/* ================================================================
+ * ACK 确认帧 — Data: [0x04]
+ * ================================================================ */
+bool lora_send_ack(void)
+{
+	uint8_t type = LORA_DATA_ACK;
+
+	return lora_data_send(&type, 1);
 }
 
 /* ================================================================
@@ -709,16 +760,21 @@ static bool parse_lora_frame(const uint8_t *data, uint16_t len, const uint8_t **
 	}
 	if (payload_len) {
 		*payload_len = data_len;
+	} else {
+		LOG_ERR("data len is zero");
+		return false;
 	}
 	return true;
 }
 
 /* ================================================================
- * 数据接收处理线程 — 统一帧解析 + 链路检测 + 扫描仪数据分发
+ * 数据接收处理线程 — 统一帧解析 + 类型分发
  *
- * LoRa Data 字段格式: [CAN frame ID 2B BE][CAN data NB]
- * 与 CAN 扫描仪帧 (0x263/0x363/0x463) 数据一致, 复用解析函数.
- * 空载荷 (Data=0) 为心跳 ACK.
+ * Data 字段格式: [Type 1B][Payload NB]
+ *   0x04 ACK:    链路确认, 通知 rssi_sem
+ *   0x03 RSSI:   信号强度响应, 更新显示 + 通知 rssi_sem
+ *   0x02 TEST:   测试数据
+ *   0x01 DATA:   扫描仪数据 (type + CAN frame ID 2B BE + CAN data)
  * ================================================================ */
 static void lora_msg_process_thread(void)
 {
@@ -730,33 +786,68 @@ static void lora_msg_process_thread(void)
 			uint16_t payload_len;
 
 			if (parse_lora_frame(msg.data, msg.len, &payload, &payload_len)) {
-				/* 合法帧 → 链路连通 */
-				if (payload_len == 0) {
-					/* 收到的ack回复 */
-					k_sem_give(&lora_ack_sem);
-				} else if (payload_len >= 2) {
-					/* Data[0-1]: CAN frame ID (BE) */
-					uint16_t frame_id = sys_get_be16(payload);
-					uint16_t data_len = payload_len - 2;
+				uint8_t type = payload[0];
 
-					if (data_len <= sizeof(((struct can_frame *)0)->data)) {
-						struct can_frame frame = {
-							.id = frame_id,
-							.dlc = can_bytes_to_dlc(data_len),
+				switch (type) {
+				case LORA_DATA_ACK:
+					k_sem_give(&lora_data_ack_sem);
+					break;
+
+				case LORA_DATA_RSSI:
+					if (payload_len >= 2) {
+						uint8_t rssi = payload[1];
+
+						if (rssi > 4) {
+							rssi = 4;
+						}
+						if (global_params.rssi != rssi) {
+							global_params.rssi = rssi;
+							mod_display_lora(rssi);
+							LOG_INF("LoRa RSSI level: %d", rssi);
 						};
-
-						memcpy(frame.data, payload + 2, data_len);
-						mod_can_parse_scanner(&frame);
-					} else {
-						LOG_WRN("LoRa RX data too long: %d", data_len);
+						k_sem_give(&lora_rssi_sem);
 					}
-					/* 需要回复ack */
-					// TODO
-				} else {
-					LOG_DBG("LoRa ACK received (empty payload)");
+					break;
+
+				case LORA_DATA_HANDLER:
+					/* 网关下发的扫描仪数据:
+					 * [type 1B][CAN frame ID 2B BE][CAN data NB]
+					 */
+					if (payload_len >= 3) {
+						uint16_t frame_id = sys_get_be16(payload + 1);
+						uint16_t data_len = payload_len - 3;
+
+						if (data_len <=
+						    sizeof(((struct can_frame *)0)->data)) {
+							struct can_frame frame = {
+								.id = frame_id,
+								.dlc = can_bytes_to_dlc(data_len),
+							};
+
+							memcpy(frame.data, payload + 3, data_len);
+							mod_can_parse_scanner(&frame);
+						} else {
+							LOG_WRN("LoRa RX data too long: %d",
+								data_len);
+						}
+						/* 收到扫描仪数据后回复 ACK */
+						lora_send_ack();
+					}
+					break;
+				case LORA_DATA_TEST:
+					/* 收到扫描仪数据后回复 ACK */
+					lora_send_ack();
+					LOG_HEXDUMP_INF(msg.data+1, msg.len-1, "LoRa RX (Test):");
+					break;
+
+				default:
+					/* 收到扫描仪数据后回复 ACK */
+					lora_send_ack();
+					LOG_WRN("Unknown LoRa data type: 0x%02x", type);
+					break;
 				}
-			} else if (strncmp(msg.data, "LoRa Start!", sizeof("LoRa Start!") - 1) ==
-				0) {
+			} else if (strncmp(msg.data, "LoRa Start!",
+					    sizeof("LoRa Start!") - 1) == 0) {
 				LOG_INF("Lora start!");
 			} else {
 				LOG_HEXDUMP_INF(msg.data, msg.len, "LoRa RX (invalid):");
@@ -767,12 +858,12 @@ static void lora_msg_process_thread(void)
 K_THREAD_DEFINE(lora_msg, 1024, lora_msg_process_thread, NULL, NULL, NULL, 12, 0, 0);
 
 /* ================================================================
- * LoRa 心跳线程 — 仅 connect_type == LORA_TYPE 时运行
+ * LoRa RSSI 轮询线程 — 仅 connect_type == LORA_TYPE 时运行
  *
- * 周期发送遥测帧, 等待网关 ACK.
- * 连续 LORA_HEART_FAIL_MAX 次失败判定链路断开.
+ * 周期发送 RSSI 请求帧, 等待网关响应.
+ * 连续 LORA_RSSI_FAIL_MAX 次失败判定链路断开.
  * ================================================================ */
-static void lora_heartbeat_thread(void)
+static void lora_rssi_thread(void)
 {
 	int fail_count = 0;
 
@@ -783,39 +874,43 @@ static void lora_heartbeat_thread(void)
 		}
 		k_event_wait(&global_params.event, LORA_EVENT, false, K_FOREVER);
 
-			/* AT mode: skip heartbeat */
-			if (atomic_get(&lora_current_mode) == LORA_MODE_AT) {
-				k_sleep(K_MSEC(LORA_HEART_PERIOD_MS));
-				continue;
-			}
+		/* AT 模式: 跳过 RSSI 轮询 */
+		if (atomic_get(&lora_current_mode) == LORA_MODE_AT) {
+			k_sleep(K_MSEC(LORA_RSSI_PERIOD_MS));
+			continue;
+		}
 
-			k_sem_reset(&lora_ack_sem);
+		k_sem_reset(&lora_rssi_sem);
 
-		/* 发送遥测帧作为心跳 */
-		bool sent = lora_send_telemetry(&global_params);
+		bool sent = lora_send_rssi_request();
 
 		if (sent) {
-			/* 等待网关 ACK (本心跳或期间事件驱动发送触发的 ACK) */
-			if (k_sem_take(&lora_ack_sem, K_MSEC(LORA_ACK_TIMEOUT_MS)) == 0) {
+			if (k_sem_take(&lora_rssi_sem, K_MSEC(LORA_RSSI_TIMEOUT_MS)) == 0) {
 				if (fail_count > 0) {
 					LOG_INF("LoRa link restored");
 				}
 				fail_count = 0;
 			} else {
 				fail_count++;
-				LOG_WRN("LoRa heartbeat ACK timeout (%d/%d)", fail_count,
-					LORA_HEART_FAIL_MAX);
+				LOG_WRN("LoRa RSSI timeout (%d/%d)", fail_count,
+					LORA_RSSI_FAIL_MAX);
 			}
 		} else {
 			fail_count++;
-			LOG_WRN("LoRa heartbeat send failed (%d/%d)", fail_count,
-				LORA_HEART_FAIL_MAX);
+			LOG_WRN("LoRa RSSI send failed (%d/%d)", fail_count,
+				LORA_RSSI_FAIL_MAX);
 		}
 
-		k_sleep(K_MSEC(LORA_HEART_PERIOD_MS));
+		if (fail_count >= LORA_RSSI_FAIL_MAX) {
+			global_params.rssi = 0;
+			mod_display_lora(0);
+			fail_count = 0;
+		}
+
+		k_sleep(K_MSEC(LORA_RSSI_PERIOD_MS));
 	}
 }
-// K_THREAD_DEFINE(lora_heart, 1024, lora_heartbeat_thread, NULL, NULL, NULL, 12, 0, 0);
+K_THREAD_DEFINE(lora_heart, 1024, lora_rssi_thread, NULL, NULL, NULL, 12, 0, 0);
 
 /* ================================================================
  * 网关 ID 设置 — 独立于通信参数

@@ -15,19 +15,20 @@
 #include <common.h>
 
 /**
- * @brief LoRa 遥测数据帧格式 (8 字节, 与 CAN 0x1E3 一致)
- *
- * Offset  Size  Field
- * 0-1     2     coord_x (int16_t BE, 单位 0.1°)
- * 2-3     2     coord_y (int16_t BE, 单位 0.1°)
- * 4       1     btn flags (bit0: btnHandler 反转, 按下=0, 松开=1)
- * 5-7     3     reserved (0xFF)
+ * @brief LoRa Data 类型字节 (Data 字段首字节)
  */
+enum lora_data_type {
+	LORA_DATA_HANDLER = 0x01, /* 手柄遥测数据 */
+	LORA_DATA_TEST    = 0x02, /* 测试数据 */
+	LORA_DATA_RSSI    = 0x03, /* RSSI 信号强度请求/响应 */
+	LORA_DATA_ACK     = 0x04, /* ACK 确认 */
+};
 
 /**
  * @brief 打包并发送遥测数据帧
  *
- * 将操纵杆角度、按键状态、电量打包为二进制帧通过 LoRa 发送.
+ * 将操纵杆角度、按键状态打包为二进制帧通过 LoRa 发送.
+ * Data 字段: [LORA_DATA_HANDLER][X 2B BE][Y 2B BE][btn][0xFF][0xFF][0xFF]
  *
  * @param params 全局参数
  * @return true 发送成功, false 模块繁忙或模式不匹配
@@ -35,13 +36,52 @@
 bool lora_send_telemetry(const gloval_params_t *params);
 
 /**
+ * @brief 发送 RSSI 信号强度请求帧
+ *
+ * Data 字段: [LORA_DATA_RSSI] (1 字节)
+ * 网关响应类型 LORA_DATA_RSSI + 1 字节 rssi_level (0-4)
+ *
+ * @return true 发送成功, false 模块繁忙或模式不匹配
+ */
+bool lora_send_rssi_request(void);
+
+/**
+ * @brief 发送 ACK 确认帧
+ *
+ * Data 字段: [LORA_DATA_ACK] (1 字节)
+ * 收到扫描仪数据后回复 ACK
+ *
+ * @return true 发送成功, false 模块繁忙或模式不匹配
+ */
+bool lora_send_ack(void);
+
+/**
  * @brief 数据模式下发送透传数据
+ *
+ * 发送完成后若 ACK 确认开关已启用且类型非 RSSI, 等待网关 ACK 响应.
  *
  * @param data 发送数据
  * @param len  数据长度
- * @return true 发送成功, false 模块繁忙或模式不匹配
+ * @return true 发送成功 (ACK 确认通过或未启用), false 发送失败或 ACK 超时
  */
 bool lora_data_send(const uint8_t *data, size_t len);
+
+/**
+ * @brief 设置数据发送 ACK 确认开关
+ *
+ * 启用后, lora_data_send() 在发送非 RSSI 类型数据后等待网关 ACK 响应,
+ * 超时则返回 false. 默认关闭.
+ *
+ * @param enable true 启用 ACK 确认, false 关闭
+ */
+void lora_set_ack_wait(bool enable);
+
+/**
+ * @brief 查询数据发送 ACK 确认开关状态
+ *
+ * @return true 已启用, false 已关闭
+ */
+bool lora_get_ack_wait(void);
 
 /**
  * @brief 进入 AT 指令模式 (+++a 握手)
@@ -136,16 +176,18 @@ int lora_gw_query(struct lora_gw_config *cfg);
 /* ================================================================
  * LoRa 统一帧格式 (收发一致)
  *
- * [NID 4 bytes LE][Length 2 bytes LE][Data Length bytes][CRC16 2 bytes]
+ * [NID 4 bytes BE][Length 2 bytes BE][Data Length bytes][CRC16 2 bytes BE]
  *
- * NID:    uint32_t LE, 节点 ID
- * Length: uint16_t LE, Data 字段长度
- * Data:   变长数据 (遥测帧 8 字节, 心跳 ACK 0 字节等)
+ * NID:    uint32_t BE, 节点 ID
+ * Length: uint16_t BE, Data 字段长度
+ * Data:   [Type 1B][Payload NB] — 首字节为类型 (enum lora_data_type)
  * CRC16:  CRC16-CCITT, 覆盖 NID + Length + Data (CRC 前所有字节)
  *
- * 遥测帧 (手柄→网关): Data = 8 字节 (与 CAN 0x1E3 一致)
- * 心跳 ACK (网关→手柄): Data = 0 字节 (仅 NID + Length(0) + CRC)
- * 网关数据帧 (网关→手柄): Data = 应用层变长数据
+ * 遥测帧 (手柄→网关): Data = [0x01][X 2B BE][Y 2B BE][btn][0xFF 3B] (9B)
+ * RSSI 请求 (手柄→网关): Data = [0x03] (1B)
+ * RSSI 响应 (网关→手柄): Data = [0x03][rssi_level 1B] (2B)
+ * ACK (双向): Data = [0x04] (1B) 或空 Data (兼容旧协议)
+ * 扫描仪数据 (网关→手柄): Data = [0x01/0x02][CAN ID 2B BE][CAN data NB]
  * ================================================================ */
 #define LORA_FRAME_NID_SIZE    4
 #define LORA_FRAME_LEN_SIZE    2
