@@ -1,0 +1,172 @@
+/*
+ * Copyright (c) 2026 Kabirz.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * lora_net.h — LoRa Gateway Network Layer Interface
+ *
+ * TCP data streaming + UDP device configuration + frame protocol.
+ * Decoupled from Win32 GUI via callback registration.
+ */
+
+#ifndef LORA_NET_H
+#define LORA_NET_H
+
+#include <stdint.h>
+#include <stddef.h>
+
+/* ----------------------------------------------------------------
+ * Constants — 与 lora.h 一致
+ * ---------------------------------------------------------------- */
+#define LORA_FRAME_NID_SIZE    4
+#define LORA_FRAME_LEN_SIZE    2
+#define LORA_FRAME_CRC_SIZE    2
+#define LORA_FRAME_HEADER_SIZE (LORA_FRAME_NID_SIZE + LORA_FRAME_LEN_SIZE)
+#define LORA_FRAME_OVERHEAD    (LORA_FRAME_HEADER_SIZE + LORA_FRAME_CRC_SIZE)
+#define LORA_GATEWAY_PREFIX    4   /* 发送时在帧头额外添加的定向 NID */
+
+#define RX_BUF_MAX    4096
+
+/* ----------------------------------------------------------------
+ * 回调结构体 — UI 层填写并传入 net_init()
+ * ---------------------------------------------------------------- */
+typedef struct {
+    /* 数据页回调 */
+    void (*update_stats)(void *ud);
+    void (*update_telemetry)(void *ud);
+    void (*add_history_entry)(void *ud, uint32_t nid, const char *type,
+                              const uint8_t *data, uint16_t data_len);
+    void (*log_append)(void *ud, const char *text);
+    void (*log_hex)(void *ud, const char *prefix,
+                    const uint8_t *data, int len);
+
+    /* 配置页回调 */
+    void (*cfg_log_append)(void *ud, const char *text);
+
+    /* UI 控件更新 — SetWindowText / EnableWindow 等的抽象 */
+    void (*set_nid_text)(void *ud, const char *nid_hex);
+    void (*set_status_text)(void *ud, const char *text);
+    void (*set_connect_enabled)(void *ud, int enabled);
+    void (*set_disconnect_enabled)(void *ud, int enabled);
+    void (*set_cfg_device_mac)(void *ud, const char *text);
+    void (*set_cfg_device_name)(void *ud, const char *text);
+    void (*set_cfg_device_sw)(void *ud, const char *text);
+    void (*set_cfg_ip)(void *ud, const char *text);
+    void (*set_cfg_sm)(void *ud, const char *text);
+    void (*set_cfg_gw)(void *ud, const char *text);
+    void (*set_cfg_gwid)(void *ud, const char *text);
+    void (*set_cfg_csq)(void *ud, const char *text);
+    void (*set_cfg_cmd_edit)(void *ud, const char *text);
+    void (*set_cfg_dhcp)(void *ud, const char *text);
+    void (*set_cfg_ip_edit)(void *ud, const char *text);
+    void (*set_cfg_sm_edit)(void *ud, const char *text);
+    void (*set_cfg_gw_edit)(void *ud, const char *text);
+    void (*set_cfg_option)(void *ud, const char *text);
+    void (*set_cfg_option_edit)(void *ud, const char *text);
+    void (*set_cfg_nwmode)(void *ud, const char *text);
+    void (*set_cfg_ttmode)(void *ud, const char *text);
+    void (*set_cfg_wmode)(void *ud, const char *text);
+    void (*set_cfg_upwid)(void *ud, const char *text);
+    void (*show_error)(void *ud, const char *title, const char *message);
+    void (*update_connection_status)(void *ud);
+} net_callbacks_t;
+
+/* ----------------------------------------------------------------
+ * Types
+ * ---------------------------------------------------------------- */
+
+/* 网络上下文 — 定义在头文件，供 lora_tcp.c / lora_udp.c 访问成员 */
+typedef struct net_ctx {
+    void             *hwnd;       /* HWND: 用于 WSAAsyncSelect / PostMessage */
+    net_callbacks_t   cb;         /* 回调函数表 (拷贝) */
+    void             *user_data;  /* 透传给回调 */
+} net_ctx_t;
+
+/* UDP 工作线程参数 */
+typedef struct {
+    int plen;
+    uint8_t payload[2048];
+    char target_ip[64];
+    void *hwnd;                /* HWND, void* 避免头文件依赖 windows.h */
+} udp_work_t;
+
+/* WM_UDP_RX 消息携带的数据块 */
+typedef struct {
+    char from_ip[64];
+    char data[1];              /* 变长 */
+} udp_rx_msg_t;
+
+/* ----------------------------------------------------------------
+ * 外部全局变量 — lora_net.c 定义，各模块可访问
+ * ---------------------------------------------------------------- */
+
+/* TCP 连接状态 (lora_tcp.c 定义和读写, UI 读) */
+extern int  g_connected;
+
+/* 协议状态 (跨模块共享) */
+extern uint32_t g_nid;
+extern int      g_auto_ack;
+
+/* 计数器 (lora_tcp.c 写, UI 读) */
+extern int g_rx_count;
+extern int g_tx_count;
+extern int g_err_count;
+
+/* 遥测数据 (lora_tcp.c 写, UI 读) */
+extern int16_t  g_last_x;
+extern int16_t  g_last_y;
+extern uint8_t  g_last_btn;
+
+/* UDP 设备信息 (lora_udp.c 读写) */
+extern char g_dev_mac[32];
+extern char g_dev_addr[64];
+extern char g_dev_ip[64];
+extern char g_dev_sm[64];
+extern char g_dev_gw[64];
+extern char g_dev_gwid[32];
+extern char g_dev_name[64];
+extern char g_dev_sw[32];
+
+/* ----------------------------------------------------------------
+ * 生命周期 (lora_net.c)
+ * ---------------------------------------------------------------- */
+
+net_ctx_t *net_init(void *hwnd, const net_callbacks_t *callbacks,
+                    void *user_data);
+void net_cleanup(net_ctx_t *ctx);
+
+/* ----------------------------------------------------------------
+ * TCP 操作 (lora_tcp.c)
+ * ---------------------------------------------------------------- */
+
+void net_connect(net_ctx_t *ctx, const char *ip, int port);
+void net_disconnect(net_ctx_t *ctx);
+void net_process_rx(net_ctx_t *ctx);
+int  net_on_socket_event(net_ctx_t *ctx, int event, int error);
+void net_send_ack(net_ctx_t *ctx, uint32_t nid);
+void net_send_data_frame(net_ctx_t *ctx, uint32_t nid,
+                         const uint8_t *data, uint16_t data_len);
+
+/* ----------------------------------------------------------------
+ * UDP 配置操作 (lora_udp.c)
+ * ---------------------------------------------------------------- */
+
+void net_cfg_search(net_ctx_t *ctx);
+void net_cfg_get_net(net_ctx_t *ctx);
+void net_cfg_send(net_ctx_t *ctx, const char *cmd);
+void net_cfg_quick(net_ctx_t *ctx, const char *cmd);
+void net_on_udp_log(net_ctx_t *ctx, const char *text);
+void net_on_udp_rx(net_ctx_t *ctx, udp_rx_msg_t *msg);
+
+/* ----------------------------------------------------------------
+ * 帧协议辅助 (lora_net.c)
+ * ---------------------------------------------------------------- */
+
+int  net_build_frame(uint8_t *out, size_t out_size, uint32_t nid,
+                     const uint8_t *data, uint16_t data_len);
+
+void     put_be32(uint8_t *buf, uint32_t val);
+void     put_be16(uint8_t *buf, uint16_t val);
+uint32_t get_be32(const uint8_t *buf);
+uint16_t get_be16(const uint8_t *buf);
+
+#endif /* LORA_NET_H */
