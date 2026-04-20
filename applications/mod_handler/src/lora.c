@@ -880,6 +880,7 @@ static void lora_rssi_thread(void)
 			continue;
 		}
 
+		uint32_t t1 = k_uptime_get_32();
 		k_sem_reset(&lora_rssi_sem);
 
 		bool sent = lora_send_rssi_request();
@@ -907,7 +908,9 @@ static void lora_rssi_thread(void)
 			fail_count = 0;
 		}
 
-		k_sleep(K_MSEC(LORA_RSSI_PERIOD_MS));
+		uint32_t diff = k_uptime_get_32() - t1;
+		if (LORA_RSSI_PERIOD_MS - diff > 5)
+			k_sleep(K_MSEC(LORA_RSSI_PERIOD_MS - diff));
 	}
 }
 K_THREAD_DEFINE(lora_heart, 1024, lora_rssi_thread, NULL, NULL, NULL, 12, 0, 0);
@@ -997,10 +1000,12 @@ static int cmd_send(const struct shell *ctx, size_t argc, char **argv)
 		shell_error(ctx, "Usage: lora send <data>");
 		return -EINVAL;
 	}
-
+	uint8_t tx_data[64];
+	tx_data[0] = LORA_DATA_TEST;
 	size_t len = strlen(argv[1]);
+	memcpy(tx_data+1, argv[1], len);
 
-	if (!lora_data_send((const uint8_t *)argv[1], len)) {
+	if (!lora_data_send(tx_data, len+1)) {
 		shell_error(ctx, "LoRa busy or not in data mode");
 		return -EIO;
 	}
