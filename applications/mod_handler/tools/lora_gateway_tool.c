@@ -110,6 +110,18 @@
 #define IDC_CFG_UPWID_ON      1254
 #define IDC_CFG_UPWID_OFF     1255
 
+/* LoRa 通道参数控件 ID */
+#define IDC_CFG_CH_COMBO      1256
+#define IDC_CFG_CH_EDIT       1257
+#define IDC_CFG_CH_SET        1258
+#define IDC_CFG_CH_QUERY      1259
+#define IDC_CFG_SPD_EDIT      1260
+#define IDC_CFG_SPD_SET       1261
+#define IDC_CFG_SPD_QUERY     1262
+#define IDC_CFG_PWR_EDIT      1263
+#define IDC_CFG_PWR_SET       1264
+#define IDC_CFG_PWR_QUERY     1265
+
 /* ================================================================
  * UI 全局状态
  * ================================================================ */
@@ -149,16 +161,17 @@ static HWND g_hCfgOptionCombo, g_hCfgOptionSet, g_hCfgOptionQuery;
 static HWND g_hCfgOptionText;
 
 /* LoRa 协议控件 */
-static HWND g_hCfgNwmodeCombo, g_hCfgNwmodeSet, g_hCfgNwmodeQuery, g_hCfgNwmodeText;
-static HWND g_hCfgTtmodeCombo, g_hCfgTtmodeSet, g_hCfgTtmodeQuery, g_hCfgTtmodeText;
-static HWND g_hCfgWmodeCombo, g_hCfgWmodeSet, g_hCfgWmodeQuery, g_hCfgWmodeText;
+static HWND g_hCfgNwmodeCombo, g_hCfgNwmodeSet, g_hCfgNwmodeQuery;
+static HWND g_hCfgTtmodeCombo, g_hCfgTtmodeSet, g_hCfgTtmodeQuery;
+static HWND g_hCfgWmodeCombo, g_hCfgWmodeSet, g_hCfgWmodeQuery;
 static HWND g_hCfgUpwidText, g_hCfgUpwidQuery, g_hCfgUpwidOn, g_hCfgUpwidOff;
 
-/* 页面控件数组 (用于显示/隐藏) */
-static HWND g_dataPage[64];
-static int g_nDataPage = 0;
-static HWND g_cfgPage[64];
-static int g_nCfgPage = 0;
+/* LoRa 通道参数控件 */
+static HWND g_hCfgChCombo, g_hCfgChEdit, g_hCfgChSet, g_hCfgChQuery;
+static HWND g_hCfgSpdEdit, g_hCfgSpdSet, g_hCfgSpdQuery;
+static HWND g_hCfgPwrEdit, g_hCfgPwrSet, g_hCfgPwrQuery;
+
+/* 页面控件数组 (用于显示/隐藏) — 见 MAX_PAGE_CTLS 定义 */
 
 /* 日志缓冲区 */
 static char g_log_buf[LOG_BUF_MAX];
@@ -429,10 +442,6 @@ static void cb_set_cfg_nwmode(void *ud, const char *text)
     int mode = atoi(text);
     if (mode < 0 || mode > 1) return;
     ComboBox_SetCurSel(g_hCfgNwmodeCombo, mode);
-    const char *names[] = {"透传 (默认)", "组网"};
-    char txt[64];
-    snprintf(txt, sizeof(txt), "NWMODE: %s", names[mode]);
-    SetWindowTextA(g_hCfgNwmodeText, txt);
 }
 
 static void cb_set_cfg_ttmode(void *ud, const char *text)
@@ -441,10 +450,6 @@ static void cb_set_cfg_ttmode(void *ud, const char *text)
     int mode = atoi(text);
     if (mode < 0 || mode > 1) return;
     ComboBox_SetCurSel(g_hCfgTtmodeCombo, mode);
-    const char *names[] = {"广播透传 (默认)", "指定节点"};
-    char txt[64];
-    snprintf(txt, sizeof(txt), "TTMODE: %s", names[mode]);
-    SetWindowTextA(g_hCfgTtmodeText, txt);
 }
 
 static void cb_set_cfg_wmode(void *ud, const char *text)
@@ -453,10 +458,6 @@ static void cb_set_cfg_wmode(void *ud, const char *text)
     int mode = atoi(text);
     if (mode < 0 || mode > 2) return;
     ComboBox_SetCurSel(g_hCfgWmodeCombo, mode);
-    const char *names[] = {"广播透传 (默认)", "指定节点", "主动上报"};
-    char txt[64];
-    snprintf(txt, sizeof(txt), "WMODE: %s", names[mode]);
-    SetWindowTextA(g_hCfgWmodeText, txt);
 }
 
 static void cb_set_cfg_upwid(void *ud, const char *text)
@@ -465,6 +466,30 @@ static void cb_set_cfg_upwid(void *ud, const char *text)
     char txt[64];
     snprintf(txt, sizeof(txt), "UPWID: %s", text);
     SetWindowTextA(g_hCfgUpwidText, txt);
+}
+
+static void cb_set_cfg_ch(void *ud, const char *text)
+{
+    (void)ud;
+    int val = atoi(text);
+    if (val >= 4100 && val <= 5100 && (val % 100) == 0)
+        ComboBox_SetCurSel(g_hCfgChEdit, (val - 4100) / 100);
+}
+
+static void cb_set_cfg_spd(void *ud, const char *text)
+{
+    (void)ud;
+    int val = atoi(text);
+    if (val >= 4 && val <= 11)
+        ComboBox_SetCurSel(g_hCfgSpdEdit, val - 4);
+}
+
+static void cb_set_cfg_pwr(void *ud, const char *text)
+{
+    (void)ud;
+    int val = atoi(text);
+    if (val >= 24 && val <= 30)
+        ComboBox_SetCurSel(g_hCfgPwrEdit, val - 24);
 }
 
 static void cb_show_error(void *ud, const char *title, const char *message)
@@ -521,6 +546,9 @@ static const net_callbacks_t g_callbacks = {
     .set_cfg_ttmode         = cb_set_cfg_ttmode,
     .set_cfg_wmode          = cb_set_cfg_wmode,
     .set_cfg_upwid          = cb_set_cfg_upwid,
+    .set_cfg_ch             = cb_set_cfg_ch,
+    .set_cfg_spd            = cb_set_cfg_spd,
+    .set_cfg_pwr            = cb_set_cfg_pwr,
     .show_error             = cb_show_error,
     .update_connection_status = cb_update_connection_status,
 };
@@ -529,14 +557,23 @@ static const net_callbacks_t g_callbacks = {
  * 页面控件注册
  * ================================================================ */
 
+#define MAX_PAGE_CTLS 128
+
+static HWND g_dataPage[MAX_PAGE_CTLS];
+static int g_nDataPage = 0;
+static HWND g_cfgPage[MAX_PAGE_CTLS];
+static int g_nCfgPage = 0;
+
+/* ... */
+
 static void reg_data(HWND h)
 {
-    if (h && g_nDataPage < 64) g_dataPage[g_nDataPage++] = h;
+    if (h && g_nDataPage < MAX_PAGE_CTLS) g_dataPage[g_nDataPage++] = h;
 }
 
 static void reg_cfg(HWND h)
 {
-    if (h && g_nCfgPage < 64) g_cfgPage[g_nCfgPage++] = h;
+    if (h && g_nCfgPage < MAX_PAGE_CTLS) g_cfgPage[g_nCfgPage++] = h;
 }
 
 static void switch_tab(int idx)
@@ -774,7 +811,7 @@ static void create_config_page(HWND hwnd, RECT *pageRc)
     int cx = PX + 12;
 
     /* ── 1. Device Discovery ── */
-    int dev_h = RH * 3 + 38;
+    int dev_h = RH * 2 + 34;
     reg_cfg(make_groupbox(hwnd, " Device Discovery ", PX, y, PW, dev_h));
 
     int cy = y + 18;
@@ -788,13 +825,11 @@ static void create_config_page(HWND hwnd, RECT *pageRc)
                                           cx + 444, cy, 140, RH));
 
     cy += RH + 4;
-    reg_cfg(g_hCfgMacText = make_static(hwnd, "MAC: --", cx, cy, 260, RH, g_hFont));
-    reg_cfg(g_hCfgDevText = make_static(hwnd, "Device: --", cx + 268, cy, 280, RH, g_hFont));
-    reg_cfg(g_hCfgSwText = make_static(hwnd, "SW: --", cx + 556, cy, 200, RH, g_hFont));
-
-    cy += RH + 4;
-    reg_cfg(g_hCfgGwidText = make_static(hwnd, "GWID: --", cx, cy, 280, RH, g_hFont));
-    reg_cfg(g_hCfgCsqText = make_static(hwnd, "Signal: --", cx + 288, cy, 300, RH, g_hFont));
+    reg_cfg(g_hCfgMacText = make_static(hwnd, "MAC: --", cx, cy, 180, RH, g_hFont));
+    reg_cfg(g_hCfgDevText = make_static(hwnd, "Device: --", cx + 184, cy, 200, RH, g_hFont));
+    reg_cfg(g_hCfgSwText = make_static(hwnd, "SW: --", cx + 388, cy, 180, RH, g_hFont));
+    reg_cfg(g_hCfgGwidText = make_static(hwnd, "GWID: --", cx + 572, cy, 180, RH, g_hFont));
+    reg_cfg(g_hCfgCsqText = make_static(hwnd, "Signal: --", cx + 756, cy, 180, RH, g_hFont));
 
     y += dev_h + GAP;
 
@@ -805,11 +840,11 @@ static void create_config_page(HWND hwnd, RECT *pageRc)
     cy = y + 18;
 
     /* Row 1: DHCP + Option */
-    reg_cfg(make_static(hwnd, "DHCP:", cx, cy + 3, 36, RH, g_hFont));
-    reg_cfg(g_hCfgDhcpText = make_static(hwnd, "--", cx + 40, cy + 3, 70, RH, g_hFontBold));
-    reg_cfg(g_hCfgDhcpQuery = make_button(hwnd, "Query", IDC_CFG_DHCP_QUERY, cx + 116, cy, 55, RH));
-    reg_cfg(g_hCfgDhcpOn = make_button(hwnd, "ON", IDC_CFG_DHCP_ON, cx + 177, cy, 50, RH));
-    reg_cfg(g_hCfgDhcpOff = make_button(hwnd, "OFF", IDC_CFG_DHCP_OFF, cx + 233, cy, 53, RH));
+    reg_cfg(make_static(hwnd, "DHCP:", cx, cy + 3, 44, RH, g_hFont));
+    reg_cfg(g_hCfgDhcpText = make_static(hwnd, "--", cx + 48, cy + 3, 70, RH, g_hFontBold));
+    reg_cfg(g_hCfgDhcpQuery = make_button(hwnd, "Query", IDC_CFG_DHCP_QUERY, cx + 124, cy, 55, RH));
+    reg_cfg(g_hCfgDhcpOn = make_button(hwnd, "ON", IDC_CFG_DHCP_ON, cx + 185, cy, 50, RH));
+    reg_cfg(g_hCfgDhcpOff = make_button(hwnd, "OFF", IDC_CFG_DHCP_OFF, cx + 241, cy, 53, RH));
 
     int rx = cx + PW / 2 + 10;
     reg_cfg(make_static(hwnd, "Mode:", rx, cy + 3, 36, RH, g_hFont));
@@ -835,10 +870,10 @@ static void create_config_page(HWND hwnd, RECT *pageRc)
     reg_cfg(g_hCfgIpSetBtn = make_button(hwnd, "Set", IDC_CFG_IP_SET_BTN, cx + 290, cy, 50, RH));
     reg_cfg(g_hCfgIpQueryBtn = make_button(hwnd, "Query", IDC_CFG_IP_QUERY_BTN, cx + 346, cy, 55, RH));
 
-    reg_cfg(make_static(hwnd, "Mask:", rx, cy + 3, 32, RH, g_hFont));
-    reg_cfg(g_hCfgMaskSetEdit = make_edit(hwnd, "", IDC_CFG_MASK_SET_EDIT, rx + 36, cy, 260, RH));
-    reg_cfg(g_hCfgMaskSetBtn = make_button(hwnd, "Set", IDC_CFG_MASK_SET_BTN, rx + 302, cy, 50, RH));
-    reg_cfg(g_hCfgMaskQueryBtn = make_button(hwnd, "Query", IDC_CFG_MASK_QUERY_BTN, rx + 358, cy, 55, RH));
+    reg_cfg(make_static(hwnd, "Mask:", rx, cy + 3, 40, RH, g_hFont));
+    reg_cfg(g_hCfgMaskSetEdit = make_edit(hwnd, "", IDC_CFG_MASK_SET_EDIT, rx + 44, cy, 250, RH));
+    reg_cfg(g_hCfgMaskSetBtn = make_button(hwnd, "Set", IDC_CFG_MASK_SET_BTN, rx + 300, cy, 50, RH));
+    reg_cfg(g_hCfgMaskQueryBtn = make_button(hwnd, "Query", IDC_CFG_MASK_QUERY_BTN, rx + 356, cy, 55, RH));
 
     cy += RH + 4;
 
@@ -850,61 +885,117 @@ static void create_config_page(HWND hwnd, RECT *pageRc)
 
     y += net_h + GAP;
 
-    /* ── 2.6 LoRa Protocol ── */
-    int lora_h = RH * 2 + 38;
+    /* ── 3. LoRa Protocol ── */
+    int lora_h = RH * 3 + 38;
     reg_cfg(make_groupbox(hwnd, " LoRa Protocol ", PX, y, PW, lora_h));
 
     cy = y + 18;
 
     /* Row 1: NWMODE + TTMODE */
-    reg_cfg(make_static(hwnd, "NWMODE:", cx, cy + 3, 50, RH, g_hFont));
+    reg_cfg(make_static(hwnd, "NWMODE:", cx, cy + 3, 70, RH, g_hFont));
     reg_cfg(g_hCfgNwmodeCombo = CreateWindowA("COMBOBOX", "",
             WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-            cx + 54, cy, 150, 200,
+            cx + 74, cy, 150, 200,
             hwnd, (HMENU)(LONG_PTR)IDC_CFG_NWMODE_COMBO, g_hInst, NULL));
     SendMessage(g_hCfgNwmodeCombo, WM_SETFONT, (WPARAM)g_hFont, TRUE);
     ComboBox_AddString(g_hCfgNwmodeCombo, "透传 (默认)");
     ComboBox_AddString(g_hCfgNwmodeCombo, "组网");
     ComboBox_SetCurSel(g_hCfgNwmodeCombo, 0);
-    reg_cfg(g_hCfgNwmodeSet = make_button(hwnd, "Set", IDC_CFG_NWMODE_SET, cx + 210, cy, 50, RH));
-    reg_cfg(g_hCfgNwmodeQuery = make_button(hwnd, "Query", IDC_CFG_NWMODE_QUERY, cx + 266, cy, 55, RH));
-    reg_cfg(g_hCfgNwmodeText = make_static(hwnd, "NWMODE: --", cx + 330, cy + 3, 220, RH, g_hFont));
+    reg_cfg(g_hCfgNwmodeSet = make_button(hwnd, "Set", IDC_CFG_NWMODE_SET, cx + 230, cy, 55, RH));
+    reg_cfg(g_hCfgNwmodeQuery = make_button(hwnd, "Query", IDC_CFG_NWMODE_QUERY, cx + 291, cy, 60, RH));
 
     rx = cx + PW / 2 + 10;
-    reg_cfg(make_static(hwnd, "TTMODE:", rx, cy + 3, 52, RH, g_hFont));
+    reg_cfg(make_static(hwnd, "TTMODE:", rx, cy + 3, 70, RH, g_hFont));
     reg_cfg(g_hCfgTtmodeCombo = CreateWindowA("COMBOBOX", "",
             WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-            rx + 56, cy, 150, 200,
+            rx + 74, cy, 150, 200,
             hwnd, (HMENU)(LONG_PTR)IDC_CFG_TTMODE_COMBO, g_hInst, NULL));
     SendMessage(g_hCfgTtmodeCombo, WM_SETFONT, (WPARAM)g_hFont, TRUE);
     ComboBox_AddString(g_hCfgTtmodeCombo, "广播透传 (默认)");
     ComboBox_AddString(g_hCfgTtmodeCombo, "指定节点");
     ComboBox_SetCurSel(g_hCfgTtmodeCombo, 0);
-    reg_cfg(g_hCfgTtmodeSet = make_button(hwnd, "Set", IDC_CFG_TTMODE_SET, rx + 212, cy, 50, RH));
-    reg_cfg(g_hCfgTtmodeQuery = make_button(hwnd, "Query", IDC_CFG_TTMODE_QUERY, rx + 268, cy, 55, RH));
-    reg_cfg(g_hCfgTtmodeText = make_static(hwnd, "TTMODE: --", rx + 332, cy + 3, 220, RH, g_hFont));
+    reg_cfg(g_hCfgTtmodeSet = make_button(hwnd, "Set", IDC_CFG_TTMODE_SET, rx + 230, cy, 55, RH));
+    reg_cfg(g_hCfgTtmodeQuery = make_button(hwnd, "Query", IDC_CFG_TTMODE_QUERY, rx + 291, cy, 60, RH));
 
     cy += RH + 4;
 
     /* Row 2: WMODE + UPWID */
-    reg_cfg(make_static(hwnd, "WMODE:", cx, cy + 3, 46, RH, g_hFont));
+    reg_cfg(make_static(hwnd, "WMODE:", cx, cy + 3, 70, RH, g_hFont));
     reg_cfg(g_hCfgWmodeCombo = CreateWindowA("COMBOBOX", "",
             WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-            cx + 50, cy, 150, 200,
+            cx + 74, cy, 150, 200,
             hwnd, (HMENU)(LONG_PTR)IDC_CFG_WMODE_COMBO, g_hInst, NULL));
     SendMessage(g_hCfgWmodeCombo, WM_SETFONT, (WPARAM)g_hFont, TRUE);
     ComboBox_AddString(g_hCfgWmodeCombo, "广播透传 (默认)");
     ComboBox_AddString(g_hCfgWmodeCombo, "指定节点");
     ComboBox_AddString(g_hCfgWmodeCombo, "主动上报");
     ComboBox_SetCurSel(g_hCfgWmodeCombo, 0);
-    reg_cfg(g_hCfgWmodeSet = make_button(hwnd, "Set", IDC_CFG_WMODE_SET, cx + 206, cy, 50, RH));
-    reg_cfg(g_hCfgWmodeQuery = make_button(hwnd, "Query", IDC_CFG_WMODE_QUERY, cx + 262, cy, 55, RH));
-    reg_cfg(g_hCfgWmodeText = make_static(hwnd, "WMODE: --", cx + 326, cy + 3, 220, RH, g_hFont));
+    reg_cfg(g_hCfgWmodeSet = make_button(hwnd, "Set", IDC_CFG_WMODE_SET, cx + 230, cy, 55, RH));
+    reg_cfg(g_hCfgWmodeQuery = make_button(hwnd, "Query", IDC_CFG_WMODE_QUERY, cx + 291, cy, 60, RH));
 
-    reg_cfg(g_hCfgUpwidText = make_static(hwnd, "UPWID: --", rx, cy + 3, 120, RH, g_hFont));
-    reg_cfg(g_hCfgUpwidQuery = make_button(hwnd, "Query", IDC_CFG_UPWID_QUERY, rx + 128, cy, 55, RH));
-    reg_cfg(g_hCfgUpwidOn = make_button(hwnd, "Set ON", IDC_CFG_UPWID_ON, rx + 190, cy, 65, RH));
-    reg_cfg(g_hCfgUpwidOff = make_button(hwnd, "Set OFF", IDC_CFG_UPWID_OFF, rx + 263, cy, 68, RH));
+    reg_cfg(g_hCfgUpwidText = make_static(hwnd, "UPWID: --", rx, cy + 3, 130, RH, g_hFont));
+    reg_cfg(g_hCfgUpwidQuery = make_button(hwnd, "Query", IDC_CFG_UPWID_QUERY, rx + 138, cy, 60, RH));
+    reg_cfg(g_hCfgUpwidOn = make_button(hwnd, "Set ON", IDC_CFG_UPWID_ON, rx + 206, cy, 70, RH));
+    reg_cfg(g_hCfgUpwidOff = make_button(hwnd, "Set OFF", IDC_CFG_UPWID_OFF, rx + 284, cy, 70, RH));
+
+    cy += RH + 4;
+
+    /* Row 3: CH# + CH + SPD + PWR */
+    int ax = cx;
+    reg_cfg(make_static(hwnd, "CH#:", ax, cy + 3, 38, RH, g_hFont));
+    reg_cfg(g_hCfgChCombo = CreateWindowA("COMBOBOX", "",
+            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+            ax + 40, cy, 44, 200,
+            hwnd, (HMENU)(LONG_PTR)IDC_CFG_CH_COMBO, g_hInst, NULL));
+    SendMessage(g_hCfgChCombo, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+    ComboBox_AddString(g_hCfgChCombo, "1");
+    ComboBox_AddString(g_hCfgChCombo, "2");
+    ComboBox_SetCurSel(g_hCfgChCombo, 0);
+
+    ax += 92;
+    reg_cfg(make_static(hwnd, "CH:", ax, cy + 3, 38, RH, g_hFont));
+    reg_cfg(g_hCfgChEdit = CreateWindowA("COMBOBOX", "",
+            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+            ax + 42, cy, 68, 200,
+            hwnd, (HMENU)(LONG_PTR)IDC_CFG_CH_EDIT, g_hInst, NULL));
+    SendMessage(g_hCfgChEdit, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+    for (int i = 4100; i <= 5100; i += 100) {
+        char s[8]; snprintf(s, sizeof(s), "%d", i);
+        ComboBox_AddString(g_hCfgChEdit, s);
+    }
+    ComboBox_SetCurSel(g_hCfgChEdit, 6); /* 默认 4700 */
+    reg_cfg(g_hCfgChSet = make_button(hwnd, "Set", IDC_CFG_CH_SET, ax + 114, cy, 45, RH));
+    reg_cfg(g_hCfgChQuery = make_button(hwnd, "Query", IDC_CFG_CH_QUERY, ax + 163, cy, 50, RH));
+
+    ax += 222;
+    reg_cfg(make_static(hwnd, "SPD:", ax, cy + 3, 38, RH, g_hFont));
+    reg_cfg(g_hCfgSpdEdit = CreateWindowA("COMBOBOX", "",
+            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+            ax + 42, cy, 52, 200,
+            hwnd, (HMENU)(LONG_PTR)IDC_CFG_SPD_EDIT, g_hInst, NULL));
+    SendMessage(g_hCfgSpdEdit, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+    for (int i = 4; i <= 11; i++) {
+        char s[8]; snprintf(s, sizeof(s), "%d", i);
+        ComboBox_AddString(g_hCfgSpdEdit, s);
+    }
+    ComboBox_SetCurSel(g_hCfgSpdEdit, 3); /* 默认 7 */
+    reg_cfg(g_hCfgSpdSet = make_button(hwnd, "Set", IDC_CFG_SPD_SET, ax + 98, cy, 45, RH));
+    reg_cfg(g_hCfgSpdQuery = make_button(hwnd, "Query", IDC_CFG_SPD_QUERY, ax + 147, cy, 50, RH));
+
+    ax += 208;
+    reg_cfg(make_static(hwnd, "PWR:", ax, cy + 3, 38, RH, g_hFont));
+    reg_cfg(g_hCfgPwrEdit = CreateWindowA("COMBOBOX", "",
+            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+            ax + 42, cy, 52, 200,
+            hwnd, (HMENU)(LONG_PTR)IDC_CFG_PWR_EDIT, g_hInst, NULL));
+    SendMessage(g_hCfgPwrEdit, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+    for (int i = 24; i <= 30; i++) {
+        char s[8]; snprintf(s, sizeof(s), "%d", i);
+        ComboBox_AddString(g_hCfgPwrEdit, s);
+    }
+    ComboBox_SetCurSel(g_hCfgPwrEdit, 6); /* 默认 30 */
+    reg_cfg(g_hCfgPwrSet = make_button(hwnd, "Set", IDC_CFG_PWR_SET, ax + 90, cy, 45, RH));
+    reg_cfg(g_hCfgPwrQuery = make_button(hwnd, "Query", IDC_CFG_PWR_QUERY, ax + 139, cy, 50, RH));
 
     y += lora_h + GAP;
 
@@ -915,9 +1006,9 @@ static void create_config_page(HWND hwnd, RECT *pageRc)
     cy = y + 18;
     reg_cfg(make_static(hwnd, "CMD:", cx, cy + 3, 32, RH, g_hFont));
     reg_cfg(g_hCfgCmdEdit = make_edit(hwnd, "AT+VER?\r\n", IDC_CFG_CMD_EDIT,
-                                      cx + 36, cy, PW - 130, RH));
+                                      cx + 36, cy, PW - 140, RH));
     reg_cfg(g_hCfgSendBtn = make_button(hwnd, "Send", IDC_CFG_SEND_BTN,
-                                        cx + PW - 86, cy, 75, RH));
+                                        cx + PW - 96, cy, 60, RH));
 
     y += cmd_h + GAP;
 
@@ -935,20 +1026,19 @@ static void create_config_page(HWND hwnd, RECT *pageRc)
     y += qk_h + GAP;
 
     /* ── 5. Response Log ── */
-    int log_h = pageRc->bottom - y - RH - GAP - 4;
+    int log_h = pageRc->bottom - y - 4;
     if (log_h < 60) log_h = 60;
-    reg_cfg(make_groupbox(hwnd, " Response ", PX, y, PW, log_h + RH + 4));
+    reg_cfg(make_groupbox(hwnd, " Response ", PX, y, PW, log_h));
+
+    reg_cfg(g_hCfgClearBtn = make_button(hwnd, "Clear", IDC_CFG_CLEAR_BTN,
+                                         PX + PW - 80, y + 2, 65, 22));
 
     reg_cfg(g_hCfgLogEdit = CreateWindowA("EDIT", "",
             WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL |
             ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
-            PX + 10, y + 20, PW - 20, log_h,
+            PX + 10, y + 20, PW - 20, log_h - 24,
             hwnd, (HMENU)(LONG_PTR)IDC_CFG_LOG_EDIT, g_hInst, NULL));
     SendMessage(g_hCfgLogEdit, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-
-    cy = y + log_h + RH + 8;
-    reg_cfg(g_hCfgClearBtn = make_button(hwnd, "Clear", IDC_CFG_CLEAR_BTN,
-                                         cx, cy, 65, RH));
 }
 
 /* ================================================================
@@ -1208,6 +1298,59 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg,
         case IDC_CFG_UPWID_OFF:
             net_cfg_send(g_net_ctx, "AT+UPWID=OFF\r\n");
             break;
+
+        /* CH / SPD / PWR — 共享通道号 */
+        case IDC_CFG_CH_SET: {
+            char v[16];
+            GetWindowTextA(g_hCfgChEdit, v, sizeof(v));
+            if (strlen(v) == 0) break;
+            int ch = (int)SendMessage(g_hCfgChCombo, CB_GETCURSEL, 0, 0) + 1;
+            char cmd[64];
+            snprintf(cmd, sizeof(cmd), "AT+CH%d=%s\r\n", ch, v);
+            net_cfg_send(g_net_ctx, cmd);
+            break;
+        }
+        case IDC_CFG_CH_QUERY: {
+            int ch = (int)SendMessage(g_hCfgChCombo, CB_GETCURSEL, 0, 0) + 1;
+            char cmd[32];
+            snprintf(cmd, sizeof(cmd), "AT+CH%d?\r\n", ch);
+            net_cfg_send(g_net_ctx, cmd);
+            break;
+        }
+        case IDC_CFG_SPD_SET: {
+            char v[16];
+            GetWindowTextA(g_hCfgSpdEdit, v, sizeof(v));
+            if (strlen(v) == 0) break;
+            int ch = (int)SendMessage(g_hCfgChCombo, CB_GETCURSEL, 0, 0) + 1;
+            char cmd[64];
+            snprintf(cmd, sizeof(cmd), "AT+SPD%d=%s\r\n", ch, v);
+            net_cfg_send(g_net_ctx, cmd);
+            break;
+        }
+        case IDC_CFG_SPD_QUERY: {
+            int ch = (int)SendMessage(g_hCfgChCombo, CB_GETCURSEL, 0, 0) + 1;
+            char cmd[32];
+            snprintf(cmd, sizeof(cmd), "AT+SPD%d?\r\n", ch);
+            net_cfg_send(g_net_ctx, cmd);
+            break;
+        }
+        case IDC_CFG_PWR_SET: {
+            char v[16];
+            GetWindowTextA(g_hCfgPwrEdit, v, sizeof(v));
+            if (strlen(v) == 0) break;
+            int ch = (int)SendMessage(g_hCfgChCombo, CB_GETCURSEL, 0, 0) + 1;
+            char cmd[64];
+            snprintf(cmd, sizeof(cmd), "AT+PWR%d=%s\r\n", ch, v);
+            net_cfg_send(g_net_ctx, cmd);
+            break;
+        }
+        case IDC_CFG_PWR_QUERY: {
+            int ch = (int)SendMessage(g_hCfgChCombo, CB_GETCURSEL, 0, 0) + 1;
+            char cmd[32];
+            snprintf(cmd, sizeof(cmd), "AT+PWR%d?\r\n", ch);
+            net_cfg_send(g_net_ctx, cmd);
+            break;
+        }
         }
         return 0;
 
@@ -1255,7 +1398,9 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrevInst,
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     wc.lpszClassName = "LoRaGatewayTool";
-    wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    wc.hIcon   = LoadIcon(hInst, MAKEINTRESOURCE(2));
+    wc.hIconSm = (HICON)LoadImage(hInst, MAKEINTRESOURCE(2),
+                                   IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
     RegisterClassExA(&wc);
 
     /* 创建字体 */

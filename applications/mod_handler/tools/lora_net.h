@@ -66,6 +66,9 @@ typedef struct {
     void (*set_cfg_ttmode)(void *ud, const char *text);
     void (*set_cfg_wmode)(void *ud, const char *text);
     void (*set_cfg_upwid)(void *ud, const char *text);
+    void (*set_cfg_ch)(void *ud, const char *text);
+    void (*set_cfg_spd)(void *ud, const char *text);
+    void (*set_cfg_pwr)(void *ud, const char *text);
     void (*show_error)(void *ud, const char *title, const char *message);
     void (*update_connection_status)(void *ud);
 } net_callbacks_t;

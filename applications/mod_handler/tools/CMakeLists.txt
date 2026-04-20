@@ -4,6 +4,7 @@ project(LoRaGatewayTool C)
 set(CMAKE_C_STANDARD 11)
 
 # We use A-suffix Win32 APIs explicitly, no UNICODE needed
+# UTF-8 manifest makes *A APIs accept UTF-8 on Windows 10 1903+
 
 add_executable(lora_gateway_tool WIN32
     lora_gateway_tool.c
@@ -12,6 +13,7 @@ add_executable(lora_gateway_tool WIN32
     lora_udp.c
     crc16.c
     cJSON.c
+    resources/app.rc
 )
 
 target_link_libraries(lora_gateway_tool PRIVATE
@@ -20,12 +22,7 @@ target_link_libraries(lora_gateway_tool PRIVATE
     iphlpapi
 )
 
-# MSVC specific warnings
+# MSVC: /utf-8 for source + exec charset
 if(MSVC)
     target_compile_options(lora_gateway_tool PRIVATE /W3 /utf-8)
-endif()
-
-# MinGW: 源码 UTF-8, 运行时 Win32 A-API 需要 GBK
-if(MINGW)
-    target_compile_options(lora_gateway_tool PRIVATE -finput-charset=UTF-8 -fexec-charset=GBK)
 endif()

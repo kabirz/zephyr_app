@@ -555,6 +555,45 @@ static void udp_process_response(net_ctx_t *ctx,
                             ctx->cb.set_cfg_upwid(ctx->user_data, v);
                     }
                 }
+
+                /* 解析 CH 响应: "+CH<n>:<channel>" */
+                {
+                    const char *p = strstr(val, "+CH");
+                    if (p && p[3] >= '0' && p[3] <= '9') {
+                        const char *colon = strchr(p + 3, ':');
+                        if (colon) {
+                            const char *v = colon + 1;
+                            if (strncmp(v, "OK", 2) != 0)
+                                ctx->cb.set_cfg_ch(ctx->user_data, v);
+                        }
+                    }
+                }
+
+                /* 解析 SPD 响应: "+SPD<n>:<speed>" */
+                {
+                    const char *p = strstr(val, "+SPD");
+                    if (p && p[4] >= '0' && p[4] <= '9') {
+                        const char *colon = strchr(p + 4, ':');
+                        if (colon) {
+                            const char *v = colon + 1;
+                            if (strncmp(v, "OK", 2) != 0)
+                                ctx->cb.set_cfg_spd(ctx->user_data, v);
+                        }
+                    }
+                }
+
+                /* 解析 PWR 响应: "+PWR<n>:<power>" */
+                {
+                    const char *p = strstr(val, "+PWR");
+                    if (p && p[4] >= '0' && p[4] <= '9') {
+                        const char *colon = strchr(p + 4, ':');
+                        if (colon) {
+                            const char *v = colon + 1;
+                            if (strncmp(v, "OK", 2) != 0)
+                                ctx->cb.set_cfg_pwr(ctx->user_data, v);
+                        }
+                    }
+                }
             }
         }
     }
