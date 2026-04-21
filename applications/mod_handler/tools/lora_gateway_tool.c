@@ -35,6 +35,8 @@
 #define WM_SOCKET       (WM_USER + 1)
 #define WM_UDP_LOG      (WM_USER + 2)   /* LPARAM = strdup'd string, 接收后 free() */
 #define WM_UDP_RX       (WM_USER + 3)   /* LPARAM = udp_rx_msg_t*, 接收后 net_on_udp_rx free */
+#define WM_TCP_RX       (WM_USER + 4)   /* LPARAM = tcp_rx_chunk_t*, 接收后 net_on_tcp_rx free */
+#define WM_TCP_CLOSED   (WM_USER + 5)   /* 连接被远端关闭 */
 
 #define CLIENT_W      1100
 #define CLIENT_H      780
@@ -1115,6 +1117,16 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg,
         if (lParam) {
             net_on_udp_rx(g_net_ctx, (udp_rx_msg_t *)lParam);
         }
+        return 0;
+
+    case WM_TCP_RX:
+        if (lParam) {
+            net_on_tcp_rx(g_net_ctx, (tcp_rx_chunk_t *)lParam);
+        }
+        return 0;
+
+    case WM_TCP_CLOSED:
+        net_disconnect(g_net_ctx);
         return 0;
 
     case WM_COMMAND:

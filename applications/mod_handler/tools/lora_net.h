@@ -103,6 +103,12 @@ typedef struct {
     void *hwnd;                /* HWND, void* 避免头文件依赖 windows.h */
 } udp_work_t;
 
+/* TCP 接收线程传递给 UI 线程的数据块 */
+typedef struct {
+    int  len;
+    uint8_t data[1];              /* 变长 */
+} tcp_rx_chunk_t;
+
 /* WM_UDP_RX 消息携带的数据块 */
 typedef struct {
     char from_ip[64];
@@ -157,6 +163,7 @@ void net_cleanup(net_ctx_t *ctx);
 void net_connect(net_ctx_t *ctx, const char *ip, int port);
 void net_disconnect(net_ctx_t *ctx);
 void net_process_rx(net_ctx_t *ctx);
+void net_on_tcp_rx(net_ctx_t *ctx, tcp_rx_chunk_t *chunk);
 int  net_on_socket_event(net_ctx_t *ctx, int event, int error);
 void net_send_ack(net_ctx_t *ctx, uint32_t nid);
 void net_send_data_frame(net_ctx_t *ctx, uint32_t nid,

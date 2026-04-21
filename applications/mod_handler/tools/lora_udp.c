@@ -50,6 +50,19 @@ static int udp_wrap_json(cJSON *root, uint8_t *out, int out_size)
     return total;
 }
 
+/* RSSI 到信号等级转换
+ * 4 (优秀): RSSI ≥ -80
+ * 3 (良好): -90 ≤ RSSI < -80
+ * 2 (一般): -100 ≤ RSSI < -90
+ * 1 (差): RSSI < -100 */
+static uint8_t rssi_to_level(int rssi)
+{
+    if (rssi >= -80) return 4;
+    if (rssi >= -90) return 3;
+    if (rssi >= -100) return 2;
+    return 1;
+}
+
 /* ================================================================
  * UDP 工作线程
  * ================================================================ */
@@ -596,7 +609,9 @@ static void udp_process_response(net_ctx_t *ctx,
                 }
 
                 /* 解析 NINFO 响应: "+NINFO:<info>"
-                 * 格式: 节点信息字符串，包含 RSSI 信号强度
+                 * 格式: 网络id,节点id,?,SNR,RSSI,...
+                 * 示例: "NINFO:001,001DADC0,1,+012,+0,000000F8,00000000,1,2026/04/20-18:28:42,0000000000,000"
+                 * 其中 +012 是 SNR, +0 是 RSSI (实际值可能是 -80 的特殊表示)
                  * 若有 pending RSSI 请求，提取信号值回复 TCP */
                 {
                     const char *p = strstr(val, "+NINFO:");
@@ -605,23 +620,25 @@ static void udp_process_response(net_ctx_t *ctx,
                         ctx->cb.cfg_log_append(ctx->user_data, info);
 
                         if (g_pending_rssi_nid != 0) {
-                            /* 尝试从 NINFO 中提取 RSSI/信号强度
-                             * NINFO 格式示例: "NID:XXXX,RSSI:YY,..."
-                             * 或包含 "RSSI" 字段 */
-                            const char *rssi_p = strstr(info, "RSSI");
-                            uint8_t rssi_level = 0;
-                            if (rssi_p) {
-                                rssi_p += 4;
-                                while (*rssi_p == ':' || *rssi_p == ' ') rssi_p++;
-                                int rssi_val = atoi(rssi_p);
-                                /* 映射到 0-4 等级:
-                                 * 假设 RSSI 范围 -120~-40, 每 20dB 一级 */
-                                if (rssi_val >= -60) rssi_level = 4;
-                                else if (rssi_val >= -80) rssi_level = 3;
-                                else if (rssi_val >= -100) rssi_level = 2;
-                                else if (rssi_val >= -110) rssi_level = 1;
-                                else rssi_level = 0;
+                            /* 按逗号分隔解析，第4字段 SNR，第5字段 RSSI */
+                            char *buf = _strdup(info);
+                            char *token = strtok(buf, ",");
+                            int field_idx = 0;
+                            int rssi_val = -120;
+
+                            while (token) {
+                                field_idx++;
+                                if (field_idx == 4) {
+                                    /* SNR 字段，跳过 */
+                                } else if (field_idx == 5) {
+                                    rssi_val = atoi(token);
+                                    break;
+                                }
+                                token = strtok(NULL, ",");
                             }
+                            free(buf);
+
+                            uint8_t rssi_level = rssi_to_level(rssi_val);
                             net_send_rssi_response(ctx, g_pending_rssi_nid, rssi_level);
                             g_pending_rssi_nid = 0;
                         }

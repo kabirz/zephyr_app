@@ -5,6 +5,7 @@
  * lora_tcp.c — TCP 连接管理 + LoRa 帧收发
  *
  * TCP 连接/断开、数据接收与帧解析、ACK/数据帧发送。
+ * 接收使用独立线程，避免 WSAAsyncSelect FD_READ 的消息丢失问题。
  */
 
 #define WIN32_LEAN_AND_MEAN
@@ -19,12 +20,19 @@
 #include "crc16.h"
 
 /* ================================================================
- * TCP 内部状态 (不暴露到头文件)
+ * TCP 内部状态
  * ================================================================ */
 
 static SOCKET  tcp_sock = INVALID_SOCKET;
+static HANDLE  tcp_recv_thread = NULL;
+static volatile LONG tcp_running = 0;
+
 static uint8_t tcp_rx_buf[RX_BUF_MAX];
 static int     tcp_rx_len = 0;
+
+/* UI 消息 ID — 与 lora_gateway_tool.c 定义一致 */
+#define WM_TCP_RX      (WM_USER + 4)
+#define WM_TCP_CLOSED  (WM_USER + 5)
 
 /* ================================================================
  * 内部帧发送
@@ -95,11 +103,12 @@ void net_send_rssi_response(net_ctx_t *ctx, uint32_t nid, uint8_t rssi)
     snprintf(desc, sizeof(desc), "TX RSSI response: level %d", rssi);
     ctx->cb.log_append(ctx->user_data, desc);
     ctx->cb.log_hex(ctx->user_data, "TX RSSI", buf, LORA_GATEWAY_PREFIX + len);
+    ctx->cb.add_history_entry(ctx->user_data, nid, "TX RSSI", payload, 2);
     ctx->cb.update_stats(ctx->user_data);
 }
 
 /* ================================================================
- * 帧解析
+ * 帧解析 — 在 UI 线程中调用
  * ================================================================ */
 
 static int parse_frame(net_ctx_t *ctx, const uint8_t *data, int len)
@@ -111,6 +120,9 @@ static int parse_frame(net_ctx_t *ctx, const uint8_t *data, int len)
 
     int total = LORA_FRAME_HEADER_SIZE + data_len + LORA_FRAME_CRC_SIZE;
     if (len < total) return 0;
+
+    /* data_len 过大说明帧头数据异常，跳过 1 字节重新同步 */
+    if (total > 2048) return -1;
 
     uint16_t calc_crc = crc16_ccitt(0, data, LORA_FRAME_HEADER_SIZE + data_len);
     uint16_t rx_crc = get_be16(data + LORA_FRAME_HEADER_SIZE + data_len);
@@ -207,20 +219,10 @@ static int parse_frame(net_ctx_t *ctx, const uint8_t *data, int len)
         break;
 
     case LORA_DATA_RSSI:
-        if (body_len == 0) {
-            /* RSSI 请求: 存 NID, 通过 UDP 查询 AT+NINFO 获取信号强度 */
-            g_pending_rssi_nid = nid;
-            ctx->cb.log_append(ctx->user_data, "RX RSSI request -> querying NINFO");
-            net_cfg_send(ctx, "AT+NINFO?\r\n");
-        } else if (body_len >= 1) {
-            /* RSSI 响应: 对方回复的信号强度 */
-            uint8_t rssi = body[0];
-            if (rssi > 4) rssi = 4;
-            char desc[64];
-            snprintf(desc, sizeof(desc), "RX RSSI: level %d", rssi);
-            ctx->cb.log_append(ctx->user_data, desc);
-            ctx->cb.add_history_entry(ctx->user_data, nid, "RSSI", body, body_len);
-        }
+        g_pending_rssi_nid = nid;
+        ctx->cb.log_append(ctx->user_data, "RX RSSI request -> querying NINFO");
+        ctx->cb.add_history_entry(ctx->user_data, nid, "RX RSSI", body, body_len);
+        net_cfg_send(ctx, "AT+NINFO?\r\n");
         break;
 
     default: {
@@ -236,6 +238,40 @@ static int parse_frame(net_ctx_t *ctx, const uint8_t *data, int len)
     ctx->cb.log_hex(ctx->user_data, "RX", data, total);
     ctx->cb.update_stats(ctx->user_data);
     return total;
+}
+
+/* ================================================================
+ * TCP 接收线程 — select + recv 循环，PostMessage 到 UI 线程
+ * ================================================================ */
+
+static DWORD WINAPI tcp_recv_worker(LPVOID param)
+{
+    net_ctx_t *ctx = (net_ctx_t *)param;
+
+    while (InterlockedCompareExchange(&tcp_running, 1, 1)) {
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(tcp_sock, &fds);
+        struct timeval tv = { 1, 0 };
+        int sel = select(0, &fds, NULL, NULL, &tv);
+        if (sel == SOCKET_ERROR) break;
+        if (sel == 0) continue;
+
+        uint8_t buf[2048];
+        int bytes = recv(tcp_sock, (char *)buf, sizeof(buf), 0);
+        if (bytes == 0 || bytes == SOCKET_ERROR) break;
+
+        tcp_rx_chunk_t *chunk = (tcp_rx_chunk_t *)malloc(sizeof(tcp_rx_chunk_t) + bytes);
+        if (!chunk) continue;
+        chunk->len = bytes;
+        memcpy(chunk->data, buf, bytes);
+        PostMessage((HWND)ctx->hwnd, WM_TCP_RX, 0, (LPARAM)chunk);
+    }
+
+    if (InterlockedCompareExchange(&tcp_running, 1, 1)) {
+        PostMessage((HWND)ctx->hwnd, WM_TCP_CLOSED, 0, 0);
+    }
+    return 0;
 }
 
 /* ================================================================
@@ -260,7 +296,7 @@ void net_connect(net_ctx_t *ctx, const char *ip, int port)
     ioctlsocket(tcp_sock, FIONBIO, &mode);
 
     WSAAsyncSelect(tcp_sock, ctx->hwnd, WM_USER + 1,
-                   FD_READ | FD_CLOSE | FD_CONNECT);
+                   FD_CONNECT | FD_CLOSE);
 
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
@@ -280,34 +316,52 @@ void net_connect(net_ctx_t *ctx, const char *ip, int port)
     }
 }
 
-void net_disconnect(net_ctx_t *ctx)
+static void stop_recv_thread(void)
 {
+    if (!tcp_recv_thread) return;
+    InterlockedExchange(&tcp_running, 0);
     if (tcp_sock != INVALID_SOCKET) {
-        WSAAsyncSelect(tcp_sock, ctx->hwnd, 0, 0);
+        /* closesocket 会解除 recv/select 阻塞 */
         closesocket(tcp_sock);
         tcp_sock = INVALID_SOCKET;
     }
+    WaitForSingleObject(tcp_recv_thread, 3000);
+    CloseHandle(tcp_recv_thread);
+    tcp_recv_thread = NULL;
+}
+
+void net_disconnect(net_ctx_t *ctx)
+{
+    stop_recv_thread();
     g_connected = FALSE;
     tcp_rx_len = 0;
     ctx->cb.update_connection_status(ctx->user_data);
     ctx->cb.log_append(ctx->user_data, "Disconnected");
 }
 
-void net_process_rx(net_ctx_t *ctx)
+/* UI 线程处理接收到的数据块 */
+void net_on_tcp_rx(net_ctx_t *ctx, tcp_rx_chunk_t *chunk)
 {
-    char buf[2048];
-    int bytes = recv(tcp_sock, buf, sizeof(buf), 0);
-    if (bytes <= 0) return;
+    if (!chunk) return;
+    int bytes = chunk->len;
+    const uint8_t *data = chunk->data;
 
     if (tcp_rx_len + bytes > RX_BUF_MAX) {
+        ctx->cb.log_append(ctx->user_data, "RX buffer overflow, data dropped");
         tcp_rx_len = 0;
     }
-    memcpy(tcp_rx_buf + tcp_rx_len, buf, bytes);
+    memcpy(tcp_rx_buf + tcp_rx_len, data, bytes);
     tcp_rx_len += bytes;
+    free(chunk);
 
     while (tcp_rx_len >= LORA_FRAME_OVERHEAD) {
         int consumed = parse_frame(ctx, tcp_rx_buf, tcp_rx_len);
         if (consumed == 0) break;
+        if (consumed == -1) {
+            consumed = 1;
+            g_err_count++;
+            ctx->cb.log_append(ctx->user_data, "Invalid frame header, re-syncing");
+        }
         if (consumed > tcp_rx_len) consumed = tcp_rx_len;
         tcp_rx_len -= consumed;
         if (tcp_rx_len > 0) {
@@ -329,15 +383,16 @@ int net_on_socket_event(net_ctx_t *ctx, int event, int error)
             tcp_sock = INVALID_SOCKET;
             g_connected = FALSE;
         } else {
+            /* 连接成功：禁用 WSAAsyncSelect，启动接收线程 */
+            WSAAsyncSelect(tcp_sock, ctx->hwnd, 0, 0);
             g_connected = TRUE;
             tcp_rx_len = 0;
             ctx->cb.log_append(ctx->user_data, "Connected to gateway");
+
+            InterlockedExchange(&tcp_running, 1);
+            tcp_recv_thread = CreateThread(NULL, 0, tcp_recv_worker, ctx, 0, NULL);
         }
         ctx->cb.update_connection_status(ctx->user_data);
-        break;
-
-    case FD_READ:
-        net_process_rx(ctx);
         break;
 
     case FD_CLOSE:
