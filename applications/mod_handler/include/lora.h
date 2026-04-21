@@ -174,19 +174,25 @@ int lora_gw_configure(const struct lora_gw_config *cfg);
 int lora_gw_query(struct lora_gw_config *cfg);
 
 /* ================================================================
- * LoRa 统一帧格式 (收发一致)
+ * LoRa 数据帧格式 (数据模式收发)
  *
- * [NID 4 bytes BE][Length 2 bytes BE][Data Length bytes][CRC16 2 bytes BE]
+ * 完整帧: [0xAA][0x55][NID 4B BE][Length 2B BE][Data NB][CRC16 2B BE][\r\n]
+ *   帧头:   0xAA 0x55
+ *   统一帧: [NID 4 bytes BE][Length 2 bytes BE][Data Length bytes][CRC16 2 bytes BE]
+ *   帧尾:   \r\n
  *
  * NID:    uint32_t BE, 节点 ID
  * Length: uint16_t BE, Data 字段长度
  * Data:   [Type 1B][Payload NB] — 首字节为类型 (enum lora_data_type)
- * CRC16:  CRC16-CCITT, 覆盖 NID + Length + Data (CRC 前所有字节)
+ * CRC16:  CRC16-CCITT, 覆盖 NID + Length + Data (不含帧头帧尾)
+ *
+ * AT 模式: 纯文本收发, 不使用帧头帧尾
+ * 启动消息: "LoRa Start!\r\n" — 无帧头, 特殊处理
  *
  * 遥测帧 (手柄→网关): Data = [0x01][X 2B BE][Y 2B BE][btn][0xFF 3B] (9B)
  * RSSI 请求 (手柄→网关): Data = [0x03] (1B)
  * RSSI 响应 (网关→手柄): Data = [0x03][rssi_level 1B] (2B)
- * ACK (双向): Data = [0x04] (1B) 或空 Data (兼容旧协议)
+ * ACK (双向): Data = [0x04] (1B)
  * 扫描仪数据 (网关→手柄): Data = [0x01/0x02][CAN ID 2B BE][CAN data NB]
  * ================================================================ */
 #define LORA_FRAME_NID_SIZE    4

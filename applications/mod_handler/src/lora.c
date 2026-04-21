@@ -6,8 +6,8 @@
  * 基于 Zephyr UART async API + DMA
  *
  * 双模式设计:
- *   数据模式 (LORA_MODE_DATA): 透传收发, DMA 双缓冲, rx_timeout 判定帧边界
- *   AT 模式   (LORA_MODE_AT):  +++a 握手进入, 一问一答, 同步等待响应
+ *   数据模式 (LORA_MODE_DATA): 透传收发, DMA 双缓冲, 帧格式 [0xAA][0x55][统一帧][\r\n]
+ *   AT 模式   (LORA_MODE_AT):  +++a 握手进入, 一问一答, 同步等待响应 (纯文本)
  */
 
 #include <zephyr/kernel.h>
@@ -219,7 +219,7 @@ static void lora_rx_disable_sync(void)
  * ================================================================ */
 bool lora_data_send(const uint8_t *data, size_t len)
 {
-	uint8_t tx_data[64];
+	uint8_t tx_data[128];
 	int offset = 0;
 
 	if (atomic_get(&lora_current_mode) != LORA_MODE_DATA) {
@@ -228,6 +228,10 @@ bool lora_data_send(const uint8_t *data, size_t len)
 	}
 
 	k_mutex_lock(&lora_tx_mutex, K_FOREVER);
+
+	/* 帧头: 0xAA 0x55 */
+	tx_data[offset++] = 0xAA;
+	tx_data[offset++] = 0x55;
 
 	/* NID (4 bytes BE) */
 	sys_put_be32(global_params.nid, tx_data + offset);
@@ -241,11 +245,15 @@ bool lora_data_send(const uint8_t *data, size_t len)
 	memcpy(tx_data + offset, data, len);
 	offset += len;
 
-	/* CRC16 — 覆盖 NID + Length + Data  (2 bytes BE)*/
-	uint16_t crc = crc16_ccitt(0, tx_data, offset);
+	/* CRC16 — 覆盖 NID + Length + Data (不含帧头帧尾) */
+	uint16_t crc = crc16_ccitt(0, tx_data + 2, offset - 2);
 
 	sys_put_be16(crc, tx_data + offset);
 	offset += LORA_FRAME_CRC_SIZE;
+
+	/* 帧尾: \r\n */
+	tx_data[offset++] = '\r';
+	tx_data[offset++] = '\n';
 
 	/* 发送前重置 ACK 信号量 (在 mutex 内, 防止竞态) */
 	bool need_ack = lora_ack_wait && len > 0 && data[0] != LORA_DATA_RSSI && data[0] != LORA_DATA_ACK;
@@ -719,7 +727,7 @@ int lora_gw_query(struct lora_gw_config *cfg)
 /* ================================================================
  * 统一帧解析 — 验证 NID + Length + CRC16
  *
- * 输入: DMA 接收的原始数据
+ * 输入: 剥离帧头 0xAA 0x55 和帧尾 \r\n 后的统一帧数据
  * 输出: payload 指向 Data 字段, payload_len 为 Data 长度
  * 返回: true 帧合法 (NID 匹配 + CRC 正确)
  * ================================================================ */
@@ -770,11 +778,13 @@ static bool parse_lora_frame(const uint8_t *data, uint16_t len, const uint8_t **
 }
 
 /* ================================================================
- * 数据接收处理线程 — 帧重组 + 统一帧解析 + 类型分发
+ * 数据接收处理线程 — 帧边界检测 + 统一帧解析 + 类型分发
  *
  * DMA 可能将一个完整帧拆分到多个缓冲区, 也可能多个帧合并到一个缓冲区.
- * 本线程使用 asm_buf 累积数据, 根据帧头 Length 字段提取完整帧后交给
- * parse_lora_frame 校验, 再按类型分发处理.
+ * 本线程使用 asm_buf 累积数据, 通过帧头 0xAA 0x55 + 帧尾 \r\n
+ * 检测完整帧边界, 剥离帧头帧尾后交给 parse_lora_frame 校验, 再按类型分发.
+ *
+ * 特殊帧: "LoRa Start!" — 模块启动消息, 无 0xAA 0x55 帧头
  * ================================================================ */
 #define ASM_BUF_SIZE (LORA_BUF_SIZE * 2)
 
@@ -792,7 +802,6 @@ static void lora_msg_process_thread(void)
 		/* 追加到重组缓冲区, 溢出时丢弃旧数据重新开始 */
 		if (asm_len + msg.len > ASM_BUF_SIZE) {
 			LOG_WRN("asm_buf overflow, dropping %d bytes", asm_len);
-			/* 保留新数据, 尝试从中提取帧 */
 			if (msg.len > ASM_BUF_SIZE) {
 				continue;
 			}
@@ -804,103 +813,144 @@ static void lora_msg_process_thread(void)
 		}
 
 		/* 循环提取完整帧 */
-		while (asm_len >= LORA_FRAME_HEADER_SIZE) {
-			/* 读取 Length 字段 (Data 字段长度) */
-			uint16_t data_len = sys_get_be16(asm_buf + LORA_FRAME_NID_SIZE);
-			uint16_t frame_len = LORA_FRAME_HEADER_SIZE + data_len + LORA_FRAME_CRC_SIZE;
-
-			if (frame_len > ASM_BUF_SIZE) {
-				/* 帧长度不合理, 丢弃 1 字节重新同步 */
-				LOG_WRN("frame too large (%d), resync", frame_len);
-				memmove(asm_buf, asm_buf + 1, asm_len - 1);
-				asm_len--;
+		while (asm_len > 0) {
+			/* 特殊处理: "LoRa Start!" 启动消息 (无帧头) */
+			if (asm_len >= 11 &&
+			    memcmp(asm_buf, "LoRa Start!", 11) == 0) {
+				LOG_INF("Lora start!");
+				int skip = 11;
+				/* 跳过可能的 \r\n 后缀 */
+				if (asm_len >= 13 &&
+				    asm_buf[11] == '\r' && asm_buf[12] == '\n') {
+					skip = 13;
+				}
+				asm_len -= skip;
+				if (asm_len > 0) {
+					memmove(asm_buf, asm_buf + skip, asm_len);
+				}
 				continue;
 			}
 
-			if (asm_len < frame_len) {
-				/* 数据不足, 等待更多数据 */
+			/* 查找帧头 0xAA 0x55 */
+			if (asm_buf[0] != 0xAA) {
+				/* 非帧头字节, 丢弃 */
+				asm_len--;
+				if (asm_len > 0) {
+					memmove(asm_buf, asm_buf + 1, asm_len);
+				}
+				continue;
+			}
+
+			/* 仅有 0xAA, 等待下一字节确认 */
+			if (asm_len < 2) {
 				break;
 			}
 
-			/* 完整帧就绪, 解析 */
-			const uint8_t *payload;
-			uint16_t payload_len;
-
-			int advance; /* 本次处理消耗的字节数 */
-
-			if (parse_lora_frame(asm_buf, frame_len, &payload, &payload_len)) {
-				uint8_t type = payload[0];
-
-				switch (type) {
-				case LORA_DATA_ACK:
-					k_sem_give(&lora_data_ack_sem);
-					break;
-
-				case LORA_DATA_RSSI:
-					if (payload_len >= 2) {
-						uint8_t rssi = payload[1];
-
-						if (rssi > 4) {
-							rssi = 4;
-						}
-						if (global_params.rssi != rssi) {
-							global_params.rssi = rssi;
-							mod_display_lora(rssi);
-							LOG_INF("LoRa RSSI level: %d", rssi);
-						}
-						rssi_fail_count = 0;
-						k_sem_give(&lora_rssi_sem);
-					}
-					break;
-
-				case LORA_DATA_HANDLER: {
-					/* 网关下发的扫描仪数据:
-					 * [type 1B][CAN frame ID 2B BE][CAN data NB]
-					 */
-					if (payload_len >= 3) {
-						uint16_t frame_id = sys_get_be16(payload + 1);
-						uint16_t data_len2 = payload_len - 3;
-
-						if (data_len2 <=
-						    sizeof(((struct can_frame *)0)->data)) {
-							struct can_frame frame = {
-								.id = frame_id,
-								.dlc = can_bytes_to_dlc(data_len2),
-							};
-
-							memcpy(frame.data, payload + 3, data_len2);
-							mod_can_parse_scanner(&frame);
-						} else {
-							LOG_WRN("LoRa RX data too long: %d",
-								data_len2);
-						}
-						lora_send_ack();
-					}
-					break;
+			/* 0xAA 后不是 0x55, 丢弃 0xAA 重新查找 */
+			if (asm_buf[1] != 0x55) {
+				asm_len--;
+				if (asm_len > 0) {
+					memmove(asm_buf, asm_buf + 1, asm_len);
 				}
-				case LORA_DATA_TEST:
-					lora_send_ack();
-					LOG_HEXDUMP_INF(asm_buf, frame_len, "LoRa RX (Test):");
-					break;
-
-				default:
-					lora_send_ack();
-					LOG_WRN("Unknown LoRa data type: 0x%02x", type);
-					break;
-				}
-				advance = frame_len;
-			} else if (strncmp((char *)asm_buf, "LoRa Start!",
-					   sizeof("LoRa Start!") - 1) == 0) {
-				LOG_INF("Lora start!");
-				advance = sizeof("LoRa Start!") - 1;
-			} else {
-				/* CRC/NID/长度校验失败: 只前进 1 字节重新同步 */
-				advance = 1;
+				continue;
 			}
 
-			asm_len -= advance;
+			/* 找到帧头, 在后续数据中搜索 \r\n 帧尾 */
+			int tail_pos = -1;
+
+			for (int i = 2; i + 1 < asm_len; i++) {
+				if (asm_buf[i] == 0x0D && asm_buf[i + 1] == 0x0A) {
+					tail_pos = i;
+					break;
+				}
+			}
+
+			if (tail_pos < 0) {
+				/* 未找到帧尾, 等待更多数据 */
+				break;
+			}
+
+			/* 完整帧: [0xAA][0x55][content][\r\n] */
+			uint16_t content_len = tail_pos - 2;
+			uint16_t total_len = tail_pos + 2;
+
+			if (content_len >= LORA_FRAME_OVERHEAD) {
+				const uint8_t *payload;
+				uint16_t payload_len;
+
+				if (parse_lora_frame(asm_buf + 2, content_len,
+						     &payload, &payload_len)) {
+					uint8_t type = payload[0];
+
+					switch (type) {
+					case LORA_DATA_ACK:
+						k_sem_give(&lora_data_ack_sem);
+						break;
+
+					case LORA_DATA_RSSI:
+						if (payload_len >= 2) {
+							uint8_t rssi = payload[1];
+
+							if (rssi > 4) {
+								rssi = 4;
+							}
+							if (global_params.rssi != rssi) {
+								global_params.rssi = rssi;
+								mod_display_lora(rssi);
+								LOG_INF("LoRa RSSI level: %d", rssi);
+							}
+							rssi_fail_count = 0;
+							k_sem_give(&lora_rssi_sem);
+						}
+						break;
+
+					case LORA_DATA_HANDLER: {
+						/* 网关下发的扫描仪数据:
+						 * [type 1B][CAN frame ID 2B BE][CAN data NB]
+						 */
+						if (payload_len >= 3) {
+							uint16_t frame_id = sys_get_be16(payload + 1);
+							uint16_t data_len2 = payload_len - 3;
+
+							if (data_len2 <=
+							    sizeof(((struct can_frame *)0)->data)) {
+								struct can_frame frame = {
+									.id = frame_id,
+									.dlc = can_bytes_to_dlc(data_len2),
+								};
+								memcpy(frame.data, payload + 3,
+								       data_len2);
+								mod_can_parse_scanner(&frame);
+							} else {
+								LOG_WRN("LoRa RX data too long: %d",
+									data_len2);
+							}
+							lora_send_ack();
+						}
+						break;
+					}
+					case LORA_DATA_TEST:
+						lora_send_ack();
+						LOG_HEXDUMP_INF(asm_buf + 2, content_len,
+								"LoRa RX (Test):");
+						break;
+
+					default:
+						lora_send_ack();
+						LOG_WRN("Unknown LoRa data type: 0x%02x", type);
+						break;
+					}
+				} else {
+					LOG_WRN("Frame parse failed (content_len=%d)", content_len);
+				}
+			} else if (content_len > 0) {
+				LOG_WRN("Frame content too short: %d", content_len);
+			}
+
+			/* 前进到下一帧 */
+			asm_len -= total_len;
 			if (asm_len > 0) {
-				memmove(asm_buf, asm_buf + advance, asm_len);
+				memmove(asm_buf, asm_buf + total_len, asm_len);
 			}
 		}
 	}
