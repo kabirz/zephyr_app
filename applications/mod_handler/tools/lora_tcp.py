@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """
-LoRa Gateway TCP Tool — 命令行版
+LoRa Gateway Tool — 命令行版 (TCP + UDP)
 
-连接 USR-LG210-L 网关 TCP 端口，收发/解析 LoRa 数据帧。
-支持遥测数据显示、ACK、手动发送原始帧、RSSI 查询。
+连接 USR-LG210-L 网关，TCP 收发/解析 LoRa 数据帧，UDP 设备发现与配置。
 
-协议: [NID 4B BE][Length 2B BE][Data NB][CRC16-CCITT 2B BE]
-发送时在帧头额外添加 4B 定向 NID (Gateway Prefix)。
+数据帧格式 (TX): [Gateway Prefix 4B][0xAA][0x55][NID 4B BE][Length 2B BE][Data NB][CRC16-CCITT 2B BE][\\r\\n]
+接收格式 (RX):   [0xAA][0x55][NID 4B BE][Length 2B BE][Data NB][CRC16-CCITT 2B BE][\\r\\n]
+UDP 配置协议:    USR1566{JSON}USR1566 (port 1566)
 
 用法:
     python lora_tcp.py <ip> <port> [--nid HEX_NID] [--no-auto-ack]
 """
 
+import json
 import socket
 import struct
 import sys
@@ -27,6 +28,10 @@ FRAME_HEADER_SIZE = FRAME_NID_SIZE + FRAME_LEN_SIZE
 FRAME_OVERHEAD = FRAME_HEADER_SIZE + FRAME_CRC_SIZE
 GATEWAY_PREFIX = 4
 
+# 数据帧封装: [0xAA][0x55][content][\r\n]
+FRAME_HDR = b'\xAA\x55'
+FRAME_FTR = b'\r\n'
+
 # 数据类型
 DATA_HANDLER = 0x01
 DATA_TEST = 0x02
@@ -40,8 +45,12 @@ TYPE_NAMES = {
     DATA_ACK: "ACK",
 }
 
-# ── CRC16-CCITT (与 Zephyr crc16_ccitt 一致) ──
+# UDP 常量
+UDP_PORT = 1566
+UDP_TIMEOUT = 5
 
+
+# ── CRC16-CCITT (与 Zephyr crc16_ccitt 一致) ──
 
 def crc16_ccitt(seed: int, data: bytes) -> int:
     crc = seed
@@ -54,8 +63,8 @@ def crc16_ccitt(seed: int, data: bytes) -> int:
 
 # ── 帧组/解 ──
 
-
 def build_frame(nid: int, payload: bytes = b"") -> bytes:
+    """构建统一帧: [NID 4B][Length 2B][Data][CRC 2B]"""
     nid_b = struct.pack(">I", nid)
     len_b = struct.pack(">H", len(payload))
     header = nid_b + len_b + payload
@@ -64,16 +73,35 @@ def build_frame(nid: int, payload: bytes = b"") -> bytes:
 
 
 def wrap_for_gateway(gateway_nid: int, frame: bytes) -> bytes:
-    return struct.pack(">I", gateway_nid) + frame
+    """TX 封装: [GW Prefix 4B][0xAA][0x55][统一帧][\r\n]"""
+    return struct.pack(">I", gateway_nid) + FRAME_HDR + frame + FRAME_FTR
 
 
 def parse_frames(buf: bytes):
-    """从 buf 中提取所有完整帧，返回 (frames_list, remaining_bytes)"""
+    """从 buf 中通过 0xAA 0x55 + \\r\\n 边界检测提取完整帧
+
+    帧格式: [0xAA][0x55][content][\\r\\n]
+    content 为统一帧: [NID 4B BE][Length 2B BE][Data NB][CRC16 2B BE]
+    """
     frames = []
     pos = 0
-    while len(buf) - pos >= FRAME_OVERHEAD:
-        nid = struct.unpack(">I", buf[pos : pos + 4])[0]
-        data_len = struct.unpack(">H", buf[pos + 4 : pos + 6])[0]
+    while pos + 4 <= len(buf):
+        if buf[pos] != 0xAA or buf[pos + 1] != 0x55:
+            pos += 1
+            continue
+        tail = buf.find(b"\r\n", pos + 2)
+        if tail < 0:
+            break
+
+        content = buf[pos + 2 : tail]
+        frame_end = tail + 2
+
+        if len(content) < FRAME_OVERHEAD:
+            pos += 1
+            continue
+
+        nid = struct.unpack(">I", content[0:4])[0]
+        data_len = struct.unpack(">H", content[4:6])[0]
         total = FRAME_HEADER_SIZE + data_len + FRAME_CRC_SIZE
 
         if total > 2048:
@@ -81,41 +109,40 @@ def parse_frames(buf: bytes):
             print(f"  [WARN] Invalid frame header at offset {pos - 1}, re-syncing")
             continue
 
-        if len(buf) - pos < total:
-            break
+        if len(content) < total:
+            pos += 1
+            continue
 
-        frame_data = buf[pos : pos + total]
-        calc_crc = crc16_ccitt(0, buf[pos : pos + FRAME_HEADER_SIZE + data_len])
+        frame_data = content[:total]
+        calc_crc = crc16_ccitt(0, content[: FRAME_HEADER_SIZE + data_len])
         rx_crc = struct.unpack(
-            ">H", buf[pos + FRAME_HEADER_SIZE + data_len : pos + total]
+            ">H", content[FRAME_HEADER_SIZE + data_len : total]
         )[0]
 
         if calc_crc != rx_crc:
             print(
                 f"  [WARN] CRC error at offset {pos}: calc={calc_crc:04X} rx={rx_crc:04X}"
             )
-            pos += total
+            pos = frame_end
             continue
 
         frames.append(
             {
                 "nid": nid,
                 "data_len": data_len,
-                "payload": buf[
-                    pos + FRAME_HEADER_SIZE : pos + FRAME_HEADER_SIZE + data_len
+                "payload": content[
+                    FRAME_HEADER_SIZE : FRAME_HEADER_SIZE + data_len
                 ],
                 "raw": frame_data,
             }
         )
-        pos += total
+        pos = frame_end
 
     return frames, buf[pos:]
 
 
-# ── 帧内容解析 ──
-
-
 def describe_frame(frame: dict) -> str:
+    """格式化帧描述"""
     nid = frame["nid"]
     payload = frame["payload"]
     plen = frame["data_len"]
@@ -157,56 +184,260 @@ def describe_frame(frame: dict) -> str:
     return f"[{nid:08X}] {type_name} ({plen - 1}B): {body_hex}  RAW: {hex_raw}"
 
 
-# ── 发送辅助 ──
+# ── UDP 辅助 ──
+
+def udp_wrap_json(data: dict) -> bytes:
+    """构建 USR1566{json}USR1566 格式 payload"""
+    json_str = json.dumps(data, separators=(",", ":"))
+    return f"USR1566{json_str}USR1566".encode()
 
 
-def send_ack(sock: socket.socket, gateway_nid: int, nid: int, auto_ack_event=None):
-    ack_payload = bytes([DATA_ACK])
-    frame = build_frame(nid, ack_payload)
-    pkt = wrap_for_gateway(gateway_nid, frame)
-    sock.sendall(pkt)
+def get_local_ips() -> list:
+    """获取本机所有活跃 IPv4 地址"""
+    ips = []
+    try:
+        hostname = socket.gethostname()
+        for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
+            ip = info[4][0]
+            if ip not in ips and not ip.startswith("127."):
+                ips.append(ip)
+    except Exception:
+        pass
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        if ip not in ips:
+            ips.append(ip)
+        s.close()
+    except Exception:
+        pass
+    return ips
+
+
+def rssi_to_level(rssi: int) -> int:
+    """RSSI 值转信号等级 (1-4)"""
+    if rssi >= -80:
+        return 4
+    if rssi >= -90:
+        return 3
+    if rssi >= -100:
+        return 2
+    return 1
+
+
+def udp_send_broadcast(payload: bytes, timeout: float = UDP_TIMEOUT) -> list:
+    """在所有网卡广播 payload，等待响应，返回 [(from_ip, data), ...]"""
+    results = []
+    local_ips = get_local_ips()
+    if not local_ips:
+        print("  [WARN] No active IPv4 interfaces found")
+        return results
+
+    dest = ("255.255.255.255", UDP_PORT)
+    socks = []
+
+    for ip in local_ips:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        try:
+            sock.bind((ip, 0))
+            sock.sendto(payload, dest)
+            print(f"  TX ({ip}) -> broadcast")
+        except Exception as e:
+            print(f"  [WARN] sendto failed on {ip}: {e}")
+            sock.close()
+            continue
+        sock.setblocking(False)
+        socks.append(sock)
+
+    if not socks:
+        print("  [WARN] Failed to send on any interface")
+        return results
+
+    start = time.monotonic()
+    buf = bytearray(4096)
+
+    while time.monotonic() - start < timeout:
+        remaining = timeout - (time.monotonic() - start)
+        if remaining <= 0:
+            break
+        read_fds, _, _ = select.select(socks, [], [], min(remaining, 0.2))
+        for sock in read_fds:
+            try:
+                nbytes, addr = sock.recvfrom_into(buf, len(buf))
+                if nbytes > 0:
+                    results.append((addr[0], bytes(buf[:nbytes])))
+            except Exception:
+                pass
+
+    for sock in socks:
+        sock.close()
+    return results
+
+
+def udp_send_unicast(ip: str, payload: bytes, timeout: float = UDP_TIMEOUT) -> list:
+    """单播到指定 IP，等待响应"""
+    results = []
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.sendto(payload, (ip, UDP_PORT))
+        print(f"  TX -> {ip}")
+    except Exception as e:
+        print(f"  [WARN] sendto {ip} failed: {e}")
+        sock.close()
+        return results
+
+    sock.setblocking(False)
+    start = time.monotonic()
+    buf = bytearray(4096)
+
+    while time.monotonic() - start < timeout:
+        remaining = timeout - (time.monotonic() - start)
+        if remaining <= 0:
+            break
+        read_fds, _, _ = select.select([sock], [], [], min(remaining, 0.2))
+        for _ in read_fds:
+            try:
+                nbytes, addr = sock.recvfrom_into(buf, len(buf))
+                if nbytes > 0:
+                    results.append((addr[0], bytes(buf[:nbytes])))
+            except Exception:
+                pass
+
+    sock.close()
+    return results
+
+
+def udp_send(st, payload: bytes) -> list:
+    """根据设备状态选择单播或广播"""
+    if st.dev_addr:
+        return udp_send_unicast(st.dev_addr, payload)
+    return udp_send_broadcast(payload)
+
+
+def extract_at_value(text: str, prefix: str) -> str:
+    """从 AT 响应中提取 prefix 之后的值"""
+    p = text.find(prefix)
+    if p < 0:
+        return ""
+    p += len(prefix)
+    end = p
+    while end < len(text) and text[end] not in ("\r", "\n", " "):
+        end += 1
+    return text[p:end]
+
+
+# ── 全局状态 ──
+
+class LoRaState:
+    def __init__(self):
+        self.tcp_sock = None
+        self.gateway_nid = 0x00000001
+        self.nid_filter = 0
+        self.auto_ack = True
+        self.connected = False
+        self.stop_event = threading.Event()
+        self.rx_buf = bytearray()
+        self.stats = {"rx": 0, "tx": 0, "tx_ack": 0, "err": 0}
+        self.last_nid = 0
+        self.rssi_level = 4
+        self.pending_rssi_nid = 0
+        self.rssi_lock = threading.Lock()
+        # UDP 设备信息
+        self.dev_mac = ""
+        self.dev_addr = ""  # UDP 源 IP
+        self.dev_ip = ""
+        self.dev_sm = ""
+        self.dev_gw = ""
+        self.dev_gwid = ""
+        self.dev_name = ""
+        self.dev_sw = ""
+
+
+# ── TCP 发送辅助 ──
+
+def tcp_send_frame(st: LoRaState, nid: int, payload: bytes):
+    """TCP 发送: [GW Prefix][0xAA][0x55][统一帧][\r\n]"""
+    if not st.tcp_sock:
+        print("  [ERROR] Not connected")
+        return
+    frame = build_frame(nid, payload)
+    pkt = wrap_for_gateway(st.gateway_nid, frame)
+    try:
+        st.tcp_sock.sendall(pkt)
+    except Exception as e:
+        print(f"  [ERROR] send failed: {e}")
+        st.connected = False
+        return
+    st.stats["tx"] += 1
+
+
+def send_ack_tcp(st: LoRaState, nid: int):
+    tcp_send_frame(st, nid, bytes([DATA_ACK]))
     print(f"  >> TX ACK [{nid:08X}]")
 
 
-def send_data(sock: socket.socket, gateway_nid: int, nid: int, data: bytes):
-    frame = build_frame(nid, data)
-    pkt = wrap_for_gateway(gateway_nid, frame)
-    sock.sendall(pkt)
-    print(f"  >> TX Data [{nid:08X}] {len(data)}B: {data.hex(' ').upper()}")
+def send_rssi_response_tcp(st: LoRaState, nid: int, level: int):
+    tcp_send_frame(st, nid, bytes([DATA_RSSI, level]))
+    print(f"  >> TX RSSI Response [{nid:08X}] level={level}")
 
 
-def send_rssi_request(sock: socket.socket, gateway_nid: int, nid: int):
-    rssi_payload = bytes([DATA_RSSI])
-    frame = build_frame(nid, rssi_payload)
-    pkt = wrap_for_gateway(gateway_nid, frame)
-    sock.sendall(pkt)
-    print(f"  >> TX RSSI Request [{nid:08X}]")
+def query_ninfo_udp(st: LoRaState, nid: int):
+    """UDP 查询 NINFO, 提取 RSSI, 通过 TCP 回复"""
+    mac = st.dev_mac or "D4AD20ED63C4"
+    payload_data = {
+        "VER": "1.0", "MSG": "GETPARA", "TYPE": "AT",
+        "CMD": "AT+NINFO?\r\n",
+        "USER": "admin", "PSW": "admin", "MAC": mac,
+    }
+    payload = udp_wrap_json(payload_data)
+    responses = udp_send(st, payload)
 
-
-# ── 接收线程 ──
-
-
-def recv_thread(
-    sock: socket.socket,
-    auto_ack: bool,
-    gateway_nid: int,
-    stop_event: threading.Event,
-    rssi_level: list,
-):
-    rx_buf = bytearray()
-    stats = {"rx": 0, "tx_ack": 0, "err": 0}
-    last_nid = 0
-
-    while not stop_event.is_set():
+    for from_ip, raw in responses:
+        raw_str = raw.decode("utf-8", errors="replace")
+        start = raw_str.find("{")
+        end = raw_str.rfind("}")
+        if start < 0 or end <= start:
+            continue
         try:
-            ready, _, _ = select.select([sock], [], [], 0.5)
+            root = json.loads(raw_str[start : end + 1])
+        except json.JSONDecodeError:
+            continue
+        cmd_obj = root.get("CMD")
+        if not isinstance(cmd_obj, str):
+            continue
+        # 解析 NINFO: 网络id,节点id,?,SNR,RSSI,...
+        p = cmd_obj.find("+NINFO:")
+        if p < 0:
+            continue
+        info = cmd_obj[p + 7 :]
+        fields = info.split(",")
+        rssi_val = -120
+        if len(fields) >= 5:
+            try:
+                rssi_val = int(fields[4])
+            except ValueError:
+                pass
+        level = rssi_to_level(rssi_val)
+        print(f"  NINFO RSSI={rssi_val} -> level={level}")
+        send_rssi_response_tcp(st, nid, level)
+        return  # 只需一次成功
+
+
+# ── TCP 接收线程 ──
+
+def recv_thread(st: LoRaState):
+    while not st.stop_event.is_set():
+        try:
+            ready, _, _ = select.select([st.tcp_sock], [], [], 0.5)
         except Exception:
             break
         if not ready:
             continue
 
         try:
-            data = sock.recv(4096)
+            data = st.tcp_sock.recv(4096)
         except Exception as e:
             print(f"\n  [ERROR] recv: {e}")
             break
@@ -215,58 +446,305 @@ def recv_thread(
             print("\n  Connection closed by remote")
             break
 
-        rx_buf.extend(data)
-
-        frames, remaining = parse_frames(bytes(rx_buf))
-        rx_buf = bytearray(remaining)
+        st.rx_buf.extend(data)
+        frames, remaining = parse_frames(bytes(st.rx_buf))
+        st.rx_buf = bytearray(remaining)
 
         for frame in frames:
             nid = frame["nid"]
             payload = frame["payload"]
             plen = frame["data_len"]
 
-            last_nid = nid
-            stats["rx"] += 1
+            st.last_nid = nid
+            st.stats["rx"] += 1
 
             ts = time.strftime("%H:%M:%S")
             desc = describe_frame(frame)
-            print(f"  [{ts}] RX #{stats['rx']} {desc}")
+            print(f"  [{ts}] RX #{st.stats['rx']} {desc}")
 
-            if auto_ack and plen > 0 and payload[0] in (DATA_HANDLER, DATA_TEST):
-                send_ack(sock, gateway_nid, nid)
-                stats["tx_ack"] += 1
+            # 空 payload
+            if plen == 0:
+                continue
 
-            if plen > 0 and payload[0] == DATA_RSSI and len(payload) == 1:
-                rssi_resp = bytes([DATA_RSSI, stats.get("rssi_level", 4)])
-                frame = build_frame(nid, rssi_resp)
-                pkt = wrap_for_gateway(gateway_nid, frame)
-                sock.sendall(pkt)
-                print(
-                    f"  >> TX RSSI Response [{nid:08X}] level={stats.get('rssi_level', 4)}"
-                )
+            dtype = payload[0]
 
-    print(
-        f"\n  --- Stats: RX={stats['rx']} TX_ACK={stats['tx_ack']} ERR={stats['err']} ---"
-    )
-    stop_event.set()
+            # RSSI 请求: 查询 NINFO 后回复
+            if dtype == DATA_RSSI and len(payload) == 1:
+                query_ninfo_udp(st, nid)
+                continue
 
+            # 自动 ACK
+            if st.auto_ack and dtype in (DATA_HANDLER, DATA_TEST):
+                send_ack_tcp(st, nid)
+                st.stats["tx_ack"] += 1
 
-# ── 交互命令 ──
+    st.connected = False
+    st.stop_event.set()
 
 
-def print_help():
-    print("""
-Commands:
-  h, help              Show this help
-  s, send HEX...       Send raw data frame (hex bytes, e.g. "s 01 02 FF")
-  a, ack               Send ACK to last NID
-  r, rssi              Send RSSI query to last NID
-  rl [1-4]             Set RSSI level for auto-response (1=Poor 2=Fair 3=Good 4=Excellent)
-  t, telemetry         Send telemetry test frame (X=0 Y=0 Btn=0)
-  n, nid [HEX]         Set/get NID filter (0 = accept all)
-  p, prefix [HEX]      Set/get gateway prefix NID
-  q, quit              Disconnect and exit
-""")
+# ── UDP 配置命令 ──
+
+def cmd_search(st: LoRaState):
+    """搜索设备"""
+    payload = udp_wrap_json({"VER": "1.0", "MSG": "SEARCH", "TYPE": "LORA"})
+    print("  Searching...")
+    responses = udp_send_broadcast(payload)
+
+    if not responses:
+        print("  No response (timeout 5s)")
+        return
+
+    for from_ip, raw in responses:
+        raw_str = raw.decode("utf-8", errors="replace")
+        start = raw_str.find("{")
+        end = raw_str.rfind("}")
+        if start < 0 or end <= start:
+            print(f"  RX <- {from_ip}: (non-JSON)")
+            continue
+        try:
+            root = json.loads(raw_str[start : end + 1])
+        except json.JSONDecodeError:
+            print(f"  RX <- {from_ip}: (parse error)")
+            continue
+
+        msg = root.get("MSG", "")
+        if msg == "ACK-SEARCH":
+            st.dev_addr = from_ip
+            mac = root.get("MAC", "")
+            dev = root.get("DEV", "")
+            sver = root.get("SVER", "")
+            if mac:
+                st.dev_mac = mac
+            if dev:
+                st.dev_name = dev
+            if sver:
+                st.dev_sw = sver
+            print(f"  Device found! IP={from_ip} MAC={mac} DEV={dev} SW={sver}")
+        else:
+            print(f"  RX <- {from_ip}: {json.dumps(root, indent=2)}")
+
+
+def cmd_getnet(st: LoRaState):
+    """获取网络参数"""
+    if not st.dev_mac:
+        print("  [ERROR] Please search devices first")
+        return
+    payload = udp_wrap_json({
+        "VER": "1.0", "MSG": "GETPARA", "TYPE": "JSON", "CMD": "NETDEV",
+        "USER": "admin", "PSW": "admin", "MAC": st.dev_mac,
+    })
+    responses = udp_send(st, payload)
+
+    for from_ip, raw in responses:
+        raw_str = raw.decode("utf-8", errors="replace")
+        start = raw_str.find("{")
+        end = raw_str.rfind("}")
+        if start < 0 or end <= start:
+            continue
+        try:
+            root = json.loads(raw_str[start : end + 1])
+        except json.JSONDecodeError:
+            continue
+
+        msg = root.get("MSG", "")
+        if msg == "ACK-GETPARA":
+            cmd_obj = root.get("CMD")
+            if isinstance(cmd_obj, dict):
+                ip = cmd_obj.get("IP", "")
+                sm = cmd_obj.get("SM", "")
+                gw = cmd_obj.get("GW", "")
+                if ip:
+                    st.dev_ip = ip
+                if sm:
+                    st.dev_sm = sm
+                if gw:
+                    st.dev_gw = gw
+                print(f"  Network: IP={ip} Mask={sm} GW={gw}")
+            else:
+                print(f"  RX <- {json.dumps(root, indent=2)}")
+
+
+def cmd_send_at(st: LoRaState, at_cmd: str):
+    """通过 UDP 发送 AT 指令"""
+    if not at_cmd:
+        print("  [ERROR] Please enter AT command")
+        return
+    mac = st.dev_mac or "D4AD20ED63C4"
+    # 确保 \r\n 结尾
+    if not at_cmd.endswith("\r\n"):
+        at_cmd = at_cmd.rstrip() + "\r\n"
+    payload = udp_wrap_json({
+        "VER": "1.0", "MSG": "GETPARA", "TYPE": "AT", "CMD": at_cmd,
+        "USER": "admin", "PSW": "admin", "MAC": mac,
+    })
+    print(f"  TX AT: {at_cmd.strip()}")
+    responses = udp_send(st, payload)
+
+    for from_ip, raw in responses:
+        raw_str = raw.decode("utf-8", errors="replace")
+        start = raw_str.find("{")
+        end = raw_str.rfind("}")
+        if start < 0 or end <= start:
+            print(f"  RX <- {from_ip}: (non-JSON)")
+            continue
+        try:
+            root = json.loads(raw_str[start : end + 1])
+        except json.JSONDecodeError:
+            continue
+
+        msg = root.get("MSG", "")
+        if msg == "ACK-GETPARA":
+            cmd_obj = root.get("CMD")
+            if isinstance(cmd_obj, str):
+                print(f"  RX <- {cmd_obj.strip()}")
+                _parse_at_response(st, cmd_obj)
+            elif isinstance(cmd_obj, dict):
+                print(f"  RX <- {json.dumps(cmd_obj, indent=2)}")
+        else:
+            print(f"  RX <- {json.dumps(root, indent=2)}")
+
+    if not responses:
+        print("  No response (timeout 5s)")
+
+
+def _parse_at_response(st: LoRaState, val: str):
+    """解析 AT 响应中的各字段"""
+    # GWID
+    p = val.find("GWID:")
+    if p >= 0:
+        v = val[p + 5 :].split("\r")[0].split("\n")[0].split(" ")[0]
+        st.dev_gwid = v
+        print(f"  GWID: {v}")
+
+    # CSQ: +CSQ:<net>,<signal>
+    p = val.find("+CSQ:")
+    if p >= 0:
+        try:
+            parts = val[p + 5 :].split(",")
+            net_val, sig_val = int(parts[0]), int(parts[1])
+            net_str = {2: "2G", 3: "3G", 4: "4G"}.get(net_val, "?")
+            print(f"  Signal: {net_str} ({sig_val})")
+        except (ValueError, IndexError):
+            pass
+
+    # DHCP
+    v = extract_at_value(val, "+DHCP:")
+    if v:
+        print(f"  DHCP: {v}")
+
+    # IP
+    v = extract_at_value(val, "+GWIP:")
+    if v and v != "OK":
+        st.dev_ip = v
+        print(f"  IP: {v}")
+
+    # Mask
+    v = extract_at_value(val, "+MASK:")
+    if v and v != "OK":
+        st.dev_sm = v
+        print(f"  Mask: {v}")
+
+    # GW
+    v = extract_at_value(val, "+GW:")
+    if v and v != "OK":
+        st.dev_gw = v
+        print(f"  GW: {v}")
+
+    # Option
+    v = extract_at_value(val, "+OPTION:")
+    if v and v != "OK":
+        names = ["socket", "serial", "mqtt", "ali_cloud", "usr_cloud"]
+        mode = int(v) if v.isdigit() else -1
+        name = names[mode] if 0 <= mode <= 4 else "?"
+        print(f"  Option: {name} ({v})")
+
+    # NWMODE
+    v = extract_at_value(val, "+NWMODE:")
+    if v and v != "OK":
+        print(f"  NWMODE: {v}")
+
+    # TTMODE
+    v = extract_at_value(val, "+TTMODE:")
+    if v and v != "OK":
+        print(f"  TTMODE: {v}")
+
+    # WMODE
+    v = extract_at_value(val, "+WMODE:")
+    if v and v != "OK":
+        print(f"  WMODE: {v}")
+
+    # UPWID
+    v = extract_at_value(val, "+UPWID:")
+    if v and v != "OK":
+        print(f"  UPWID: {v}")
+
+    # CH<n>
+    p = val.find("+CH")
+    if p >= 0 and p + 3 < len(val) and val[p + 3].isdigit():
+        colon = val.find(":", p + 3)
+        if colon >= 0:
+            v = val[colon + 1 :].split("\r")[0].split("\n")[0].split(" ")[0]
+            if v != "OK":
+                print(f"  CH{val[p + 3]}: {v}")
+
+    # SPD<n>
+    p = val.find("+SPD")
+    if p >= 0 and p + 4 < len(val) and val[p + 4].isdigit():
+        colon = val.find(":", p + 4)
+        if colon >= 0:
+            v = val[colon + 1 :].split("\r")[0].split("\n")[0].split(" ")[0]
+            if v != "OK":
+                print(f"  SPD{val[p + 4]}: {v}")
+
+    # PWR<n>
+    p = val.find("+PWR")
+    if p >= 0 and p + 4 < len(val) and val[p + 4].isdigit():
+        colon = val.find(":", p + 4)
+        if colon >= 0:
+            v = val[colon + 1 :].split("\r")[0].split("\n")[0].split(" ")[0]
+            if v != "OK":
+                print(f"  PWR{val[p + 4]}: {v}")
+
+
+# ── 帮助 ──
+
+HELP_TEXT = """
+TCP Data Commands:
+  connect <ip> <port>       Connect to gateway
+  disconnect                Disconnect
+  send <hex>                Send data frame (hex bytes, e.g. "send 01 02 FF")
+  ack                       Send ACK to last NID
+  rssi                      Send RSSI query to last NID
+  telemetry                 Send telemetry test frame (X=0 Y=0 Btn=0)
+  autoack [on|off]          Toggle auto ACK
+  nid [hex]                 Set/get NID filter (0 = accept all)
+  prefix [hex]              Set/get gateway prefix NID
+
+UDP Config Commands:
+  search                    Search for LoRa gateway devices
+  getnet                    Get network parameters (IP/Mask/GW)
+  at <cmd>                  Send AT command via UDP (e.g. "at AT+VER?")
+  ver                       Query firmware version
+  gwid                      Query gateway ID
+  csq                       Query signal strength
+  dhcp [on|off]             DHCP on/off
+  ip [addr]                 Set/query gateway IP
+  mask [addr]               Set/query subnet mask
+  gw [addr]                 Set/query gateway address
+  option [0-4]              Set/query OPTION (0=socket 1=serial 2=mqtt 3=ali 4=usr)
+  nwmode [0-1]              Set/query NWMODE (0=透传 1=组网)
+  ttmode [0-1]              Set/query TTMODE (0=广播透传 1=指定节点)
+  wmode [0-2]               Set/query WMODE (0=广播透传 1=指定节点 2=主动上报)
+  upwid [on|off]            Set/query UPWID
+  ch <n> [freq]             Set/query channel (n=1-2, freq=4100-5100)
+  spd <n> [val]             Set/query speed (n=1-2, val=4-11)
+  pwr <n> [val]             Set/query power (n=1-2, val=24-30)
+  rl [1-4]                  Set RSSI level for auto-response
+
+General:
+  help                      Show this help
+  quit                      Disconnect and exit
+"""
 
 
 def parse_hex(s: str) -> bytes:
@@ -275,7 +753,6 @@ def parse_hex(s: str) -> bytes:
 
 
 # ── 主程序 ──
-
 
 def main():
     if len(sys.argv) < 3:
@@ -299,33 +776,36 @@ def main():
         else:
             i += 1
 
-    gateway_nid = nid_filter if nid_filter else 0x00000001
-    last_nid = nid_filter
-    rssi_level = [4]  # mutable list so thread can read; default Excellent
+    st = LoRaState()
+    st.nid_filter = nid_filter
+    st.auto_ack = auto_ack
+    st.gateway_nid = nid_filter if nid_filter else 0x00000001
+    st.last_nid = nid_filter
 
     print(f"Connecting to {ip}:{port} ...")
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(5)
+    st.tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    st.tcp_sock.settimeout(5)
     try:
-        sock.connect((ip, port))
+        st.tcp_sock.connect((ip, port))
     except Exception as e:
         print(f"Connect failed: {e}")
         sys.exit(1)
 
-    sock.settimeout(None)
+    st.tcp_sock.settimeout(None)
+    st.connected = True
     print(
-        f"Connected! NID filter={nid_filter:08X} Gateway={gateway_nid:08X} AutoACK={auto_ack}"
+        f"Connected! NID filter={nid_filter:08X} Gateway={st.gateway_nid:08X} "
+        f"AutoACK={st.auto_ack}"
     )
-    print("Type 'h' for help.\n")
+    print("Type 'help' for commands.\n")
 
-    stop_event = threading.Event()
     t = threading.Thread(
-        target=recv_thread, args=(sock, auto_ack, gateway_nid, stop_event), daemon=True
+        target=recv_thread, args=(st,), daemon=True
     )
     t.start()
 
     try:
-        while not stop_event.is_set():
+        while not st.stop_event.is_set():
             try:
                 line = input("").strip()
             except (EOFError, KeyboardInterrupt):
@@ -338,65 +818,212 @@ def main():
             cmd = parts[0].lower()
             arg = parts[1] if len(parts) > 1 else ""
 
+            # ── TCP 命令 ──
             if cmd in ("q", "quit", "exit"):
                 break
+
             elif cmd in ("h", "help"):
-                print_help()
+                print(HELP_TEXT)
+
+            elif cmd == "connect":
+                print("  Already connected. Use 'disconnect' first.")
+
+            elif cmd == "disconnect":
+                st.stop_event.set()
+                try:
+                    st.tcp_sock.close()
+                except Exception:
+                    pass
+                st.connected = False
+                print("  Disconnected")
+
             elif cmd in ("s", "send"):
                 try:
                     data = parse_hex(arg)
-                    target = last_nid or gateway_nid
-                    send_data(sock, gateway_nid, target, data)
+                    target = st.last_nid or st.gateway_nid
+                    tcp_send_frame(st, target, data)
+                    print(f"  >> TX Data [{target:08X}] {len(data)}B: {data.hex(' ').upper()}")
                 except Exception as e:
                     print(f"  Error: {e}")
+
             elif cmd in ("a", "ack"):
-                target = last_nid or gateway_nid
-                ack_payload = bytes([DATA_ACK])
-                frame = build_frame(target, ack_payload)
-                pkt = wrap_for_gateway(gateway_nid, frame)
-                sock.sendall(pkt)
-                print(f"  >> TX ACK [{target:08X}]")
+                target = st.last_nid or st.gateway_nid
+                send_ack_tcp(st, target)
+
             elif cmd in ("r", "rssi"):
-                target = last_nid or gateway_nid
-                send_rssi_request(sock, gateway_nid, target)
+                target = st.last_nid or st.gateway_nid
+                tcp_send_frame(st, target, bytes([DATA_RSSI]))
+                print(f"  >> TX RSSI Request [{target:08X}]")
+
             elif cmd in ("t", "telemetry"):
-                target = last_nid or gateway_nid
-                x = int(0).to_bytes(2, "big", signed=True)
-                y = int(0).to_bytes(2, "big", signed=True)
-                telemetry = (
-                    bytes([DATA_HANDLER]) + x + y + bytes([0x00, 0xFF, 0xFF, 0xFF])
-                )
-                frame = build_frame(target, telemetry)
-                pkt = wrap_for_gateway(gateway_nid, frame)
-                sock.sendall(pkt)
+                target = st.last_nid or st.gateway_nid
+                x = struct.pack(">h", 0)
+                y = struct.pack(">h", 0)
+                telemetry = bytes([DATA_HANDLER]) + x + y + bytes([0x00, 0xFF, 0xFF, 0xFF])
+                tcp_send_frame(st, target, telemetry)
                 print(f"  >> TX Telemetry [{target:08X}]")
+
+            elif cmd == "autoack":
+                if arg.lower() == "off":
+                    st.auto_ack = False
+                elif arg.lower() == "on":
+                    st.auto_ack = True
+                else:
+                    st.auto_ack = not st.auto_ack
+                print(f"  Auto ACK: {'ON' if st.auto_ack else 'OFF'}")
+
             elif cmd in ("n", "nid"):
                 if arg:
                     try:
-                        nid_filter = int(arg, 16)
-                        last_nid = nid_filter
-                        print(f"  NID filter set to {nid_filter:08X}")
+                        st.nid_filter = int(arg, 16)
+                        st.last_nid = st.nid_filter
+                        print(f"  NID filter set to {st.nid_filter:08X}")
                     except ValueError:
                         print("  Invalid hex")
                 else:
-                    print(f"  NID filter: {nid_filter:08X}")
+                    print(f"  NID filter: {st.nid_filter:08X}")
+
             elif cmd in ("p", "prefix"):
                 if arg:
                     try:
-                        gateway_nid = int(arg, 16)
-                        print(f"  Gateway prefix set to {gateway_nid:08X}")
+                        st.gateway_nid = int(arg, 16)
+                        print(f"  Gateway prefix set to {st.gateway_nid:08X}")
                     except ValueError:
                         print("  Invalid hex")
                 else:
-                    print(f"  Gateway prefix: {gateway_nid:08X}")
+                    print(f"  Gateway prefix: {st.gateway_nid:08X}")
+
+            elif cmd == "rl":
+                if arg and arg.isdigit():
+                    st.rssi_level = max(1, min(4, int(arg)))
+                print(f"  RSSI level for auto-response: {st.rssi_level}")
+
+            # ── UDP 命令 ──
+            elif cmd == "search":
+                cmd_search(st)
+
+            elif cmd == "getnet":
+                cmd_getnet(st)
+
+            elif cmd == "at":
+                cmd_send_at(st, arg)
+
+            elif cmd == "ver":
+                cmd_send_at(st, "AT+VER?\r\n")
+
+            elif cmd == "gwid":
+                cmd_send_at(st, "AT+GWID?\r\n")
+
+            elif cmd == "csq":
+                cmd_send_at(st, "AT+CSQ?\r\n")
+
+            elif cmd == "dhcp":
+                if arg.lower() == "on":
+                    cmd_send_at(st, "AT+DHCP=ON\r\n")
+                elif arg.lower() == "off":
+                    cmd_send_at(st, "AT+DHCP=OFF\r\n")
+                else:
+                    cmd_send_at(st, "AT+DHCP?\r\n")
+
+            elif cmd == "ip":
+                if arg:
+                    cmd_send_at(st, f"AT+GWIP={arg}\r\n")
+                else:
+                    cmd_send_at(st, "AT+GWIP?\r\n")
+
+            elif cmd == "mask":
+                if arg:
+                    cmd_send_at(st, f"AT+MASK={arg}\r\n")
+                else:
+                    cmd_send_at(st, "AT+MASK?\r\n")
+
+            elif cmd in ("gateway", "router"):
+                if arg:
+                    cmd_send_at(st, f"AT+GW={arg}\r\n")
+                else:
+                    cmd_send_at(st, "AT+GW?\r\n")
+
+            elif cmd == "option":
+                if arg and arg.isdigit():
+                    cmd_send_at(st, f"AT+OPTION={arg}\r\n")
+                else:
+                    cmd_send_at(st, "AT+OPTION?\r\n")
+
+            elif cmd == "nwmode":
+                if arg and arg.isdigit():
+                    cmd_send_at(st, f"AT+NWMODE={arg}\r\n")
+                else:
+                    cmd_send_at(st, "AT+NWMODE?\r\n")
+
+            elif cmd == "ttmode":
+                if arg and arg.isdigit():
+                    cmd_send_at(st, f"AT+TTMODE={arg}\r\n")
+                else:
+                    cmd_send_at(st, "AT+TTMODE?\r\n")
+
+            elif cmd == "wmode":
+                if arg and arg.isdigit():
+                    cmd_send_at(st, f"AT+WMODE={arg}\r\n")
+                else:
+                    cmd_send_at(st, "AT+WMODE?\r\n")
+
+            elif cmd == "upwid":
+                if arg.lower() == "on":
+                    cmd_send_at(st, "AT+UPWID=ON\r\n")
+                elif arg.lower() == "off":
+                    cmd_send_at(st, "AT+UPWID=OFF\r\n")
+                else:
+                    cmd_send_at(st, "AT+UPWID?\r\n")
+
+            elif cmd == "ch":
+                parts2 = arg.split(None, 1)
+                if len(parts2) >= 1 and parts2[0].isdigit():
+                    n = int(parts2[0])
+                    if len(parts2) >= 2:
+                        cmd_send_at(st, f"AT+CH{n}={parts2[1]}\r\n")
+                    else:
+                        cmd_send_at(st, f"AT+CH{n}?\r\n")
+                else:
+                    print("  Usage: ch <n> [freq]")
+
+            elif cmd == "spd":
+                parts2 = arg.split(None, 1)
+                if len(parts2) >= 1 and parts2[0].isdigit():
+                    n = int(parts2[0])
+                    if len(parts2) >= 2:
+                        cmd_send_at(st, f"AT+SPD{n}={parts2[1]}\r\n")
+                    else:
+                        cmd_send_at(st, f"AT+SPD{n}?\r\n")
+                else:
+                    print("  Usage: spd <n> [val]")
+
+            elif cmd == "pwr":
+                parts2 = arg.split(None, 1)
+                if len(parts2) >= 1 and parts2[0].isdigit():
+                    n = int(parts2[0])
+                    if len(parts2) >= 2:
+                        cmd_send_at(st, f"AT+PWR{n}={parts2[1]}\r\n")
+                    else:
+                        cmd_send_at(st, f"AT+PWR{n}?\r\n")
+                else:
+                    print("  Usage: pwr <n> [val]")
+
             else:
-                print(f"  Unknown command: {cmd}. Type 'h' for help.")
+                print(f"  Unknown command: {cmd}. Type 'help' for commands.")
+
     except Exception:
         pass
 
-    stop_event.set()
-    sock.close()
+    st.stop_event.set()
+    try:
+        st.tcp_sock.close()
+    except Exception:
+        pass
     t.join(timeout=2)
+    print(
+        f"\n  Stats: RX={st.stats['rx']} TX={st.stats['tx']} "
+        f"TX_ACK={st.stats['tx_ack']} ERR={st.stats['err']}"
+    )
     print("Disconnected.")
 
 
