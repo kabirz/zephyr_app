@@ -31,6 +31,10 @@ import time
 import select
 import json
 import argparse
+try:
+    import readline  # noqa: F401 — 启用上下键历史 + 行编辑
+except ImportError:
+    pass
 
 # ── 帧协议常量 ──
 FRAME_NID_SIZE = 4
@@ -410,15 +414,16 @@ class GatewayUDPServer:
         if msg == "SEARCH":
             return self._handle_search(root)
 
-        if msg == "GETPARA":
+        if msg in ("GETPARA", "SETPARA"):
             cmd_type = root.get("TYPE", "")
+            ack_msg = "ACK-GETPARA" if msg == "GETPARA" else "ACK-SETPARA"
             if cmd_type == "JSON":
                 cmd_val = root.get("CMD", "")
                 if cmd_val == "NETDEV":
-                    return self._handle_getnet(root)
+                    return self._handle_getnet(root, ack_msg)
             elif cmd_type == "AT":
                 at_cmd = root.get("CMD", "")
-                return self._handle_at(root, at_cmd)
+                return self._handle_at(root, at_cmd, ack_msg)
 
         return None
 
@@ -432,10 +437,10 @@ class GatewayUDPServer:
             "TYPE": "LORA",
         })
 
-    def _handle_getnet(self, req: dict) -> bytes:
+    def _handle_getnet(self, req: dict, ack_msg: str = "ACK-GETPARA") -> bytes:
         return udp_wrap({
             "VER": "1.0",
-            "MSG": "ACK-GETPARA",
+            "MSG": ack_msg,
             "CMD": {
                 "IP": self.cfg.ip,
                 "SM": self.cfg.mask,
@@ -443,12 +448,12 @@ class GatewayUDPServer:
             },
         })
 
-    def _handle_at(self, req: dict, at_cmd: str) -> bytes:
+    def _handle_at(self, req: dict, at_cmd: str, ack_msg: str = "ACK-GETPARA") -> bytes:
         at_cmd = at_cmd.strip()
         resp = self._simulate_at(at_cmd)
         return udp_wrap({
             "VER": "1.0",
-            "MSG": "ACK-GETPARA",
+            "MSG": ack_msg,
             "CMD": resp,
         })
 
@@ -653,7 +658,7 @@ def main():
     try:
         while True:
             try:
-                line = input("").strip()
+                line = input("sim> ").strip()
             except (EOFError, KeyboardInterrupt):
                 break
             if not line:

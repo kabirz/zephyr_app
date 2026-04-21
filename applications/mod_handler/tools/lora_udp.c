@@ -5,6 +5,7 @@
  * lora_udp.c — UDP 设备发现与 LoRa 模块配置
  *
  * USR-LG210-L 网关 UDP 广播发现、网络参数获取、AT 指令透传。
+ * 查询指令 (?) 用 GETPARA, 设置指令 (=) 用 SETPARA。
  * 使用独立线程 + 阻塞 socket + 5s 超时，与 Python 脚本一致。
  */
 
@@ -215,7 +216,7 @@ static DWORD WINAPI udp_worker(LPVOID param)
         return 0;
     }
 
-    /* --- select 多路接收，总超时 5 秒 --- */
+    /* --- select 多路接收，总超时 5 秒，收到响应后立即退出 --- */
     DWORD start = GetTickCount();
     char buf[2048];
 
@@ -255,6 +256,7 @@ static DWORD WINAPI udp_worker(LPVOID param)
                     }
                 }
             }
+            if (got_response) break;
         }
     }
 
@@ -299,7 +301,7 @@ static void udp_send_unicast(HWND hwnd, const char *ip,
     CloseHandle(CreateThread(NULL, 0, udp_worker, work, 0, NULL));
 }
 
-/* 发送 AT 指令 (GETPARA, TYPE=AT) */
+/* 发送 AT 指令 (查询用 GETPARA, 设置用 SETPARA) */
 static void udp_send_at_cmd(net_ctx_t *ctx, const char *cmd)
 {
     /* 确保 \r\n 结尾 */
@@ -311,11 +313,22 @@ static void udp_send_at_cmd(net_ctx_t *ctx, const char *cmd)
         snprintf(full_cmd, sizeof(full_cmd), "%s\r\n", cmd);
     }
 
+    /* 查询 (? 结尾) 用 GETPARA, 设置 (=) 或其他用 SETPARA */
+    const char *msg_type = "GETPARA";
+    {
+        size_t flen = strlen(full_cmd);
+        /* 去除尾部 \r\n 后判断 */
+        while (flen > 0 && (full_cmd[flen - 1] == '\r' || full_cmd[flen - 1] == '\n'))
+            flen--;
+        if (flen > 0 && full_cmd[flen - 1] != '?')
+            msg_type = "SETPARA";
+    }
+
     const char *mac = strlen(g_dev_mac) > 0 ? g_dev_mac : "D4AD20ED63C4";
 
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "VER", "1.0");
-    cJSON_AddStringToObject(root, "MSG", "GETPARA");
+    cJSON_AddStringToObject(root, "MSG", msg_type);
     cJSON_AddStringToObject(root, "TYPE", "AT");
     cJSON_AddStringToObject(root, "CMD", full_cmd);
     cJSON_AddStringToObject(root, "USER", "admin");
@@ -407,8 +420,8 @@ static void udp_process_response(net_ctx_t *ctx,
         ctx->cb.cfg_log_append(ctx->user_data, "Device found!");
     }
 
-    /* ACK-GETPARA + CMD=NETDEV: 网络参数响应 */
-    if (strcmp(msg, "ACK-GETPARA") == 0) {
+    /* ACK-GETPARA / ACK-SETPARA + CMD=NETDEV: 网络参数响应 */
+    if (strcmp(msg, "ACK-GETPARA") == 0 || strcmp(msg, "ACK-SETPARA") == 0) {
         cJSON *cmd_obj = cJSON_GetObjectItemCaseSensitive(root, "CMD");
         if (cmd_obj && cJSON_IsObject(cmd_obj)) {
             cJSON *ip = cJSON_GetObjectItemCaseSensitive(cmd_obj, "IP");

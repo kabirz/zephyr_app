@@ -10,6 +10,7 @@ UDP 配置协议:    USR1566{JSON}USR1566 (port 1566)
 
 用法:
     python lora_tcp.py <ip> <port> [--nid HEX_NID] [--no-auto-ack]
+    python lora_tcp.py --no-connect [--nid HEX_NID]  (启动不自动连接)
 """
 
 import json
@@ -19,6 +20,10 @@ import sys
 import threading
 import time
 import select
+try:
+    import readline  # noqa: F401 — 启用上下键历史 + 行编辑
+except ImportError:
+    pass
 
 # ── 帧协议常量 ──
 FRAME_NID_SIZE = 4
@@ -270,6 +275,8 @@ def udp_send_broadcast(payload: bytes, timeout: float = UDP_TIMEOUT) -> list:
                     results.append((addr[0], bytes(buf[:nbytes])))
             except Exception:
                 pass
+        if results:
+            break
 
     for sock in socks:
         sock.close()
@@ -304,6 +311,8 @@ def udp_send_unicast(ip: str, payload: bytes, timeout: float = UDP_TIMEOUT) -> l
                     results.append((addr[0], bytes(buf[:nbytes])))
             except Exception:
                 pass
+        if results:
+            break
 
     sock.close()
     return results
@@ -337,13 +346,24 @@ class LoRaState:
         self.nid_filter = 0
         self.auto_ack = True
         self.connected = False
-        self.stop_event = threading.Event()
+        self.quit_event = threading.Event()       # 整个程序退出
+        self.disconnected = threading.Event()      # TCP 断连信号 (recv_thread 设置)
+        self.disconnected.set()                    # 初始为"已断开"
+        self.recv_thread = None
         self.rx_buf = bytearray()
         self.stats = {"rx": 0, "tx": 0, "tx_ack": 0, "err": 0}
         self.last_nid = 0
         self.rssi_level = 4
         self.pending_rssi_nid = 0
         self.rssi_lock = threading.Lock()
+        # 自动重连
+        self.auto_reconnect = True
+        self.reconnect_interval = 3               # 秒
+        self.reconnect_max = 0                    # 0 = 无限重试
+        self.last_ip = ""
+        self.last_port = 0
+        self.manual_disconnect = False            # 用户主动断开时阻止自动重连
+        self.reconnect_thread = None
         # UDP 设备信息
         self.dev_mac = ""
         self.dev_addr = ""  # UDP 源 IP
@@ -355,11 +375,73 @@ class LoRaState:
         self.dev_sw = ""
 
 
+# ── TCP 连接管理 ──
+
+def tcp_connect(st: LoRaState, ip: str, port: int):
+    """建立 TCP 连接，启动接收线程"""
+    if st.connected:
+        print("  Already connected. Use 'disconnect' first.")
+        return False
+
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect((ip, port))
+        sock.settimeout(None)
+    except Exception as e:
+        print(f"  Connect failed: {e}")
+        return False
+
+    st.tcp_sock = sock
+    st.connected = True
+    st.rx_buf = bytearray()
+    st.disconnected.clear()
+    st.manual_disconnect = False
+    st.last_ip = ip
+    st.last_port = port
+
+    st.recv_thread = threading.Thread(
+        target=recv_thread, args=(st,), daemon=True
+    )
+    st.recv_thread.start()
+
+    print(f"  Connected to {ip}:{port}")
+    print(
+        f"  NID filter={st.nid_filter:08X} Gateway={st.gateway_nid:08X} "
+        f"AutoACK={st.auto_ack}"
+    )
+    return True
+
+
+def tcp_disconnect(st: LoRaState):
+    """用户主动断开 TCP 连接"""
+    if not st.connected and st.tcp_sock is None:
+        print("  Not connected")
+        return
+
+    st.manual_disconnect = True
+    st.connected = False
+    if st.tcp_sock:
+        try:
+            st.tcp_sock.close()
+        except Exception:
+            pass
+        st.tcp_sock = None
+
+    # 等待接收线程结束
+    if st.recv_thread and st.recv_thread.is_alive():
+        st.recv_thread.join(timeout=2)
+    st.recv_thread = None
+    st.rx_buf = bytearray()
+    st.disconnected.set()
+    print("  Disconnected")
+
+
 # ── TCP 发送辅助 ──
 
 def tcp_send_frame(st: LoRaState, nid: int, payload: bytes):
     """TCP 发送: [GW Prefix][0xAA][0x55][统一帧][\r\n]"""
-    if not st.tcp_sock:
+    if not st.connected or not st.tcp_sock:
         print("  [ERROR] Not connected")
         return
     frame = build_frame(nid, payload)
@@ -428,7 +510,8 @@ def query_ninfo_udp(st: LoRaState, nid: int):
 # ── TCP 接收线程 ──
 
 def recv_thread(st: LoRaState):
-    while not st.stop_event.is_set():
+    """TCP 接收线程 — 断连时仅设置状态，不退出主循环"""
+    while not st.quit_event.is_set():
         try:
             ready, _, _ = select.select([st.tcp_sock], [], [], 0.5)
         except Exception:
@@ -478,8 +561,79 @@ def recv_thread(st: LoRaState):
                 send_ack_tcp(st, nid)
                 st.stats["tx_ack"] += 1
 
+    # 断连清理
     st.connected = False
-    st.stop_event.set()
+    if st.tcp_sock:
+        try:
+            st.tcp_sock.close()
+        except Exception:
+            pass
+        st.tcp_sock = None
+    st.disconnected.set()
+
+
+def reconnect_watcher(st: LoRaState):
+    """后台自动重连线程 — 检测断连后按间隔重试"""
+    while not st.quit_event.is_set():
+        # 等待断连信号
+        st.disconnected.wait(timeout=1.0)
+        if st.quit_event.is_set():
+            return
+        if not st.disconnected.is_set():
+            continue
+
+        # 条件检查
+        if not st.auto_reconnect:
+            continue
+        if st.manual_disconnect:
+            continue
+        if not st.last_ip or not st.last_port:
+            continue
+
+        # 等待 recv_thread 完全退出
+        if st.recv_thread and st.recv_thread.is_alive():
+            st.recv_thread.join(timeout=2)
+            st.recv_thread = None
+
+        # 重连循环
+        attempt = 0
+        while not st.quit_event.is_set():
+            attempt += 1
+            max_info = f"/{st.reconnect_max}" if st.reconnect_max > 0 else ""
+            print(f"  Auto-reconnect ({attempt}{max_info}) to {st.last_ip}:{st.last_port} ...")
+
+            # 等待间隔 (可被 quit_event 中断)
+            if st.quit_event.wait(timeout=st.reconnect_interval):
+                return
+
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(5)
+                sock.connect((st.last_ip, st.last_port))
+                sock.settimeout(None)
+            except Exception as e:
+                print(f"  Reconnect failed: {e}")
+                sock = None
+
+            if sock:
+                st.tcp_sock = sock
+                st.connected = True
+                st.rx_buf = bytearray()
+                st.disconnected.clear()
+                st.manual_disconnect = False
+
+                st.recv_thread = threading.Thread(
+                    target=recv_thread, args=(st,), daemon=True
+                )
+                st.recv_thread.start()
+
+                print(f"  Reconnected to {st.last_ip}:{st.last_port}")
+                break
+
+            # 检查重连次数限制
+            if st.reconnect_max > 0 and attempt >= st.reconnect_max:
+                print(f"  Auto-reconnect gave up after {attempt} attempts")
+                break
 
 
 # ── UDP 配置命令 ──
@@ -565,7 +719,7 @@ def cmd_getnet(st: LoRaState):
 
 
 def cmd_send_at(st: LoRaState, at_cmd: str):
-    """通过 UDP 发送 AT 指令"""
+    """通过 UDP 发送 AT 指令 (查询用 GETPARA, 设置用 SETPARA)"""
     if not at_cmd:
         print("  [ERROR] Please enter AT command")
         return
@@ -573,13 +727,20 @@ def cmd_send_at(st: LoRaState, at_cmd: str):
     # 确保 \r\n 结尾
     if not at_cmd.endswith("\r\n"):
         at_cmd = at_cmd.rstrip() + "\r\n"
+
+    # 查询 (?) 用 GETPARA, 设置 (=) 或其他用 SETPARA
+    stripped = at_cmd.strip()
+    is_query = stripped.endswith("?")
+    msg_type = "GETPARA" if is_query else "SETPARA"
+
     payload = udp_wrap_json({
-        "VER": "1.0", "MSG": "GETPARA", "TYPE": "AT", "CMD": at_cmd,
+        "VER": "1.0", "MSG": msg_type, "TYPE": "AT", "CMD": at_cmd,
         "USER": "admin", "PSW": "admin", "MAC": mac,
     })
-    print(f"  TX AT: {at_cmd.strip()}")
+    print(f"  TX AT ({msg_type}): {stripped}")
     responses = udp_send(st, payload)
 
+    ack_msgs = ("ACK-GETPARA", "ACK-SETPARA")
     for from_ip, raw in responses:
         raw_str = raw.decode("utf-8", errors="replace")
         start = raw_str.find("{")
@@ -593,7 +754,7 @@ def cmd_send_at(st: LoRaState, at_cmd: str):
             continue
 
         msg = root.get("MSG", "")
-        if msg == "ACK-GETPARA":
+        if msg in ack_msgs:
             cmd_obj = root.get("CMD")
             if isinstance(cmd_obj, str):
                 print(f"  RX <- {cmd_obj.strip()}")
@@ -711,7 +872,7 @@ def _parse_at_response(st: LoRaState, val: str):
 HELP_TEXT = """
 TCP Data Commands:
   connect <ip> <port>       Connect to gateway
-  disconnect                Disconnect
+  disconnect                Disconnect (stops auto-reconnect, use 'connect' to reconnect)
   send <hex>                Send data frame (hex bytes, e.g. "send 01 02 FF")
   ack                       Send ACK to last NID
   rssi                      Send RSSI query to last NID
@@ -719,6 +880,10 @@ TCP Data Commands:
   autoack [on|off]          Toggle auto ACK
   nid [hex]                 Set/get NID filter (0 = accept all)
   prefix [hex]              Set/get gateway prefix NID
+  autorc [on|off]           Toggle auto reconnect (default: ON)
+  retry [seconds]           Set/get reconnect interval (1-60s, default: 3)
+  rmax [n]                  Set/get max reconnect attempts (0=unlimited, default: 0)
+  status                    Show connection status and stats
 
 UDP Config Commands:
   search                    Search for LoRa gateway devices
@@ -757,15 +922,23 @@ def parse_hex(s: str) -> bytes:
 def main():
     if len(sys.argv) < 3:
         print(f"Usage: {sys.argv[0]} <ip> <port> [--nid HEX] [--no-auto-ack]")
+        print(f"       {sys.argv[0]} --no-connect [--nid HEX]  (start without auto-connect)")
         print(f"Example: {sys.argv[0]} 192.168.2.100 1234 --nid 00000001")
         sys.exit(1)
 
     ip = sys.argv[1]
-    port = int(sys.argv[2])
+    port = 0
+    skip_connect = False
+
+    if sys.argv[1] == "--no-connect":
+        skip_connect = True
+    else:
+        port = int(sys.argv[2])
+
     nid_filter = 0
     auto_ack = True
 
-    i = 3
+    i = 3 if not skip_connect else 2
     while i < len(sys.argv):
         if sys.argv[i] == "--nid" and i + 1 < len(sys.argv):
             nid_filter = int(sys.argv[i + 1], 16)
@@ -782,32 +955,25 @@ def main():
     st.gateway_nid = nid_filter if nid_filter else 0x00000001
     st.last_nid = nid_filter
 
-    print(f"Connecting to {ip}:{port} ...")
-    st.tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    st.tcp_sock.settimeout(5)
-    try:
-        st.tcp_sock.connect((ip, port))
-    except Exception as e:
-        print(f"Connect failed: {e}")
-        sys.exit(1)
+    if not skip_connect:
+        print(f"Connecting to {ip}:{port} ...")
+        if not tcp_connect(st, ip, port):
+            print("Starting in disconnected mode. Use 'connect <ip> <port>' to connect.")
+    else:
+        print("Starting in disconnected mode.")
 
-    st.tcp_sock.settimeout(None)
-    st.connected = True
-    print(
-        f"Connected! NID filter={nid_filter:08X} Gateway={st.gateway_nid:08X} "
-        f"AutoACK={st.auto_ack}"
+    # 启动自动重连线程
+    st.reconnect_thread = threading.Thread(
+        target=reconnect_watcher, args=(st,), daemon=True
     )
+    st.reconnect_thread.start()
+
     print("Type 'help' for commands.\n")
 
-    t = threading.Thread(
-        target=recv_thread, args=(st,), daemon=True
-    )
-    t.start()
-
     try:
-        while not st.stop_event.is_set():
+        while not st.quit_event.is_set():
             try:
-                line = input("").strip()
+                line = input("> ").strip()
             except (EOFError, KeyboardInterrupt):
                 break
 
@@ -826,16 +992,24 @@ def main():
                 print(HELP_TEXT)
 
             elif cmd == "connect":
-                print("  Already connected. Use 'disconnect' first.")
+                if st.connected:
+                    print("  Already connected. Use 'disconnect' first.")
+                    continue
+                parts2 = arg.split()
+                if len(parts2) < 2:
+                    print("  Usage: connect <ip> <port>")
+                    continue
+                try:
+                    c_ip = parts2[0]
+                    c_port = int(parts2[1])
+                except ValueError:
+                    print("  Invalid port number")
+                    continue
+                print(f"  Connecting to {c_ip}:{c_port} ...")
+                tcp_connect(st, c_ip, c_port)
 
             elif cmd == "disconnect":
-                st.stop_event.set()
-                try:
-                    st.tcp_sock.close()
-                except Exception:
-                    pass
-                st.connected = False
-                print("  Disconnected")
+                tcp_disconnect(st)
 
             elif cmd in ("s", "send"):
                 try:
@@ -897,6 +1071,49 @@ def main():
                 if arg and arg.isdigit():
                     st.rssi_level = max(1, min(4, int(arg)))
                 print(f"  RSSI level for auto-response: {st.rssi_level}")
+
+            elif cmd == "status":
+                conn = "Connected" if st.connected else "Disconnected"
+                ar = "ON" if st.auto_reconnect else "OFF"
+                print(f"  Status: {conn}")
+                print(
+                    f"  Stats: RX={st.stats['rx']} TX={st.stats['tx']} "
+                    f"TX_ACK={st.stats['tx_ack']} ERR={st.stats['err']}"
+                )
+                print(f"  NID filter: {st.nid_filter:08X}  Gateway prefix: {st.gateway_nid:08X}")
+                print(f"  Last NID: {st.last_nid:08X}  Auto ACK: {'ON' if st.auto_ack else 'OFF'}")
+                print(f"  Auto reconnect: {ar}  Interval: {st.reconnect_interval}s  "
+                      f"Max: {'unlimited' if st.reconnect_max == 0 else st.reconnect_max}")
+                if st.last_ip:
+                    print(f"  Target: {st.last_ip}:{st.last_port}")
+
+            elif cmd in ("autorc", "autoreconnect"):
+                if arg.lower() == "off":
+                    st.auto_reconnect = False
+                elif arg.lower() == "on":
+                    st.auto_reconnect = True
+                    st.manual_disconnect = False  # 重新开启时清除手动断开标记
+                else:
+                    st.auto_reconnect = not st.auto_reconnect
+                    if st.auto_reconnect:
+                        st.manual_disconnect = False
+                print(f"  Auto reconnect: {'ON' if st.auto_reconnect else 'OFF'}")
+
+            elif cmd == "retry":
+                if arg:
+                    try:
+                        st.reconnect_interval = max(1, min(60, int(arg)))
+                    except ValueError:
+                        print("  Invalid value (1-60 seconds)")
+                print(f"  Reconnect interval: {st.reconnect_interval}s")
+
+            elif cmd == "rmax":
+                if arg:
+                    try:
+                        st.reconnect_max = max(0, int(arg))
+                    except ValueError:
+                        print("  Invalid value (0=unlimited)")
+                print(f"  Reconnect max attempts: {'unlimited' if st.reconnect_max == 0 else st.reconnect_max}")
 
             # ── UDP 命令 ──
             elif cmd == "search":
@@ -1014,17 +1231,20 @@ def main():
     except Exception:
         pass
 
-    st.stop_event.set()
-    try:
-        st.tcp_sock.close()
-    except Exception:
-        pass
-    t.join(timeout=2)
+    st.quit_event.set()
+    st.connected = False
+    if st.tcp_sock:
+        try:
+            st.tcp_sock.close()
+        except Exception:
+            pass
+    if st.recv_thread and st.recv_thread.is_alive():
+        st.recv_thread.join(timeout=2)
     print(
         f"\n  Stats: RX={st.stats['rx']} TX={st.stats['tx']} "
         f"TX_ACK={st.stats['tx_ack']} ERR={st.stats['err']}"
     )
-    print("Disconnected.")
+    print("Bye.")
 
 
 if __name__ == "__main__":
