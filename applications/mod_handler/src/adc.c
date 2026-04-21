@@ -123,7 +123,7 @@ void adc_read_thread(void)
 		}
 
 		uint32_t diff = k_uptime_get_32() - t1;
-		if (diff > 5)
+		if (2000 - diff > 5)
 			k_sleep(K_MSEC(2000 - diff));
 	}
 }
