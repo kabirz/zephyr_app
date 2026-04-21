@@ -5,6 +5,7 @@
  * lora_net.h — LoRa Gateway Network Layer Interface
  *
  * TCP data streaming + UDP device configuration + frame protocol.
+ * 数据帧格式: TX [Gateway Prefix 4B][0xAA][0x55][统一帧][\r\n], RX [0xAA][0x55][统一帧][\r\n].
  * Decoupled from Win32 GUI via callback registration.
  */
 
@@ -23,6 +24,11 @@
 #define LORA_FRAME_HEADER_SIZE (LORA_FRAME_NID_SIZE + LORA_FRAME_LEN_SIZE)
 #define LORA_FRAME_OVERHEAD    (LORA_FRAME_HEADER_SIZE + LORA_FRAME_CRC_SIZE)
 #define LORA_GATEWAY_PREFIX    4   /* 发送时在帧头额外添加的定向 NID */
+
+/* 数据帧封装: [0xAA][0x55][content][\r\n] */
+#define LORA_FRAME_HDR_BYTE1   0xAA
+#define LORA_FRAME_HDR_BYTE2   0x55
+#define LORA_FRAME_WRAPPER_SIZE 4  /* 2 header + 2 footer (\r\n) */
 
 #define RX_BUF_MAX    4096
 

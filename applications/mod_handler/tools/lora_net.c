@@ -5,7 +5,7 @@
  * lora_net.c — LoRa Gateway 共享网络层
  *
  * 全局状态定义、endianness helpers、帧协议、生命周期管理。
- * TCP 操作见 lora_tcp.c，UDP 操作见 lora_udp.c。
+ * 数据帧封装: [0xAA][0x55][content][\r\n], TCP 操作见 lora_tcp.c，UDP 操作见 lora_udp.c。
  */
 
 #define WIN32_LEAN_AND_MEAN

@@ -5,6 +5,7 @@
  * lora_tcp.c — TCP 连接管理 + LoRa 帧收发
  *
  * TCP 连接/断开、数据接收与帧解析、ACK/数据帧发送。
+ * 数据帧格式: [Gateway Prefix 4B][0xAA][0x55][统一帧][\r\n]
  * 接收使用独立线程，避免 WSAAsyncSelect FD_READ 的消息丢失问题。
  */
 
@@ -43,16 +44,29 @@ static void send_ack(net_ctx_t *ctx, uint32_t nid)
     if (tcp_sock == INVALID_SOCKET) return;
 
     uint8_t ack_type = LORA_DATA_ACK;
-    uint8_t buf[4 + LORA_FRAME_OVERHEAD + 1];
+    uint8_t buf[LORA_GATEWAY_PREFIX + LORA_FRAME_WRAPPER_SIZE + LORA_FRAME_OVERHEAD + 1];
+    int off = 0;
+
+    /* 网关定向前缀 */
     put_be32(buf, nid);
-    int len = net_build_frame(buf + LORA_GATEWAY_PREFIX,
-                              sizeof(buf) - LORA_GATEWAY_PREFIX,
+    off += LORA_GATEWAY_PREFIX;
+
+    /* 帧头 */
+    buf[off++] = LORA_FRAME_HDR_BYTE1;
+    buf[off++] = LORA_FRAME_HDR_BYTE2;
+
+    int len = net_build_frame(buf + off, sizeof(buf) - off - 2,
                               nid, &ack_type, 1);
     if (len <= 0) return;
+    off += len;
 
-    send(tcp_sock, (const char *)buf, LORA_GATEWAY_PREFIX + len, 0);
+    /* 帧尾 */
+    buf[off++] = '\r';
+    buf[off++] = '\n';
+
+    send(tcp_sock, (const char *)buf, off, 0);
     g_tx_count++;
-    ctx->cb.log_hex(ctx->user_data, "TX ACK", buf, LORA_GATEWAY_PREFIX + len);
+    ctx->cb.log_hex(ctx->user_data, "TX ACK", buf, off);
     ctx->cb.update_stats(ctx->user_data);
 }
 
@@ -70,17 +84,30 @@ void net_send_data_frame(net_ctx_t *ctx, uint32_t nid,
 {
     if (tcp_sock == INVALID_SOCKET) return;
 
-    uint8_t buf[4 + 256];
+    uint8_t buf[LORA_GATEWAY_PREFIX + LORA_FRAME_WRAPPER_SIZE + 256];
+    int off = 0;
+
+    /* 网关定向前缀 */
     put_be32(buf, nid);
-    int len = net_build_frame(buf + LORA_GATEWAY_PREFIX,
-                              sizeof(buf) - LORA_GATEWAY_PREFIX,
+    off += LORA_GATEWAY_PREFIX;
+
+    /* 帧头 */
+    buf[off++] = LORA_FRAME_HDR_BYTE1;
+    buf[off++] = LORA_FRAME_HDR_BYTE2;
+
+    int len = net_build_frame(buf + off, sizeof(buf) - off - 2,
                               nid, data, data_len);
     if (len <= 0) return;
+    off += len;
 
-    send(tcp_sock, (const char *)buf, LORA_GATEWAY_PREFIX + len, 0);
+    /* 帧尾 */
+    buf[off++] = '\r';
+    buf[off++] = '\n';
+
+    send(tcp_sock, (const char *)buf, off, 0);
     g_tx_count++;
     g_ack_pending = 1;
-    ctx->cb.log_hex(ctx->user_data, "TX", buf, LORA_GATEWAY_PREFIX + len);
+    ctx->cb.log_hex(ctx->user_data, "TX", buf, off);
     ctx->cb.add_history_entry(ctx->user_data, nid, "TX", data, data_len);
     ctx->cb.update_stats(ctx->user_data);
 }
@@ -90,19 +117,32 @@ void net_send_rssi_response(net_ctx_t *ctx, uint32_t nid, uint8_t rssi)
     if (tcp_sock == INVALID_SOCKET) return;
 
     uint8_t payload[2] = { LORA_DATA_RSSI, rssi };
-    uint8_t buf[4 + LORA_FRAME_OVERHEAD + 2];
+    uint8_t buf[LORA_GATEWAY_PREFIX + LORA_FRAME_WRAPPER_SIZE + LORA_FRAME_OVERHEAD + 2];
+    int off = 0;
+
+    /* 网关定向前缀 */
     put_be32(buf, nid);
-    int len = net_build_frame(buf + LORA_GATEWAY_PREFIX,
-                              sizeof(buf) - LORA_GATEWAY_PREFIX,
+    off += LORA_GATEWAY_PREFIX;
+
+    /* 帧头 */
+    buf[off++] = LORA_FRAME_HDR_BYTE1;
+    buf[off++] = LORA_FRAME_HDR_BYTE2;
+
+    int len = net_build_frame(buf + off, sizeof(buf) - off - 2,
                               nid, payload, 2);
     if (len <= 0) return;
+    off += len;
 
-    send(tcp_sock, (const char *)buf, LORA_GATEWAY_PREFIX + len, 0);
+    /* 帧尾 */
+    buf[off++] = '\r';
+    buf[off++] = '\n';
+
+    send(tcp_sock, (const char *)buf, off, 0);
     g_tx_count++;
     char desc[64];
     snprintf(desc, sizeof(desc), "TX RSSI response: level %d", rssi);
     ctx->cb.log_append(ctx->user_data, desc);
-    ctx->cb.log_hex(ctx->user_data, "TX RSSI", buf, LORA_GATEWAY_PREFIX + len);
+    ctx->cb.log_hex(ctx->user_data, "TX RSSI", buf, off);
     ctx->cb.add_history_entry(ctx->user_data, nid, "TX RSSI", payload, 2);
     ctx->cb.update_stats(ctx->user_data);
 }
@@ -354,18 +394,51 @@ void net_on_tcp_rx(net_ctx_t *ctx, tcp_rx_chunk_t *chunk)
     tcp_rx_len += bytes;
     free(chunk);
 
-    while (tcp_rx_len >= LORA_FRAME_OVERHEAD) {
-        int consumed = parse_frame(ctx, tcp_rx_buf, tcp_rx_len);
-        if (consumed == 0) break;
-        if (consumed == -1) {
-            consumed = 1;
-            g_err_count++;
-            ctx->cb.log_append(ctx->user_data, "Invalid frame header, re-syncing");
+    while (tcp_rx_len > 0) {
+        /* 查找帧头 0xAA 0x55 */
+        if (tcp_rx_buf[0] != LORA_FRAME_HDR_BYTE1) {
+            tcp_rx_len--;
+            if (tcp_rx_len > 0)
+                memmove(tcp_rx_buf, tcp_rx_buf + 1, tcp_rx_len);
+            continue;
         }
-        if (consumed > tcp_rx_len) consumed = tcp_rx_len;
-        tcp_rx_len -= consumed;
+        if (tcp_rx_len < 2) break;
+        if (tcp_rx_buf[1] != LORA_FRAME_HDR_BYTE2) {
+            tcp_rx_len--;
+            if (tcp_rx_len > 0)
+                memmove(tcp_rx_buf, tcp_rx_buf + 1, tcp_rx_len);
+            continue;
+        }
+
+        /* 查找帧尾 \r\n */
+        int tail_pos = -1;
+        for (int i = 2; i + 1 < tcp_rx_len; i++) {
+            if (tcp_rx_buf[i] == 0x0D && tcp_rx_buf[i + 1] == 0x0A) {
+                tail_pos = i;
+                break;
+            }
+        }
+        if (tail_pos < 0) break; /* 等待更多数据 */
+
+        /* 剥离帧头(2) + 帧尾(2), 提交内容给 parse_frame */
+        int content_len = tail_pos - 2;
+        int total_len = tail_pos + 2;
+
+        if (content_len >= LORA_FRAME_OVERHEAD) {
+            int consumed = parse_frame(ctx, tcp_rx_buf + 2, content_len);
+            if (consumed <= 0) {
+                g_err_count++;
+                ctx->cb.log_append(ctx->user_data,
+                                   "Frame parse failed, re-syncing");
+            }
+        } else if (content_len > 0) {
+            g_err_count++;
+            ctx->cb.log_append(ctx->user_data, "Frame content too short");
+        }
+
+        tcp_rx_len -= total_len;
         if (tcp_rx_len > 0) {
-            memmove(tcp_rx_buf, tcp_rx_buf + consumed, tcp_rx_len);
+            memmove(tcp_rx_buf, tcp_rx_buf + total_len, tcp_rx_len);
         }
     }
 }

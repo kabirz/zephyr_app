@@ -8,7 +8,8 @@
  * 支持遥测数据显示、原始数据日志、手动发送、历史记录。
  * 通过 UDP 广播 AT 指令配置 LoRa 模块。
  *
- * 协议: [NID 4B BE][Length 2B BE][Data NB][CRC16-CCITT 2B BE]
+ * 协议 (TCP TX): [Gateway Prefix 4B][0xAA][0x55][NID 4B BE][Length 2B BE][Data NB][CRC16-CCITT 2B BE][\r\n]
+ * 协议 (TCP RX): [0xAA][0x55][NID 4B BE][Length 2B BE][Data NB][CRC16-CCITT 2B BE][\r\n]
  */
 
 #define WIN32_LEAN_AND_MEAN
