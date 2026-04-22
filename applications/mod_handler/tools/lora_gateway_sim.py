@@ -6,7 +6,7 @@ LoRa Gateway Simulator — TCP + UDP
 
 TCP Server:
   - 接受工具连接, 解析收发帧
-  - 响应 RSSI/HANDLER/TEST/ACK 帧
+  - 响应 RSSI/HANDLER/TEST 帧
   - 支持手动或自动发送模拟遥测/扫描仪数据
 
 UDP Server:
@@ -42,7 +42,6 @@ FRAME_LEN_SIZE = 2
 FRAME_CRC_SIZE = 2
 FRAME_HEADER_SIZE = FRAME_NID_SIZE + FRAME_LEN_SIZE
 FRAME_OVERHEAD = FRAME_HEADER_SIZE + FRAME_CRC_SIZE
-GATEWAY_PREFIX = 4
 
 FRAME_HDR = b'\xAA\x55'
 FRAME_FTR = b'\r\n'
@@ -50,13 +49,11 @@ FRAME_FTR = b'\r\n'
 DATA_HANDLER = 0x01
 DATA_TEST = 0x02
 DATA_RSSI = 0x03
-DATA_ACK = 0x04
 
 TYPE_NAMES = {
     DATA_HANDLER: "HANDLER",
     DATA_TEST: "TEST",
     DATA_RSSI: "RSSI",
-    DATA_ACK: "ACK",
 }
 
 
@@ -88,30 +85,25 @@ def build_rx_packet(nid: int, payload: bytes = b"") -> bytes:
 
 
 def parse_tool_frames(buf: bytes):
-    """解析工具发送的帧: [GW Prefix 4B][0xAA 0x55][统一帧][\r\n]
+    """解析工具发送的帧: [NID 4B][0xAA 0x55][统一帧][\r\n]
 
     返回 (frames_list, remaining_bytes)
-    frame = {"gw_prefix": int, "nid": int, "data_len": int, "payload": bytes}
+    frame = {"nid": int, "data_len": int, "payload": bytes}
     """
     frames = []
     pos = 0
 
     while pos < len(buf):
-        # 查找帧头 0xAA 0x55
         idx = buf.find(FRAME_HDR, pos)
         if idx < 0:
-            # 没有帧头, 丢弃所有数据
             break
 
-        # 提取 GW prefix (帧头前 4 字节)
-        gw_prefix = 0
-        if idx >= GATEWAY_PREFIX:
-            gw_prefix = struct.unpack(">I", buf[idx - GATEWAY_PREFIX : idx])[0]
+        if idx < FRAME_NID_SIZE:
+            break
 
-        # 查找帧尾 \r\n
         tail = buf.find(FRAME_FTR, idx + 2)
         if tail < 0:
-            break  # 等待更多数据
+            break
 
         content = buf[idx + 2 : tail]
         frame_end = tail + len(FRAME_FTR)
@@ -121,7 +113,7 @@ def parse_tool_frames(buf: bytes):
             data_len = struct.unpack(">H", content[4:6])[0]
             total = FRAME_HEADER_SIZE + data_len + FRAME_CRC_SIZE
 
-            if len(content) >= total and total <= 2048:
+            if total <= 2048 and len(content) >= total:
                 calc_crc = crc16_ccitt(0, content[: FRAME_HEADER_SIZE + data_len])
                 rx_crc = struct.unpack(
                     ">H", content[FRAME_HEADER_SIZE + data_len : total]
@@ -129,17 +121,12 @@ def parse_tool_frames(buf: bytes):
 
                 if calc_crc == rx_crc:
                     frames.append({
-                        "gw_prefix": gw_prefix,
                         "nid": nid,
                         "data_len": data_len,
                         "payload": content[
                             FRAME_HEADER_SIZE : FRAME_HEADER_SIZE + data_len
                         ],
                     })
-                else:
-                    print(
-                        f"  [WARN] CRC error: calc={calc_crc:04X} rx={rx_crc:04X}"
-                    )
 
         pos = frame_end
 
@@ -254,24 +241,15 @@ class GatewayTCPServer:
 
     def _process_frame(self, frame: dict):
         nid = frame["nid"]
-        gw_prefix = frame["gw_prefix"]
         payload = frame["payload"]
         plen = frame["data_len"]
 
         self.stats["rx"] += 1
         ts = time.strftime("%H:%M:%S")
 
-        if plen == 0:
-            print(f"  [{ts}] RX ACK (empty) [{nid:08X}] gw={gw_prefix:08X}")
-            return
-
         dtype = payload[0]
         body = payload[1:]
         type_name = TYPE_NAMES.get(dtype, f"0x{dtype:02X}")
-
-        if dtype == DATA_ACK:
-            print(f"  [{ts}] RX ACK [{nid:08X}] gw={gw_prefix:08X}")
-            return
 
         if dtype == DATA_HANDLER and len(body) == 8:
             x = struct.unpack(">h", body[0:2])[0] / 10.0
@@ -280,25 +258,18 @@ class GatewayTCPServer:
             print(
                 f"  [{ts}] RX Telemetry [{nid:08X}] X={x:.1f} Y={y:.1f} Btn={btn}"
             )
-            self._send_ack(nid)
             return
 
         if dtype == DATA_RSSI and len(body) == 0:
-            print(f"  [{ts}] RX RSSI Request [{nid:08X}] gw={gw_prefix:08X}")
-            level = self._sim_rssi_level()
-            resp = bytes([DATA_RSSI, level])
+            print(f"  [{ts}] RX RSSI Request [{nid:08X}]")
+            rssi_val = self._sim_rssi_value()
+            resp = bytes([DATA_RSSI]) + struct.pack(">b", rssi_val)
             self._send_to_client(nid, resp)
-            print(f"  [{ts}] TX RSSI Response [{nid:08X}] level={level}")
+            print(f"  [{ts}] TX RSSI Response [{nid:08X}] {rssi_val} dBm")
             return
 
         body_hex = body.hex(" ").upper() if body else ""
         print(f"  [{ts}] RX {type_name} [{nid:08X}] {plen - 1}B: {body_hex}")
-        self._send_ack(nid)
-
-    def _send_ack(self, nid: int):
-        self._send_to_client(nid, bytes([DATA_ACK]))
-        ts = time.strftime("%H:%M:%S")
-        print(f"  [{ts}] TX ACK [{nid:08X}]")
 
     def _send_to_client(self, nid: int, payload: bytes):
         if not self.client_sock:
@@ -345,9 +316,9 @@ class GatewayTCPServer:
         ts = time.strftime("%H:%M:%S")
         print(f"  [{ts}] TX RSSI Request [{self.cfg.nid:08X}]")
 
-    def _sim_rssi_level(self) -> int:
-        """模拟 RSSI 等级"""
-        return 4  # 优秀
+    def _sim_rssi_value(self) -> int:
+        """模拟 RSSI 值 (dBm)"""
+        return self.cfg.rssi_val
 
     def _auto_telemetry_loop(self):
         """自动遥测循环"""

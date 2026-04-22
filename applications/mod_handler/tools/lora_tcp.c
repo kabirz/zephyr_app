@@ -4,8 +4,8 @@
  *
  * lora_tcp.c — TCP 连接管理 + LoRa 帧收发
  *
- * TCP 连接/断开、数据接收与帧解析、ACK/数据帧发送。
- * 数据帧格式: [Gateway Prefix 4B][0xAA][0x55][统一帧][\r\n]
+ * TCP 连接/断开、数据接收与帧解析、数据帧发送。
+ * 数据帧格式: [NID 4B][0xAA][0x55][统一帧][\r\n]
  * 接收使用独立线程，避免 WSAAsyncSelect FD_READ 的消息丢失问题。
  */
 
@@ -36,48 +36,8 @@ static int     tcp_rx_len = 0;
 #define WM_TCP_CLOSED  (WM_USER + 5)
 
 /* ================================================================
- * 内部帧发送
- * ================================================================ */
-
-static void send_ack(net_ctx_t *ctx, uint32_t nid)
-{
-    if (tcp_sock == INVALID_SOCKET) return;
-
-    uint8_t ack_type = LORA_DATA_ACK;
-    uint8_t buf[LORA_GATEWAY_PREFIX + LORA_FRAME_WRAPPER_SIZE + LORA_FRAME_OVERHEAD + 1];
-    int off = 0;
-
-    /* 网关定向前缀 */
-    put_be32(buf, nid);
-    off += LORA_GATEWAY_PREFIX;
-
-    /* 帧头 */
-    buf[off++] = LORA_FRAME_HDR_BYTE1;
-    buf[off++] = LORA_FRAME_HDR_BYTE2;
-
-    int len = net_build_frame(buf + off, sizeof(buf) - off - 2,
-                              nid, &ack_type, 1);
-    if (len <= 0) return;
-    off += len;
-
-    /* 帧尾 */
-    buf[off++] = '\r';
-    buf[off++] = '\n';
-
-    send(tcp_sock, (const char *)buf, off, 0);
-    g_tx_count++;
-    ctx->cb.log_hex(ctx->user_data, "TX ACK", buf, off);
-    ctx->cb.update_stats(ctx->user_data);
-}
-
-/* ================================================================
  * 公共发送 API
  * ================================================================ */
-
-void net_send_ack(net_ctx_t *ctx, uint32_t nid)
-{
-    send_ack(ctx, nid);
-}
 
 void net_send_data_frame(net_ctx_t *ctx, uint32_t nid,
                          const uint8_t *data, uint16_t data_len)
@@ -87,7 +47,7 @@ void net_send_data_frame(net_ctx_t *ctx, uint32_t nid,
     uint8_t buf[LORA_GATEWAY_PREFIX + LORA_FRAME_WRAPPER_SIZE + 256];
     int off = 0;
 
-    /* 网关定向前缀 */
+    /* NID 前缀 */
     put_be32(buf, nid);
     off += LORA_GATEWAY_PREFIX;
 
@@ -106,7 +66,6 @@ void net_send_data_frame(net_ctx_t *ctx, uint32_t nid,
 
     send(tcp_sock, (const char *)buf, off, 0);
     g_tx_count++;
-    g_ack_pending = 1;
     ctx->cb.log_hex(ctx->user_data, "TX", buf, off);
     ctx->cb.add_history_entry(ctx->user_data, nid, "TX", data, data_len);
     ctx->cb.update_stats(ctx->user_data);
@@ -120,7 +79,7 @@ void net_send_rssi_response(net_ctx_t *ctx, uint32_t nid, uint8_t rssi)
     uint8_t buf[LORA_GATEWAY_PREFIX + LORA_FRAME_WRAPPER_SIZE + LORA_FRAME_OVERHEAD + 2];
     int off = 0;
 
-    /* 网关定向前缀 */
+    /* NID 前缀 */
     put_be32(buf, nid);
     off += LORA_GATEWAY_PREFIX;
 
@@ -209,15 +168,6 @@ static int parse_frame(net_ctx_t *ctx, const uint8_t *data, int len)
 
     switch (type) {
 
-    case LORA_DATA_ACK:
-        ctx->cb.log_append(ctx->user_data, "RX ACK");
-        ctx->cb.add_history_entry(ctx->user_data, nid, "ACK", NULL, 0);
-        if (g_ack_pending) {
-            g_ack_pending = 0;
-            ctx->cb.log_append(ctx->user_data, "  Send confirmed");
-        }
-        break;
-
     case LORA_DATA_HANDLER:
         /* 遥测数据: 只接收方向 (手柄→网关→工具)
          * 扫描仪数据由工具端发出, 不会在此收到 */
@@ -248,14 +198,12 @@ static int parse_frame(net_ctx_t *ctx, const uint8_t *data, int len)
             ctx->cb.add_history_entry(ctx->user_data, nid, "Handler", body, body_len);
         }
 
-        if (g_auto_ack) send_ack(ctx, nid);
         break;
 
     case LORA_DATA_TEST:
         ctx->cb.log_append(ctx->user_data, "RX TEST");
         ctx->cb.log_hex(ctx->user_data, "RX TEST data", body, body_len);
         ctx->cb.add_history_entry(ctx->user_data, nid, "Test", body, body_len);
-        if (g_auto_ack) send_ack(ctx, nid);
         break;
 
     case LORA_DATA_RSSI:

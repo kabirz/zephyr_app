@@ -4,11 +4,11 @@
  *
  * LoRa Gateway Host Tool — Win32 GUI
  *
- * 连接 USR-LG210-L 网关，接收/解析 LoRa 数据帧，发送 ACK。
+ * 连接 USR-LG210-L 网关，接收/解析 LoRa 数据帧。
  * 支持遥测数据显示、原始数据日志、手动发送、历史记录。
  * 通过 UDP 广播 AT 指令配置 LoRa 模块。
  *
- * 协议 (TCP TX): [Gateway Prefix 4B][0xAA][0x55][NID 4B BE][Length 2B BE][Data NB][CRC16-CCITT 2B BE][\r\n]
+ * 协议 (TCP TX): [NID 4B][0xAA][0x55][NID 4B BE][Length 2B BE][Data NB][CRC16-CCITT 2B BE][\r\n]
  * 协议 (TCP RX): [0xAA][0x55][NID 4B BE][Length 2B BE][Data NB][CRC16-CCITT 2B BE][\r\n]
  */
 
@@ -53,7 +53,6 @@
 #define IDC_SEND_BTN        1008
 #define IDC_SEND_ACK_BTN    1009
 #define IDC_CLEAR_LOG_BTN   1010
-#define IDC_AUTO_ACK_CHECK  1011
 #define IDC_STATUS_TEXT     1012
 #define IDC_X_TEXT          1014
 #define IDC_Y_TEXT          1015
@@ -141,8 +140,8 @@ static HWND g_hTabCtrl;
 /* 数据页控件 */
 static HWND g_hIpEdit, g_hPortEdit, g_hConnectBtn, g_hDisconnectBtn;
 static HWND g_hNidEdit;
-static HWND g_hSendEdit, g_hSendBtn, g_hSendAckBtn, g_hClearLogBtn;
-static HWND g_hAutoAckCheck, g_hStatusText;
+static HWND g_hSendEdit, g_hSendBtn, g_hClearLogBtn;
+static HWND g_hStatusText;
 static HWND g_hXText, g_hYText, g_hBtnText;
 static HWND g_hRxCount, g_hTxCount, g_hErrCount;
 static HWND g_hLogEdit;
@@ -630,12 +629,6 @@ static void do_manual_send(void)
     net_send_data_frame(g_net_ctx, nid, data, (uint16_t)len);
 }
 
-static void do_manual_ack(void)
-{
-    uint32_t nid = g_nid ? g_nid : 0x00000001;
-    net_send_ack(g_net_ctx, nid);
-}
-
 /* ================================================================
  * 控件创建辅助
  * ================================================================ */
@@ -715,19 +708,12 @@ static void create_data_page(HWND hwnd, RECT *pageRc)
     reg_data(g_hStatusText = make_static(hwnd, "  Disconnected",
                                          cx + 486, cy + 3, 130, RH, g_hFontBold));
 
-    /* 第二行: NID + Auto ACK */
+    /* 第二行: NID */
     cy += RH + 4;
     reg_data(make_static(hwnd, "NID:", cx, cy + 3, 28, RH, g_hFont));
     reg_data(g_hNidEdit = make_edit(hwnd, "--------", IDC_NID_EDIT,
                                     cx + 32, cy, 90, RH));
     SendMessage(g_hNidEdit, EM_SETREADONLY, TRUE, 0);
-
-    reg_data(g_hAutoAckCheck = CreateWindowA("BUTTON", "Auto ACK",
-            WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-            cx + 230, cy + 2, 100, RH,
-            hwnd, (HMENU)(LONG_PTR)IDC_AUTO_ACK_CHECK, g_hInst, NULL));
-    SendMessage(g_hAutoAckCheck, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-    SendMessage(g_hAutoAckCheck, BM_SETCHECK, BST_CHECKED, 0);
 
     y += conn_h + GAP;
 
@@ -771,8 +757,7 @@ static void create_data_page(HWND hwnd, RECT *pageRc)
     reg_data(make_static(hwnd, "Hex:", sx, sy + 3, 30, RH, g_hFont));
     reg_data(g_hSendEdit = make_edit(hwnd, "", IDC_SEND_EDIT, sx + 34, sy, 530, RH));
     reg_data(g_hSendBtn = make_button(hwnd, "Send", IDC_SEND_BTN, sx + 570, sy, 65, RH));
-    reg_data(g_hSendAckBtn = make_button(hwnd, "Send ACK", IDC_SEND_ACK_BTN, sx + 641, sy, 85, RH));
-    reg_data(g_hClearLogBtn = make_button(hwnd, "Clear Log", IDC_CLEAR_LOG_BTN, sx + 732, sy, 80, RH));
+    reg_data(g_hClearLogBtn = make_button(hwnd, "Clear Log", IDC_CLEAR_LOG_BTN, sx + 641, sy, 80, RH));
 
     y += send_h + GAP;
 
@@ -1146,19 +1131,11 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg,
         case IDC_SEND_BTN:
             do_manual_send();
             break;
-        case IDC_SEND_ACK_BTN:
-            do_manual_ack();
-            break;
         case IDC_CLEAR_LOG_BTN:
             g_log_len = 0;
             g_log_buf[0] = '\0';
             SetWindowTextA(g_hLogEdit, "");
             break;
-        case IDC_AUTO_ACK_CHECK:
-            g_auto_ack = (SendMessage(g_hAutoAckCheck, BM_GETCHECK, 0, 0)
-                          == BST_CHECKED);
-            break;
-
         /* 配置页按钮 */
         case IDC_CFG_SEARCH_BTN:
             net_cfg_search(g_net_ctx);

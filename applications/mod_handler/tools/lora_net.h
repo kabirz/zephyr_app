@@ -5,7 +5,7 @@
  * lora_net.h — LoRa Gateway Network Layer Interface
  *
  * TCP data streaming + UDP device configuration + frame protocol.
- * 数据帧格式: TX [Gateway Prefix 4B][0xAA][0x55][统一帧][\r\n], RX [0xAA][0x55][统一帧][\r\n].
+ * 数据帧格式: TX [NID 4B][0xAA][0x55][统一帧][\r\n], RX [0xAA][0x55][统一帧][\r\n].
  * Decoupled from Win32 GUI via callback registration.
  */
 
@@ -23,7 +23,7 @@
 #define LORA_FRAME_CRC_SIZE    2
 #define LORA_FRAME_HEADER_SIZE (LORA_FRAME_NID_SIZE + LORA_FRAME_LEN_SIZE)
 #define LORA_FRAME_OVERHEAD    (LORA_FRAME_HEADER_SIZE + LORA_FRAME_CRC_SIZE)
-#define LORA_GATEWAY_PREFIX    4   /* 发送时在帧头额外添加的定向 NID */
+#define LORA_GATEWAY_PREFIX    4   /* 发送时在帧头额外添加的 NID 前缀 */
 
 /* 数据帧封装: [0xAA][0x55][content][\r\n] */
 #define LORA_FRAME_HDR_BYTE1   0xAA
@@ -40,7 +40,6 @@ enum lora_data_type {
     LORA_DATA_HANDLER = 0x01,   /* 手柄遥测 / CAN 扫描仪数据 */
     LORA_DATA_TEST    = 0x02,   /* 测试数据 */
     LORA_DATA_RSSI    = 0x03,   /* RSSI 信号强度请求/响应 */
-    LORA_DATA_ACK     = 0x04,   /* ACK 确认 */
 };
 
 /* ----------------------------------------------------------------
@@ -130,9 +129,7 @@ extern int  g_connected;
 
 /* 协议状态 (跨模块共享) */
 extern uint32_t g_nid;
-extern int      g_auto_ack;
 extern uint32_t g_pending_rssi_nid;   /* RSSI 请求方 NID (TCP 写, UDP 读) */
-extern int      g_ack_pending;        /* 等待发送 ACK 确认 (TCP 读写) */
 
 /* 计数器 (lora_tcp.c 写, UI 读) */
 extern int g_rx_count;
@@ -171,7 +168,6 @@ void net_disconnect(net_ctx_t *ctx);
 void net_process_rx(net_ctx_t *ctx);
 void net_on_tcp_rx(net_ctx_t *ctx, tcp_rx_chunk_t *chunk);
 int  net_on_socket_event(net_ctx_t *ctx, int event, int error);
-void net_send_ack(net_ctx_t *ctx, uint32_t nid);
 void net_send_data_frame(net_ctx_t *ctx, uint32_t nid,
                          const uint8_t *data, uint16_t data_len);
 void net_send_rssi_response(net_ctx_t *ctx, uint32_t nid, uint8_t rssi);

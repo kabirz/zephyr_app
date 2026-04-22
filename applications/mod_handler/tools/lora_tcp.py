@@ -4,12 +4,12 @@ LoRa Gateway Tool — 命令行版 (TCP + UDP)
 
 连接 USR-LG210-L 网关，TCP 收发/解析 LoRa 数据帧，UDP 设备发现与配置。
 
-数据帧格式 (TX): [Gateway Prefix 4B][0xAA][0x55][NID 4B BE][Length 2B BE][Data NB][CRC16-CCITT 2B BE][\\r\\n]
-接收格式 (RX):   [0xAA][0x55][NID 4B BE][Length 2B BE][Data NB][CRC16-CCITT 2B BE][\\r\\n]
+数据帧格式: [NID 4B][0xAA][0x55][NID 4B BE][Length 2B BE][Data NB][CRC16-CCITT 2B BE][\\r\\n]
+前缀 NID 使用最近一次接收到的 NID
 UDP 配置协议:    USR1566{JSON}USR1566 (port 1566)
 
 用法:
-    python lora_tcp.py <ip> <port> [--nid HEX_NID] [--no-auto-ack]
+    python lora_tcp.py <ip> <port> [--nid HEX_NID]
     python lora_tcp.py --no-connect [--nid HEX_NID]  (启动不自动连接)
 """
 
@@ -31,7 +31,6 @@ FRAME_LEN_SIZE = 2
 FRAME_CRC_SIZE = 2
 FRAME_HEADER_SIZE = FRAME_NID_SIZE + FRAME_LEN_SIZE
 FRAME_OVERHEAD = FRAME_HEADER_SIZE + FRAME_CRC_SIZE
-GATEWAY_PREFIX = 4
 
 # 数据帧封装: [0xAA][0x55][content][\r\n]
 FRAME_HDR = b'\xAA\x55'
@@ -41,13 +40,11 @@ FRAME_FTR = b'\r\n'
 DATA_HANDLER = 0x01
 DATA_TEST = 0x02
 DATA_RSSI = 0x03
-DATA_ACK = 0x04
 
 TYPE_NAMES = {
     DATA_HANDLER: "HANDLER",
     DATA_TEST: "TEST",
     DATA_RSSI: "RSSI",
-    DATA_ACK: "ACK",
 }
 
 # UDP 常量
@@ -77,11 +74,9 @@ def build_frame(nid: int, payload: bytes = b"") -> bytes:
     return header + crc
 
 
-def wrap_for_gateway(gateway_nid: int, frame: bytes) -> bytes:
-    """TX 封装: [GW Prefix 4B][0xAA][0x55][统一帧][\r\n]"""
-    return struct.pack(">I", gateway_nid) + FRAME_HDR + frame + FRAME_FTR
-
-
+def build_tx_packet(nid: int, frame: bytes) -> bytes:
+    """TX 封装: [NID 4B][0xAA][0x55][统一帧][\r\n]"""
+    return struct.pack(">I", nid) + FRAME_HDR + frame + FRAME_FTR
 def parse_frames(buf: bytes):
     """从 buf 中通过 0xAA 0x55 + \\r\\n 边界检测提取完整帧
 
@@ -160,9 +155,6 @@ def describe_frame(frame: dict) -> str:
     body = payload[1:]
     type_name = TYPE_NAMES.get(dtype, f"0x{dtype:02X}")
 
-    if dtype == DATA_ACK:
-        return f"[{nid:08X}] ACK  RAW: {hex_raw}"
-
     if (
         dtype == DATA_HANDLER
         and len(body) == 8
@@ -177,11 +169,8 @@ def describe_frame(frame: dict) -> str:
 
     if dtype == DATA_RSSI:
         if len(body) >= 1:
-            rssi_level = body[0]
-            level_desc = {4: "Excellent", 3: "Good", 2: "Fair", 1: "Poor"}.get(
-                rssi_level, "Unknown"
-            )
-            return f"[{nid:08X}] RSSI Response: level={rssi_level} ({level_desc})  RAW: {hex_raw}"
+            rssi_val = struct.unpack(">b", body[0:1])[0]
+            return f"[{nid:08X}] RSSI Response: {rssi_val} dBm  RAW: {hex_raw}"
         else:
             return f"[{nid:08X}] RSSI Request  RAW: {hex_raw}"
 
@@ -218,17 +207,6 @@ def get_local_ips() -> list:
     except Exception:
         pass
     return ips
-
-
-def rssi_to_level(rssi: int) -> int:
-    """RSSI 值转信号等级 (1-4)"""
-    if rssi >= -80:
-        return 4
-    if rssi >= -90:
-        return 3
-    if rssi >= -100:
-        return 2
-    return 1
 
 
 def udp_send_broadcast(payload: bytes, timeout: float = UDP_TIMEOUT) -> list:
@@ -342,18 +320,15 @@ def extract_at_value(text: str, prefix: str) -> str:
 class LoRaState:
     def __init__(self):
         self.tcp_sock = None
-        self.gateway_nid = 0x00000001
         self.nid_filter = 0
-        self.auto_ack = True
         self.connected = False
         self.quit_event = threading.Event()       # 整个程序退出
         self.disconnected = threading.Event()      # TCP 断连信号 (recv_thread 设置)
         self.disconnected.set()                    # 初始为"已断开"
         self.recv_thread = None
         self.rx_buf = bytearray()
-        self.stats = {"rx": 0, "tx": 0, "tx_ack": 0, "err": 0}
+        self.stats = {"rx": 0, "tx": 0, "err": 0}
         self.last_nid = 0
-        self.rssi_level = 4
         self.pending_rssi_nid = 0
         self.rssi_lock = threading.Lock()
         # 自动重连
@@ -407,8 +382,7 @@ def tcp_connect(st: LoRaState, ip: str, port: int):
 
     print(f"  Connected to {ip}:{port}")
     print(
-        f"  NID filter={st.nid_filter:08X} Gateway={st.gateway_nid:08X} "
-        f"AutoACK={st.auto_ack}"
+        f"  NID filter={st.nid_filter:08X} "
     )
     return True
 
@@ -440,12 +414,12 @@ def tcp_disconnect(st: LoRaState):
 # ── TCP 发送辅助 ──
 
 def tcp_send_frame(st: LoRaState, nid: int, payload: bytes):
-    """TCP 发送: [GW Prefix][0xAA][0x55][统一帧][\r\n]"""
+    """TCP 发送: [NID 4B][0xAA][0x55][统一帧][\r\n]"""
     if not st.connected or not st.tcp_sock:
         print("  [ERROR] Not connected")
         return
     frame = build_frame(nid, payload)
-    pkt = wrap_for_gateway(st.gateway_nid, frame)
+    pkt = build_tx_packet(nid, frame)
     try:
         st.tcp_sock.sendall(pkt)
     except Exception as e:
@@ -455,14 +429,10 @@ def tcp_send_frame(st: LoRaState, nid: int, payload: bytes):
     st.stats["tx"] += 1
 
 
-def send_ack_tcp(st: LoRaState, nid: int):
-    tcp_send_frame(st, nid, bytes([DATA_ACK]))
-    print(f"  >> TX ACK [{nid:08X}]")
-
-
-def send_rssi_response_tcp(st: LoRaState, nid: int, level: int):
-    tcp_send_frame(st, nid, bytes([DATA_RSSI, level]))
-    print(f"  >> TX RSSI Response [{nid:08X}] level={level}")
+def send_rssi_response_tcp(st: LoRaState, nid: int, rssi_val: int):
+    rssi_byte = struct.pack(">b", max(-128, min(127, rssi_val)))
+    tcp_send_frame(st, nid, bytes([DATA_RSSI]) + rssi_byte)
+    print(f"  >> TX RSSI Response [{nid:08X}] {rssi_val} dBm")
 
 
 def query_ninfo_udp(st: LoRaState, nid: int):
@@ -501,9 +471,8 @@ def query_ninfo_udp(st: LoRaState, nid: int):
                 rssi_val = int(fields[4])
             except ValueError:
                 pass
-        level = rssi_to_level(rssi_val)
-        print(f"  NINFO RSSI={rssi_val} -> level={level}")
-        send_rssi_response_tcp(st, nid, level)
+        print(f"  NINFO RSSI={rssi_val} dBm")
+        send_rssi_response_tcp(st, nid, rssi_val)
         return  # 只需一次成功
 
 
@@ -555,11 +524,6 @@ def recv_thread(st: LoRaState):
             if dtype == DATA_RSSI and len(payload) == 1:
                 query_ninfo_udp(st, nid)
                 continue
-
-            # 自动 ACK
-            if st.auto_ack and dtype in (DATA_HANDLER, DATA_TEST):
-                send_ack_tcp(st, nid)
-                st.stats["tx_ack"] += 1
 
     # 断连清理
     st.connected = False
@@ -874,12 +838,9 @@ TCP Data Commands:
   connect <ip> <port>       Connect to gateway
   disconnect                Disconnect (stops auto-reconnect, use 'connect' to reconnect)
   send <hex>                Send data frame (hex bytes, e.g. "send 01 02 FF")
-  ack                       Send ACK to last NID
   rssi                      Send RSSI query to last NID
   telemetry                 Send telemetry test frame (X=0 Y=0 Btn=0)
-  autoack [on|off]          Toggle auto ACK
   nid [hex]                 Set/get NID filter (0 = accept all)
-  prefix [hex]              Set/get gateway prefix NID
   autorc [on|off]           Toggle auto reconnect (default: ON)
   retry [seconds]           Set/get reconnect interval (1-60s, default: 3)
   rmax [n]                  Set/get max reconnect attempts (0=unlimited, default: 0)
@@ -904,7 +865,6 @@ UDP Config Commands:
   ch <n> [freq]             Set/query channel (n=1-2, freq=4100-5100)
   spd <n> [val]             Set/query speed (n=1-2, val=4-11)
   pwr <n> [val]             Set/query power (n=1-2, val=24-30)
-  rl [1-4]                  Set RSSI level for auto-response
 
 General:
   help                      Show this help
@@ -921,7 +881,7 @@ def parse_hex(s: str) -> bytes:
 
 def main():
     if len(sys.argv) < 3:
-        print(f"Usage: {sys.argv[0]} <ip> <port> [--nid HEX] [--no-auto-ack]")
+        print(f"Usage: {sys.argv[0]} <ip> <port> [--nid HEX]")
         print(f"       {sys.argv[0]} --no-connect [--nid HEX]  (start without auto-connect)")
         print(f"Example: {sys.argv[0]} 192.168.2.100 1234 --nid 00000001")
         sys.exit(1)
@@ -936,23 +896,17 @@ def main():
         port = int(sys.argv[2])
 
     nid_filter = 0
-    auto_ack = True
 
     i = 3 if not skip_connect else 2
     while i < len(sys.argv):
         if sys.argv[i] == "--nid" and i + 1 < len(sys.argv):
             nid_filter = int(sys.argv[i + 1], 16)
             i += 2
-        elif sys.argv[i] == "--no-auto-ack":
-            auto_ack = False
-            i += 1
         else:
             i += 1
 
     st = LoRaState()
     st.nid_filter = nid_filter
-    st.auto_ack = auto_ack
-    st.gateway_nid = nid_filter if nid_filter else 0x00000001
     st.last_nid = nid_filter
 
     if not skip_connect:
@@ -1014,37 +968,31 @@ def main():
             elif cmd in ("s", "send"):
                 try:
                     data = parse_hex(arg)
-                    target = st.last_nid or st.gateway_nid
+                    target = st.last_nid
+                    if not target:
+                        print("  [ERROR] No NID received yet. Use 'nid <hex>' to set manually.")
+                        continue
                     tcp_send_frame(st, target, data)
                     print(f"  >> TX Data [{target:08X}] {len(data)}B: {data.hex(' ').upper()}")
                 except Exception as e:
                     print(f"  Error: {e}")
 
-            elif cmd in ("a", "ack"):
-                target = st.last_nid or st.gateway_nid
-                send_ack_tcp(st, target)
-
             elif cmd in ("r", "rssi"):
-                target = st.last_nid or st.gateway_nid
-                tcp_send_frame(st, target, bytes([DATA_RSSI]))
-                print(f"  >> TX RSSI Request [{target:08X}]")
+                if not st.last_nid:
+                    print("  [ERROR] No NID received yet")
+                    continue
+                tcp_send_frame(st, st.last_nid, bytes([DATA_RSSI]))
+                print(f"  >> TX RSSI Request [{st.last_nid:08X}]")
 
             elif cmd in ("t", "telemetry"):
-                target = st.last_nid or st.gateway_nid
+                if not st.last_nid:
+                    print("  [ERROR] No NID received yet")
+                    continue
                 x = struct.pack(">h", 0)
                 y = struct.pack(">h", 0)
                 telemetry = bytes([DATA_HANDLER]) + x + y + bytes([0x00, 0xFF, 0xFF, 0xFF])
-                tcp_send_frame(st, target, telemetry)
-                print(f"  >> TX Telemetry [{target:08X}]")
-
-            elif cmd == "autoack":
-                if arg.lower() == "off":
-                    st.auto_ack = False
-                elif arg.lower() == "on":
-                    st.auto_ack = True
-                else:
-                    st.auto_ack = not st.auto_ack
-                print(f"  Auto ACK: {'ON' if st.auto_ack else 'OFF'}")
+                tcp_send_frame(st, st.last_nid, telemetry)
+                print(f"  >> TX Telemetry [{st.last_nid:08X}]")
 
             elif cmd in ("n", "nid"):
                 if arg:
@@ -1057,31 +1005,16 @@ def main():
                 else:
                     print(f"  NID filter: {st.nid_filter:08X}")
 
-            elif cmd in ("p", "prefix"):
-                if arg:
-                    try:
-                        st.gateway_nid = int(arg, 16)
-                        print(f"  Gateway prefix set to {st.gateway_nid:08X}")
-                    except ValueError:
-                        print("  Invalid hex")
-                else:
-                    print(f"  Gateway prefix: {st.gateway_nid:08X}")
-
-            elif cmd == "rl":
-                if arg and arg.isdigit():
-                    st.rssi_level = max(1, min(4, int(arg)))
-                print(f"  RSSI level for auto-response: {st.rssi_level}")
-
             elif cmd == "status":
                 conn = "Connected" if st.connected else "Disconnected"
                 ar = "ON" if st.auto_reconnect else "OFF"
                 print(f"  Status: {conn}")
                 print(
                     f"  Stats: RX={st.stats['rx']} TX={st.stats['tx']} "
-                    f"TX_ACK={st.stats['tx_ack']} ERR={st.stats['err']}"
+                    f"ERR={st.stats['err']}"
                 )
-                print(f"  NID filter: {st.nid_filter:08X}  Gateway prefix: {st.gateway_nid:08X}")
-                print(f"  Last NID: {st.last_nid:08X}  Auto ACK: {'ON' if st.auto_ack else 'OFF'}")
+                print(f"  NID filter: {st.nid_filter:08X}")
+                print(f"  Last NID: {st.last_nid:08X}  ")
                 print(f"  Auto reconnect: {ar}  Interval: {st.reconnect_interval}s  "
                       f"Max: {'unlimited' if st.reconnect_max == 0 else st.reconnect_max}")
                 if st.last_ip:
@@ -1242,7 +1175,7 @@ def main():
         st.recv_thread.join(timeout=2)
     print(
         f"\n  Stats: RX={st.stats['rx']} TX={st.stats['tx']} "
-        f"TX_ACK={st.stats['tx_ack']} ERR={st.stats['err']}"
+        f"ERR={st.stats['err']}"
     )
     print("Bye.")
 

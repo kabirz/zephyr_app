@@ -96,17 +96,13 @@ static K_SEM_DEFINE(at_resp_sem, 0, 1);
 #define LORA_AT_RX_TIMEOUT   100
 
 /* ================================================================
- * 链路检测 — RSSI 轮询 + ACK
+ * 链路检测 — RSSI 轮询
  * ================================================================ */
 static K_SEM_DEFINE(lora_rssi_sem, 0, 1);
-static K_SEM_DEFINE(lora_data_ack_sem, 0, 1); /* 数据发送 ACK 确认 */
 
-#define LORA_RSSI_PERIOD_MS  20000 /* RSSI 轮询周期 20s */
+#define LORA_RSSI_PERIOD_MS  10000 /* RSSI 轮询周期 */
 #define LORA_RSSI_TIMEOUT_MS 1500  /* RSSI 响应等待超时 */
 #define LORA_RSSI_FAIL_MAX   3     /* 连续失败判定断连 */
-#define LORA_ACK_WAIT_TIMEOUT_MS 1500 /* 数据 ACK 等待超时 */
-
-static bool lora_ack_wait; /* ACK 确认开关 (默认关闭) */
 
 /* ================================================================
  * HOSTWAKE 管理
@@ -213,9 +209,7 @@ static void lora_rx_disable_sync(void)
 }
 
 /* ================================================================
- * 数据模式发送 — 可选 ACK 确认
- *
- * 发送完成后, 若 lora_ack_wait 启用且类型非 RSSI, 等待网关 ACK.
+ * 数据模式发送
  * ================================================================ */
 bool lora_data_send(const uint8_t *data, size_t len)
 {
@@ -255,13 +249,6 @@ bool lora_data_send(const uint8_t *data, size_t len)
 	tx_data[offset++] = '\r';
 	tx_data[offset++] = '\n';
 
-	/* 发送前重置 ACK 信号量 (在 mutex 内, 防止竞态) */
-	bool need_ack = lora_ack_wait && len > 0 && data[0] != LORA_DATA_RSSI && data[0] != LORA_DATA_ACK;
-
-	if (need_ack) {
-		k_sem_reset(&lora_data_ack_sem);
-	}
-
 	/* 等待模块空闲 (HOSTWAKE 低 = 模块未在无线收发) */
 	int retry = 40;
 
@@ -283,28 +270,7 @@ bool lora_data_send(const uint8_t *data, size_t len)
 		return false;
 	}
 
-	/* 可选: 等待网关 ACK 确认 (mutex 已释放, 不阻塞其他线程发送) */
-	if (need_ack) {
-		if (k_sem_take(&lora_data_ack_sem, K_MSEC(LORA_ACK_WAIT_TIMEOUT_MS)) != 0) {
-			LOG_WRN("LoRa data ACK timeout");
-			return false;
-		}
-	}
-
 	return true;
-}
-
-/* ================================================================
- * ACK 确认开关
- * ================================================================ */
-void lora_set_ack_wait(bool enable)
-{
-	lora_ack_wait = enable;
-}
-
-bool lora_get_ack_wait(void)
-{
-	return lora_ack_wait;
 }
 
 /* ================================================================
@@ -331,16 +297,6 @@ bool lora_send_telemetry(const gloval_params_t *params)
 bool lora_send_rssi_request(void)
 {
 	uint8_t type = LORA_DATA_RSSI;
-
-	return lora_data_send(&type, 1);
-}
-
-/* ================================================================
- * ACK 确认帧 — Data: [0x04]
- * ================================================================ */
-bool lora_send_ack(void)
-{
-	uint8_t type = LORA_DATA_ACK;
 
 	return lora_data_send(&type, 1);
 }
@@ -883,23 +839,20 @@ static void lora_msg_process_thread(void)
 					uint8_t type = payload[0];
 
 					switch (type) {
-					case LORA_DATA_ACK:
-						k_sem_give(&lora_data_ack_sem);
-						break;
-
 					case LORA_DATA_RSSI:
 						if (payload_len >= 2) {
 							uint8_t rssi = payload[1];
 
-							if (rssi > 4) {
-								rssi = 4;
-							}
+							/* if (rssi > 4) { */
+								/* rssi = 4; */
+							/* } */
 							if (global_params.rssi != rssi) {
 								global_params.rssi = rssi;
 								mod_display_lora(rssi);
 								LOG_INF("LoRa RSSI level: %d", rssi);
 							}
 							rssi_fail_count = 0;
+							LOG_INF("RSSI ACK!");
 							k_sem_give(&lora_rssi_sem);
 						}
 						break;
@@ -925,18 +878,15 @@ static void lora_msg_process_thread(void)
 								LOG_WRN("LoRa RX data too long: %d",
 									data_len2);
 							}
-							lora_send_ack();
 						}
 						break;
 					}
 					case LORA_DATA_TEST:
-						lora_send_ack();
 						LOG_HEXDUMP_INF(asm_buf + 2, content_len,
 								"LoRa RX (Test):");
 						break;
 
 					default:
-						lora_send_ack();
 						LOG_WRN("Unknown LoRa data type: 0x%02x", type);
 						break;
 					}
@@ -1007,7 +957,7 @@ static void lora_rssi_thread(void)
 		}
 
 		uint32_t diff = k_uptime_get_32() - t1;
-		if (LORA_RSSI_PERIOD_MS - diff > 5)
+		if (LORA_RSSI_PERIOD_MS > diff)
 			k_sleep(K_MSEC(LORA_RSSI_PERIOD_MS - diff));
 	}
 }
@@ -1386,7 +1336,6 @@ static int lora_serial_init(void)
 
 		lora_exit_at();
 	}
-	lora_set_ack_wait(true);
 
 	LOG_INF("LoRa WH-L101-L initialized (async DMA, buf=%d, timeout=%dms)", LORA_BUF_SIZE,
 		LORA_DATA_RX_TIMEOUT);

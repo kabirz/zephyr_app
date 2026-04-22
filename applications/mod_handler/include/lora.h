@@ -21,7 +21,6 @@ enum lora_data_type {
 	LORA_DATA_HANDLER = 0x01, /* 手柄遥测数据 */
 	LORA_DATA_TEST    = 0x02, /* 测试数据 */
 	LORA_DATA_RSSI    = 0x03, /* RSSI 信号强度请求/响应 */
-	LORA_DATA_ACK     = 0x04, /* ACK 确认 */
 };
 
 /**
@@ -39,49 +38,20 @@ bool lora_send_telemetry(const gloval_params_t *params);
  * @brief 发送 RSSI 信号强度请求帧
  *
  * Data 字段: [LORA_DATA_RSSI] (1 字节)
- * 网关响应类型 LORA_DATA_RSSI + 1 字节 rssi_level (0-4)
+ * 网关响应类型 LORA_DATA_RSSI + 1 字节 rssi 值 (有符号)
  *
  * @return true 发送成功, false 模块繁忙或模式不匹配
  */
 bool lora_send_rssi_request(void);
 
 /**
- * @brief 发送 ACK 确认帧
- *
- * Data 字段: [LORA_DATA_ACK] (1 字节)
- * 收到扫描仪数据后回复 ACK
- *
- * @return true 发送成功, false 模块繁忙或模式不匹配
- */
-bool lora_send_ack(void);
-
-/**
  * @brief 数据模式下发送透传数据
- *
- * 发送完成后若 ACK 确认开关已启用且类型非 RSSI, 等待网关 ACK 响应.
  *
  * @param data 发送数据
  * @param len  数据长度
- * @return true 发送成功 (ACK 确认通过或未启用), false 发送失败或 ACK 超时
+ * @return true 发送成功, false 模块繁忙或模式不匹配
  */
 bool lora_data_send(const uint8_t *data, size_t len);
-
-/**
- * @brief 设置数据发送 ACK 确认开关
- *
- * 启用后, lora_data_send() 在发送非 RSSI 类型数据后等待网关 ACK 响应,
- * 超时则返回 false. 默认关闭.
- *
- * @param enable true 启用 ACK 确认, false 关闭
- */
-void lora_set_ack_wait(bool enable);
-
-/**
- * @brief 查询数据发送 ACK 确认开关状态
- *
- * @return true 已启用, false 已关闭
- */
-bool lora_get_ack_wait(void);
 
 /**
  * @brief 进入 AT 指令模式 (+++a 握手)
@@ -191,8 +161,7 @@ int lora_gw_query(struct lora_gw_config *cfg);
  *
  * 遥测帧 (手柄→网关): Data = [0x01][X 2B BE][Y 2B BE][btn][0xFF 3B] (9B)
  * RSSI 请求 (手柄→网关): Data = [0x03] (1B)
- * RSSI 响应 (网关→手柄): Data = [0x03][rssi_level 1B] (2B)
- * ACK (双向): Data = [0x04] (1B)
+ * RSSI 响应 (网关→手柄): Data = [0x03][rssi 1B] (2B)
  * 扫描仪数据 (网关→手柄): Data = [0x01/0x02][CAN ID 2B BE][CAN data NB]
  * ================================================================ */
 #define LORA_FRAME_NID_SIZE    4

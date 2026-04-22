@@ -286,7 +286,7 @@ static void can_heart_thread(void)
 		}
 		uint32_t diff = k_uptime_get_32() - t1;
 
-		if (global_params.can_heart_time - diff > 5)
+		if (diff < global_params.can_heart_time)
 			k_sleep(K_MSEC(global_params.can_heart_time - diff));
 	}
 }
