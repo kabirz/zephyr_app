@@ -4,6 +4,7 @@
 
 import argparse
 import subprocess
+import sys
 import textwrap
 import zipfile
 from pathlib import Path
@@ -22,6 +23,20 @@ class Archive(WestCommand):
             "Install all output into zip",
             accepts_unknown_args=True,
         )
+
+    @staticmethod
+    def _resolve_script(name):
+        """Resolve a Python script to an executable path (cross-platform)."""
+        # Linux: scripts with shebang are directly executable via PATH
+        path = shutil.which(name)
+        if path:
+            return [path]
+        # Windows: .py files are not in PATHEXT, look in Python's Scripts dir
+        scripts_dir = Path(sys.executable).parent
+        script_path = scripts_dir / name
+        if script_path.exists():
+            return [sys.executable, str(script_path)]
+        return [name]
 
     def do_add_parser(self, parser_adder):
         parser = parser_adder.add_parser(
@@ -101,7 +116,7 @@ class Archive(WestCommand):
                     app_name = image['name']
             if hex_file_lists:
                 output_hex = build_dir/'full_output.hex'
-                _cmd = ['hexmerge.py']
+                _cmd = self._resolve_script('hexmerge.py')
                 _cmd.extend(hex_file_lists)
                 _cmd.extend(['-o', output_hex.as_posix()])
                 proc = subprocess.run(_cmd, encoding="utf-8")
@@ -109,7 +124,8 @@ class Archive(WestCommand):
                     self.die('hexmerge failed')
                 shutil.copy(output_hex, images_path)
                 # full bin image
-                _cmd = ['hex2bin.py', output_hex, output_hex.with_suffix('.bin')]
+                _cmd = self._resolve_script('hex2bin.py')
+                _cmd.extend([output_hex, output_hex.with_suffix('.bin')])
                 proc = subprocess.run(_cmd, encoding="utf-8")
                 if proc.returncode:
                     self.die('hex2bin failed')
