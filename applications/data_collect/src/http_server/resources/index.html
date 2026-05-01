@@ -3,185 +3,341 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zephyr DAQ Data Collect</title>
+    <title>Zephyr DAQ</title>
     <style>
-        /* Basic styling for tabs */
-        .tab {
-            display: none;
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            min-height: 100vh;
+            color: #e2e8f0;
         }
-        .tab-header {
+        header {
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(99, 102, 241, 0.3);
+            padding: 16px 24px;
             display: flex;
-            cursor: pointer;
-            padding: 10px;
-            background-color: #f1f1f1;
-            border: 1px solid #ccc;
+            align-items: center;
+            gap: 12px;
         }
-        .tab-header div {
+        header .logo {
+            width: 36px; height: 36px;
+            background: linear-gradient(135deg, #6366f1, #06b6d4);
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 700; font-size: 18px; color: #fff;
+        }
+        header h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.5px; }
+        header .badge {
+            margin-left: auto;
+            background: rgba(34, 197, 94, 0.15);
+            color: #4ade80;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+        nav {
+            display: flex;
+            gap: 4px;
+            padding: 12px 24px 0;
+            background: transparent;
+        }
+        nav button {
             flex: 1;
-            text-align: center;
-            padding: 10px;
+            padding: 12px 16px;
+            background: rgba(30, 41, 59, 0.6);
+            border: 1px solid rgba(148, 163, 184, 0.1);
+            border-bottom: none;
+            color: #94a3b8;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-radius: 10px 10px 0 0;
         }
-        .tab-header div.active {
-            background-color: #ccc;
+        nav button:hover { background: rgba(51, 65, 85, 0.8); color: #e2e8f0; }
+        nav button.active {
+            background: #1e293b;
+            color: #fff;
+            border-color: rgba(99, 102, 241, 0.4);
+            box-shadow: 0 -2px 8px rgba(99, 102, 241, 0.15);
         }
-        .tab-content {
-            border: 1px solid #ccc;
+        main {
+            margin: 0 24px 24px;
+            background: #1e293b;
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            border-radius: 0 10px 10px 10px;
+            padding: 32px;
+            min-height: 400px;
+        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .tab-content h2 {
+            font-size: 18px;
+            color: #f1f5f9;
+            margin-bottom: 20px;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .tab-content h2::before {
+            content: '';
+            width: 4px; height: 20px;
+            background: linear-gradient(to bottom, #6366f1, #06b6d4);
+            border-radius: 2px;
+        }
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+        .info-card {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(148, 163, 184, 0.1);
+            border-radius: 12px;
             padding: 20px;
+            transition: transform 0.2s;
+        }
+        .info-card:hover { transform: translateY(-2px); }
+        .info-card .label { font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+        .info-card .value { font-size: 24px; font-weight: 700; }
+        .info-card .value.indigo { color: #818cf8; }
+        .info-card .value.cyan { color: #22d3ee; }
+        .info-card .value.emerald { color: #34d399; }
+        .upload-zone {
+            border: 2px dashed rgba(99, 102, 241, 0.3);
+            border-radius: 12px;
+            padding: 48px 24px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: rgba(99, 102, 241, 0.04);
+        }
+        .upload-zone:hover, .upload-zone.dragover {
+            border-color: #6366f1;
+            background: rgba(99, 102, 241, 0.08);
+        }
+        .upload-zone .icon { font-size: 40px; margin-bottom: 12px; }
+        .upload-zone p { color: #94a3b8; font-size: 14px; }
+        .upload-zone .filename {
+            margin-top: 12px;
+            color: #818cf8;
+            font-weight: 500;
             display: none;
         }
-        .tab-content.active {
-            display: block;
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 24px;
+            border-radius: 8px;
+            border: none;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 20px;
         }
-                table {
-            width: 50%;
-            border-collapse: collapse;
-            margin: 25px 0;
-            font-size: 18px;
+        .btn-primary {
+            background: linear-gradient(135deg, #6366f1, #4f46e5);
+            color: #fff;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+        .btn-primary:hover { box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4); transform: translateY(-1px); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: rgba(99, 102, 241, 0.15);
+            border-radius: 3px;
+            margin-top: 16px;
+            overflow: hidden;
+            display: none;
+        }
+        .progress-bar .fill {
+            height: 100%;
+            background: linear-gradient(90deg, #6366f1, #06b6d4);
+            border-radius: 3px;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        table { width: 100%; border-collapse: collapse; }
+        thead th {
             text-align: left;
+            padding: 12px 16px;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #64748b;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.1);
         }
-        th, td {
-            padding: 12px;
-            border-bottom: 1px solid #ddd;
+        tbody td {
+            padding: 14px 16px;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.06);
+            font-size: 14px;
         }
-        th {
-            background-color: #f2f2f2;
+        tbody tr:hover { background: rgba(99, 102, 241, 0.04); }
+        tbody a { color: #818cf8; text-decoration: none; font-weight: 500; }
+        tbody a:hover { text-decoration: underline; }
+        .size-badge {
+            background: rgba(6, 182, 212, 0.1);
+            color: #22d3ee;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-variant-numeric: tabular-nums;
         }
+        .empty-state { text-align: center; padding: 48px; color: #64748b; }
+        .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            padding: 14px 24px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 500;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s;
+            z-index: 100;
+        }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
+        .toast.error { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
     </style>
 </head>
 <body>
-    <h1>Zephyr DAQ Data Collect</h1>
-    <div class="tab-header">
-        <div id="tab1-header" class="active">Base Functions</div>
-        <div id="tab2-header">Firmware upgrade</div>
-        <div id="tab3-header">History Files</div>
-    </div>
-    <div id="tab1" class="tab-content active">
-        <h2 style="text-align: center;"></h2>
-    </div>
-    <div id="tab2" class="tab-content">
-        <h2 id="version" style="text-align: center;">v1.0.0</h2>
-        <form id="uploadForm">
-        <input type="file" id="fileInput" name="file" required>
-        <button type="submit">FW Upgrade</button>
-    </form>
+    <header>
+        <div class="logo">Z</div>
+        <h1>Zephyr DAQ</h1>
+        <span class="badge" id="statusBadge">Online</span>
+    </header>
+    <nav>
+        <button id="tab1-btn" class="active">Dashboard</button>
+        <button id="tab2-btn">Firmware</button>
+        <button id="tab3-btn">Files</button>
+    </nav>
+    <main>
+        <div id="tab1" class="tab-content active">
+            <h2>System Info</h2>
+            <div class="info-grid">
+                <div class="info-card">
+                    <div class="label">Version</div>
+                    <div class="value indigo" id="sysVersion">--</div>
+                </div>
+                <div class="info-card">
+                    <div class="label">Protocol</div>
+                    <div class="value cyan">HTTP</div>
+                </div>
+                <div class="info-card">
+                    <div class="label">Platform</div>
+                    <div class="value emerald">STM32</div>
+                </div>
+            </div>
+        </div>
+        <div id="tab2" class="tab-content">
+            <h2>Firmware Upgrade</h2>
+            <div class="upload-zone" id="dropZone">
+                <div class="icon">&#128228;</div>
+                <p>Click or drag firmware file here</p>
+                <div class="filename" id="fileName"></div>
+            </div>
+            <input type="file" id="fileInput" style="display:none">
+            <div style="text-align:center;">
+                <button class="btn btn-primary" id="uploadBtn" disabled>Upload Firmware</button>
+            </div>
+            <div class="progress-bar" id="progressBar"><div class="fill" id="progressFill"></div></div>
+        </div>
+        <div id="tab3" class="tab-content">
+            <h2>History Files</h2>
+            <table id="fileTable">
+                <thead>
+                    <tr><th>File Name</th><th>Size</th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+            <div class="empty-state" id="emptyFiles" style="display:none;">
+                <div class="icon">&#128193;</div>
+                <p>No files found</p>
+            </div>
+        </div>
+    </main>
+    <div class="toast" id="toast"></div>
     <script>
-    
-    </script>
-
-    </div>
-    <div id="tab3" class="tab-content">
-        <table id="fileTable">
-            <thead>
-                <tr>
-                    <th>File Name</th>
-                    <th>Size (bytes)</th>
-                </tr>
-            </thead>
-            <tbody>
-                <!-- File rows will be inserted here -->
-            </tbody>
-        </table>
-    </div>
-
-    <script>
-        // Function to switch tabs
-        function switchTab(tabIndex) {
-            const tabs = document.querySelectorAll('.tab-content');
-            const headers = document.querySelectorAll('.tab-header div');
-
-            tabs.forEach((tab, index) => {
-                if (index === tabIndex) {
-                    tab.classList.add('active');
-                    headers[index].classList.add('active');
-                } else {
-                    tab.classList.remove('active');
-                    headers[index].classList.remove('active');
-                }
-            });
-
-            // If the third tab is selected, fetch historical files
-            if (tabIndex === 2) {
-                fetchFileData();
-            } else if (tabIndex === 1) {
-                fetchVersion();
-            }
+        function switchTab(idx) {
+            document.querySelectorAll('.tab-content').forEach((t, i) => t.classList.toggle('active', i === idx));
+            document.querySelectorAll('nav button').forEach((b, i) => b.classList.toggle('active', i === idx));
+            if (idx === 0) fetchVersion();
+            if (idx === 2) fetchFiles();
         }
-
         function fetchVersion() {
-            fetch('/version')
-                .then(response => response.text())
-                .then(data => {
-                    const version = document.getElementById("version");
-                    version.innerHTML = data;
-                })
+            fetch('/version').then(r => r.text()).then(d => { document.getElementById('sysVersion').textContent = d || '--'; });
         }
-        // Function to fetch historical files
-        function fetchFileData() {
-            fetch('/filelists')
-                .then(response => response.json())
-                .then(data => {
-                    const tableBody = document.querySelector('#fileTable tbody');
-                    tableBody.innerHTML = '';
-
-                    data.forEach(file => {
-                        const row = document.createElement('tr');
-                        const nameCell = document.createElement('td');
-                        const sizeCell = document.createElement('td');
-                        const link = document.createElement('a');
-
-                        const parts = file.name.split('/');
-                        const file_name = parts[parts.length -1];
-
-                        link.href = file.name;
-                        link.textContent = file_name;
-                        link.download = file_name;
-
-                        sizeCell.textContent = file.size;
-
-                        row.appendChild(link);
-                        row.appendChild(sizeCell);
-                        tableBody.appendChild(row);
-                    });
-                })
-                .catch(error => {
-                    console.error('Error fetching file data:', error);
+        function fetchFiles() {
+            fetch('/filelists').then(r => r.json()).then(data => {
+                const tbody = document.querySelector('#fileTable tbody');
+                const empty = document.getElementById('emptyFiles');
+                tbody.innerHTML = '';
+                if (!data.length) { empty.style.display = 'block'; return; }
+                empty.style.display = 'none';
+                data.forEach(f => {
+                    const name = f.name.split('/').pop();
+                    const row = document.createElement('tr');
+                    row.innerHTML = '<td><a href="' + f.name + '" download="' + name + '">' + name + '</a></td>'
+                        + '<td><span class="size-badge">' + fmtSize(f.size) + '</span></td>';
+                    tbody.appendChild(row);
                 });
+            }).catch(() => { document.getElementById('emptyFiles').style.display = 'block'; });
         }
-        document.getElementById('uploadForm').addEventListener('submit', function (event) {
-            event.preventDefault(); // Prevent the default form submission
-
-            const fileInput = document.getElementById('fileInput');
-            const file = fileInput.files[0];
-
-            if (file) {
-                const formData = new FormData();
-                formData.append('file', file);
-
-                res = fetch('/fw_upgrade', {
-                    method: 'POST',
-                    body: formData
+        function fmtSize(b) {
+            if (b < 1024) return b + ' B';
+            if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+            return (b / 1048576).toFixed(1) + ' MB';
+        }
+        function showToast(msg, type) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.className = 'toast ' + type + ' show';
+            setTimeout(() => t.classList.remove('show'), 3000);
+        }
+        document.querySelectorAll('nav button').forEach((b, i) => b.addEventListener('click', () => switchTab(i)));
+        var dropZone = document.getElementById('dropZone');
+        var fileInput = document.getElementById('fileInput');
+        var uploadBtn = document.getElementById('uploadBtn');
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('dragover'); if (e.dataTransfer.files.length) pickFile(e.dataTransfer.files[0]); });
+        fileInput.addEventListener('change', () => { if (fileInput.files.length) pickFile(fileInput.files[0]); });
+        function pickFile(file) {
+            var fn = document.getElementById('fileName');
+            fn.textContent = file.name;
+            fn.style.display = 'block';
+            uploadBtn.disabled = false;
+        }
+        uploadBtn.addEventListener('click', () => {
+            var file = fileInput.files[0];
+            if (!file) return;
+            var bar = document.getElementById('progressBar');
+            var fill = document.getElementById('progressFill');
+            bar.style.display = 'block';
+            fill.style.width = '30%';
+            uploadBtn.disabled = true;
+            var fd = new FormData();
+            fd.append('file', file);
+            fetch('/fw_upgrade', { method: 'POST', body: fd })
+                .then(r => r.json())
+                .then(d => {
+                    fill.style.width = '100%';
+                    if (d.status === 'success') showToast('Firmware upgrade successful!', 'success');
+                    else showToast('Firmware upgrade failed!', 'error');
+                    setTimeout(() => { bar.style.display = 'none'; fill.style.width = '0%'; uploadBtn.disabled = false; }, 2000);
                 })
-                .then(response => response.json())
-                .then(data => {
-                    console.log(data.status);
-                    if (data.status == 'success') {
-                        alert('Firmware upgrade successfully!');
-                    } else {
-                        alert('Firmware upgrade failed!');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    alert('File upload failed!');
-                });
-            } else {
-                alert('Please select a file to upload.');
-            }
+                .catch(() => { fill.style.width = '0%'; showToast('Upload failed!', 'error'); uploadBtn.disabled = false; });
         });
-        // Add event listeners to tab headers
-        document.getElementById('tab1-header').addEventListener('click', () => switchTab(0));
-        document.getElementById('tab2-header').addEventListener('click', () => switchTab(1));
-        document.getElementById('tab3-header').addEventListener('click', () => switchTab(2));
+        fetchVersion();
     </script>
 </body>
 </html>
