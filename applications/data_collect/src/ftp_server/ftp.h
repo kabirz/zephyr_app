@@ -2,7 +2,9 @@
 #define __FTP_S_H__
 
 #include <stdint.h>
-#include <stdbool.h>
+#include <zephyr/posix/sys/socket.h>
+#include <zephyr/posix/arpa/inet.h>
+#include <zephyr/posix/unistd.h>
 #include <zephyr/net/socket.h>
 
 #if DT_NODE_EXISTS(DT_NODELABEL(lfs1))

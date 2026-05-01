@@ -6,6 +6,8 @@
 #include "init.h"
 #include <zephyr/modbus/modbus.h>
 #include <zephyr/posix/sys/select.h>
+#include <zephyr/posix/unistd.h>
+#include <zephyr/posix/arpa/inet.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/net_event.h>

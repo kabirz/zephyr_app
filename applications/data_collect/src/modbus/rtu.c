@@ -2,7 +2,6 @@
 #include "init.h"
 #include <zephyr/sys/util.h>
 #include <zephyr/modbus/modbus.h>
-#include <zephyr/kernel.h>
 
 static struct modbus_iface_param server_param = {
 	.mode = MODBUS_MODE_RTU,

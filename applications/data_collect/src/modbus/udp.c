@@ -1,4 +1,5 @@
 #include "init.h"
+#include <zephyr/posix/sys/socket.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/net/net_if.h>
 #ifdef CONFIG_SETTINGS

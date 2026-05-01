@@ -1,5 +1,4 @@
 #include "init.h"
-#include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
 
 #define USER_NODE DT_PATH(zephyr_user)

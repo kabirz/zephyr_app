@@ -1,6 +1,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/posix/sys/select.h>
-#include <unistd.h>
+#include <zephyr/posix/unistd.h>
+#include <zephyr/posix/arpa/inet.h>
 #include "ftp.h"
 
 #include <zephyr/logging/log.h>

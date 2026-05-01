@@ -7,7 +7,9 @@ set(SNIPPET
   littlefs_flash
   imgmgr
   ftp_server
+  http_server
 )
+list(APPEND SNIPPET_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(data-collect)
 

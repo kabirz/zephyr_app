@@ -1,18 +1,6 @@
-#include <stdio.h>
-#include <inttypes.h>
-
 #include <zephyr/kernel.h>
-#include <zephyr/net/tls_credentials.h>
 #include <zephyr/net/http/server.h>
 #include <zephyr/net/http/service.h>
-#include <zephyr/net/net_ip.h>
-#include <zephyr/net/socket.h>
-#include "zephyr/device.h"
-#include "zephyr/sys/util.h"
-#include <zephyr/drivers/led.h>
-#include <zephyr/data/json.h>
-#include <zephyr/sys/util_macro.h>
-#include <zephyr/posix/time.h>
 #include <zephyr/app_version.h>
 #include <zephyr/drivers/flash.h>
 #include <zephyr/storage/flash_map.h>
@@ -39,8 +27,8 @@ static struct http_resource_detail_static index_html_gz_resource_detail = {
 };
 
 #define SLOT1_PARTITION      slot1_partition
-#define SLOT1_PARTITION_ID   FIXED_PARTITION_ID(SLOT1_PARTITION)
-#define SLOT1_PARTITION_DEV  FIXED_PARTITION_DEVICE(SLOT1_PARTITION)
+#define SLOT1_PARTITION_ID   PARTITION_ID(SLOT1_PARTITION)
+#define SLOT1_PARTITION_DEV  PARTITION_DEVICE(SLOT1_PARTITION)
 #define SLOT1_PARTITION_NODE DT_NODELABEL(SLOT1_PARTITION)
 static struct fw_data {
 	bool found;
@@ -51,7 +39,7 @@ static struct fw_data {
 } fw_d;
 #define FLASH_SUCCESS "{\"status\": \"success\"}\r\n"
 #define FLASH_FAILED  "{\"status\": \"failed\"}\r\n"
-static int fw_upgrade_handler(struct http_client_ctx *client, enum http_data_status status,
+static int fw_upgrade_handler(struct http_client_ctx *client, enum http_transaction_status status,
 					  const struct http_request_ctx *request_ctx,
 					  struct http_response_ctx *response_ctx, void *user_data)
 {
@@ -59,7 +47,7 @@ static int fw_upgrade_handler(struct http_client_ctx *client, enum http_data_sta
 
 	__ASSERT_NO_MSG(request_ctx->data!= NULL);
 
-	if (status == HTTP_SERVER_DATA_ABORTED) {
+	if (status == HTTP_SERVER_TRANSACTION_ABORTED) {
 		LOG_DBG("Transaction aborted after %zd bytes.", f_data->offset);
 		memset(f_data, 0, sizeof(struct fw_data));
 		return 0;
@@ -110,7 +98,7 @@ static int fw_upgrade_handler(struct http_client_ctx *client, enum http_data_sta
 		}
 		f_data->offset += len;
 	}
-	if (status == HTTP_SERVER_DATA_FINAL) {
+	if (status == HTTP_SERVER_REQUEST_DATA_FINAL) {
 		if (f_data->offset != f_data->fa->fa_size) {
 			LOG_ERR("write error, %x, %x", f_data->offset, f_data->fa->fa_size);
 			response_ctx->body = FLASH_FAILED;
@@ -123,7 +111,7 @@ static int fw_upgrade_handler(struct http_client_ctx *client, enum http_data_sta
 			extern void set_reboot_status(bool val);
 			set_reboot_status(true);
 		}
-		response_ctx->final_chunk = (status == HTTP_SERVER_DATA_FINAL);
+		response_ctx->final_chunk = (status == HTTP_SERVER_REQUEST_DATA_FINAL);
 		memset(f_data, 0, sizeof(struct fw_data));
 	}
 
@@ -141,14 +129,14 @@ static struct http_resource_detail_dynamic fw_upgrade_resource_detail = {
 	.user_data = &fw_d,
 };
 
-static int get_version_handler(struct http_client_ctx *client, enum http_data_status status,
+static int get_version_handler(struct http_client_ctx *client, enum http_transaction_status status,
 			       const struct http_request_ctx *request_ctx,
 			       struct http_response_ctx *response_ctx, void *user_data)
 {
 	int ret;
 	static uint8_t ver_buf[64];
 
-	if (status == HTTP_SERVER_DATA_FINAL) {
+	if (status == HTTP_SERVER_REQUEST_DATA_FINAL) {
 		ret = snprintf(ver_buf, sizeof(ver_buf), "build time: %s-%s, version: %s", __DATE__,
 			       __TIME__, APP_VERSION_TWEAK_STRING);
 		if (ret < 0) {
@@ -196,7 +184,7 @@ static struct http_resource_detail_static_fs fs_resource_detail = {
 #include <zephyr/posix/fcntl.h>
 #include <zephyr/posix/unistd.h>
 
-static int files_handler(struct http_client_ctx *client, enum http_data_status status,
+static int files_handler(struct http_client_ctx *client, enum http_transaction_status status,
 			 const struct http_request_ctx *request_ctx,
 			 struct http_response_ctx *response_ctx, void *user_data)
 {
@@ -207,7 +195,7 @@ static int files_handler(struct http_client_ctx *client, enum http_data_status s
 	/* A payload is not expected with the GET request. Ignore any data and wait until
 	 * final callback before sending response
 	 */
-	if (status == HTTP_SERVER_DATA_FINAL) {
+	if (status == HTTP_SERVER_REQUEST_DATA_FINAL) {
 		DIR *dir;
 		struct stat st;
 		struct dirent *ptr;
@@ -261,7 +249,7 @@ static struct http_resource_detail_dynamic filelists_resource_detail = {
 #endif
 
 static uint16_t test_http_service_port = 80;
-HTTP_SERVICE_DEFINE(test_http_service, NULL, &test_http_service_port, 1, 10, NULL, NULL);
+HTTP_SERVICE_DEFINE(test_http_service, NULL, &test_http_service_port, 1, 10, NULL, NULL, NULL);
 
 HTTP_RESOURCE_DEFINE(index_html_gz_resource, test_http_service, "/",
 		     &index_html_gz_resource_detail);

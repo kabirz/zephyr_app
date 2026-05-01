@@ -1,5 +1,4 @@
 #include "init.h"
-#include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/modbus/modbus.h>
 #include <zephyr/sys/reboot.h>

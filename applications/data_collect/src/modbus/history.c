@@ -1,9 +1,8 @@
 #include "init.h"
-#include <zephyr/kernel.h>
 #include <zephyr/posix/dirent.h>
 #include <zephyr/posix/fcntl.h>
 #include <zephyr/posix/unistd.h>
-#include <zephyr/posix/time.h>
+#include <time.h>
 
 #if DT_NODE_EXISTS(DT_NODELABEL(lfs1))
 #define ROOT DT_PROP(DT_NODELABEL(lfs1), mount_point)

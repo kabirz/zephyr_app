@@ -1,6 +1,6 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/rtc.h>
-#include <zephyr/posix/time.h>
+#include <time.h>
 #include <zephyr/logging/log_ctrl.h>
 
 #include <zephyr/logging/log.h>
