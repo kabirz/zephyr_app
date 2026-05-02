@@ -1,0 +1,77 @@
+on:
+  push:
+    branches: [ ai_dev ]
+    tags:
+      - "v*.mod"
+    paths:
+      - boards/lora_f103rct6
+      - applications/mod_handler
+      - zephyr4_4.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build-and-release:
+    name: Build zephyr image
+    runs-on: self-hosted
+
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5.0.0
+        with:
+          path: workspace/apps
+
+      - name: Setup Zephyr
+        uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          base-path: workspace
+          app-path: apps
+          toolchains: arm-zephyr-eabi
+          manifest-file-name: zephyr4_4.yml
+
+      - name: Build Firmware
+        working-directory: workspace
+        shell: bash
+        run: |
+          set -e
+          source /home/zhp/.venv/zephyr/bin/activate
+          west build -b lora_f103rct6 applications/mod_handler --sysbuild
+          west archive --no-rebuild -o mod_handler
+
+          echo "IMAGE_ZIP=mod_handler.zip" >>  $GITHUB_ENV
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v5.0.0
+        with:
+          name: laser_ctrl
+          path: workspace/build/output
+
+      - name: GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2.4.2
+        id: release
+        with:
+          files: workspace/build/${{env.IMAGE_ZIP}}
+
+      - name: Send Email
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: dawidd6/action-send-mail@v6
+        with:
+          server_address: smtp.126.com
+          server_port: 465
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: Github Release zephyr APP ${{ github.ref_name }}
+          body: |
+            zephyr app Release: ${{ steps.release.outputs.url }}
+
+            - Repository: ${{ github.repository }}
+            - Workflow: ${{ github.workflow }}
+
+          to: ${{ secrets.TOLISTS }}
+          from: GitHub Release
+          attachments: workspace/build/${{env.IMAGE_ZIP}}
