@@ -1,12 +1,15 @@
+env:
+  ZEPHYR_BASE: /home/zhp/code/zephyr/app/zephyr
+
 on:
   push:
-    branches: [ main ]
+    branches: [ ai_dev ]
     tags:
-      - "v*.laser"
+      - "v*.mod"
     paths:
-      - boards/laser_f103ret7
-      - applications/laser_ctrl
-      - zephyr4_3.yml
+      - boards/lora_f103rct6
+      - applications/mod_handler
+      - zephyr4_4.yml
   workflow_dispatch:
 
 permissions:
@@ -16,7 +19,7 @@ permissions:
 jobs:
   build-and-release:
     name: Build zephyr image
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
 
     steps:
@@ -25,33 +28,22 @@ jobs:
         with:
           path: workspace/apps
 
-      - name: Setup Python
-        uses: actions/setup-python@v6.2.0
-        with:
-          python-version: 3.12
-
-      - name: Setup Zephyr
-        uses: zephyrproject-rtos/action-zephyr-setup@v1
-        with:
-          base-path: workspace
-          app-path: apps
-          toolchains: arm-zephyr-eabi
-          manifest-file-name: zephyr4_3.yml
-
       - name: Build Firmware
         working-directory: workspace
         shell: bash
         run: |
           set -e
-          west patch apply
-          west build -b laser_f103ret7 apps/applications/laser_ctrl --sysbuild -Dlaser_ctrl_SNIPPET=imgmgr-shell
-          west archive --no-rebuild --extra-file apps/docs/{刷机.docx,单点激光板测试.docx,固件升级.docx} -o laser_ctrl
-          echo "IMAGE_ZIP=laser_ctrl.zip" >>  $GITHUB_ENV
+          source /home/zhp/.venv/zephyr/bin/activate
+          rm -fr build
+          west build -b lora_f103rct6 apps/applications/mod_handler --sysbuild
+          west archive --no-rebuild -o mod_handler
+
+          echo "IMAGE_ZIP=mod_handler.zip" >>  $GITHUB_ENV
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: laser_ctrl
+          name: mod_handler
           path: workspace/build/output
 
       - name: GitHub Release
