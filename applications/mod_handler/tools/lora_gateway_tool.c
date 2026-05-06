@@ -16,6 +16,7 @@
 #include <windows.h>
 #include <winsock2.h>
 #include <commctrl.h>
+#include <commdlg.h>
 #include <windowsx.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -62,6 +63,7 @@
 #define IDC_ERR_COUNT       1019
 #define IDC_LOG_EDIT        1020
 #define IDC_HISTORY_LIST    1021
+#define IDC_SAVE_CSV_BTN    1022
 
 /* 配置 Tab 控件 ID */
 #define IDC_CFG_CMD_EDIT    1200
@@ -188,6 +190,21 @@ static HFONT g_hFontBold;
 static HFONT g_hFontTitle;
 
 /* ================================================================
+ * Test 帧数据采集 — 记录 index + 时间戳, 保存 CSV
+ * ================================================================ */
+#define TEST_MAX_ENTRIES 50000
+
+typedef struct {
+    uint32_t nid;
+    uint16_t index;
+    char time[32]; /* HH:MM:SS.mmm */
+} test_entry_t;
+
+static test_entry_t g_test_entries[TEST_MAX_ENTRIES];
+static int g_test_count = 0;
+static HWND g_hSaveCsvBtn;
+
+/* ================================================================
  * 回调实现 — 供 lora_net.c 调用的 UI 更新函数
  * ================================================================ */
 
@@ -234,7 +251,7 @@ static void cb_add_history_entry(void *ud, uint32_t nid, const char *type,
     if (data_len > 0 && data) {
         BOOL printable = TRUE;
         for (int i = 0; i < data_len; i++) {
-            if (data[i] != '\0' && (data[i] < 0x20 || data[i] > 0x7E)) {
+            if (data[i] < 0x20 || data[i] > 0x7E) {
                 printable = FALSE;
                 break;
             }
@@ -514,6 +531,61 @@ static void cb_update_connection_status(void *ud)
     }
 }
 
+static void cb_on_test_frame(void *ud, uint32_t nid, uint16_t index)
+{
+    (void)ud;
+    if (g_test_count < TEST_MAX_ENTRIES) {
+        test_entry_t *e = &g_test_entries[g_test_count++];
+        e->nid = nid;
+        e->index = index;
+
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        snprintf(e->time, sizeof(e->time), "%02d:%02d:%02d.%03d",
+                 st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+    }
+}
+
+static void do_save_csv(void)
+{
+    if (g_test_count == 0) {
+        MessageBoxA(g_hwndMain, "No test data to save", "Info", MB_OK);
+        return;
+    }
+
+    char filename[MAX_PATH] = "test_results.csv";
+    OPENFILENAMEA ofn = {0};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = g_hwndMain;
+    ofn.lpstrFilter = "CSV Files\0*.csv\0All Files\0*.*\0";
+    ofn.lpstrFile = filename;
+    ofn.nMaxFile = sizeof(filename);
+    ofn.lpstrDefExt = "csv";
+    ofn.Flags = OFN_OVERWRITEPROMPT;
+
+    if (!GetSaveFileNameA(&ofn))
+        return;
+
+    FILE *fp = fopen(filename, "w");
+    if (!fp) {
+        MessageBoxA(g_hwndMain, "Failed to create file", "Error", MB_OK);
+        return;
+    }
+
+    fprintf(fp, "Index,Time,NID\n");
+    for (int i = 0; i < g_test_count; i++) {
+        fprintf(fp, "%u,%s,%08X\n",
+                g_test_entries[i].index,
+                g_test_entries[i].time,
+                g_test_entries[i].nid);
+    }
+    fclose(fp);
+
+    char msg[128];
+    snprintf(msg, sizeof(msg), "Saved %d entries to %s", g_test_count, filename);
+    MessageBoxA(g_hwndMain, msg, "Saved", MB_OK);
+}
+
 /* ================================================================
  * 回调表
  * ================================================================ */
@@ -524,6 +596,7 @@ static const net_callbacks_t g_callbacks = {
     .add_history_entry      = cb_add_history_entry,
     .log_append             = cb_log_append,
     .log_hex                = cb_log_hex,
+    .on_test_frame          = cb_on_test_frame,
     .cfg_log_append         = cb_cfg_log_append,
     .set_nid_text           = cb_set_nid_text,
     .set_status_text        = cb_set_status_text,
@@ -757,7 +830,8 @@ static void create_data_page(HWND hwnd, RECT *pageRc)
     reg_data(make_static(hwnd, "Hex:", sx, sy + 3, 30, RH, g_hFont));
     reg_data(g_hSendEdit = make_edit(hwnd, "", IDC_SEND_EDIT, sx + 34, sy, 530, RH));
     reg_data(g_hSendBtn = make_button(hwnd, "Send", IDC_SEND_BTN, sx + 570, sy, 65, RH));
-    reg_data(g_hClearLogBtn = make_button(hwnd, "Clear Log", IDC_CLEAR_LOG_BTN, sx + 641, sy, 80, RH));
+    reg_data(g_hSaveCsvBtn = make_button(hwnd, "Save CSV", IDC_SAVE_CSV_BTN, sx + 641, sy, 80, RH));
+    reg_data(g_hClearLogBtn = make_button(hwnd, "Clear Log", IDC_CLEAR_LOG_BTN, sx + 727, sy, 80, RH));
 
     y += send_h + GAP;
 
@@ -881,26 +955,26 @@ static void create_config_page(HWND hwnd, RECT *pageRc)
 
     /* Row 1: NWMODE + TTMODE */
     reg_cfg(make_static(hwnd, "NWMODE:", cx, cy + 3, 70, RH, g_hFont));
-    reg_cfg(g_hCfgNwmodeCombo = CreateWindowA("COMBOBOX", "",
+    reg_cfg(g_hCfgNwmodeCombo = CreateWindowW(L"COMBOBOX", L"",
             WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
             cx + 74, cy, 150, 200,
             hwnd, (HMENU)(LONG_PTR)IDC_CFG_NWMODE_COMBO, g_hInst, NULL));
     SendMessage(g_hCfgNwmodeCombo, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-    ComboBox_AddString(g_hCfgNwmodeCombo, "透传 (默认)");
-    ComboBox_AddString(g_hCfgNwmodeCombo, "组网");
+    SendMessageW(g_hCfgNwmodeCombo, CB_ADDSTRING, 0, (LPARAM)L"透传 (默认)");
+    SendMessageW(g_hCfgNwmodeCombo, CB_ADDSTRING, 0, (LPARAM)L"组网");
     ComboBox_SetCurSel(g_hCfgNwmodeCombo, 0);
     reg_cfg(g_hCfgNwmodeSet = make_button(hwnd, "Set", IDC_CFG_NWMODE_SET, cx + 230, cy, 55, RH));
     reg_cfg(g_hCfgNwmodeQuery = make_button(hwnd, "Query", IDC_CFG_NWMODE_QUERY, cx + 291, cy, 60, RH));
 
     rx = cx + PW / 2 + 10;
     reg_cfg(make_static(hwnd, "TTMODE:", rx, cy + 3, 70, RH, g_hFont));
-    reg_cfg(g_hCfgTtmodeCombo = CreateWindowA("COMBOBOX", "",
+    reg_cfg(g_hCfgTtmodeCombo = CreateWindowW(L"COMBOBOX", L"",
             WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
             rx + 74, cy, 150, 200,
             hwnd, (HMENU)(LONG_PTR)IDC_CFG_TTMODE_COMBO, g_hInst, NULL));
     SendMessage(g_hCfgTtmodeCombo, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-    ComboBox_AddString(g_hCfgTtmodeCombo, "广播透传 (默认)");
-    ComboBox_AddString(g_hCfgTtmodeCombo, "指定节点");
+    SendMessageW(g_hCfgTtmodeCombo, CB_ADDSTRING, 0, (LPARAM)L"广播透传 (默认)");
+    SendMessageW(g_hCfgTtmodeCombo, CB_ADDSTRING, 0, (LPARAM)L"指定节点");
     ComboBox_SetCurSel(g_hCfgTtmodeCombo, 0);
     reg_cfg(g_hCfgTtmodeSet = make_button(hwnd, "Set", IDC_CFG_TTMODE_SET, rx + 230, cy, 55, RH));
     reg_cfg(g_hCfgTtmodeQuery = make_button(hwnd, "Query", IDC_CFG_TTMODE_QUERY, rx + 291, cy, 60, RH));
@@ -909,14 +983,14 @@ static void create_config_page(HWND hwnd, RECT *pageRc)
 
     /* Row 2: WMODE + UPWID */
     reg_cfg(make_static(hwnd, "WMODE:", cx, cy + 3, 70, RH, g_hFont));
-    reg_cfg(g_hCfgWmodeCombo = CreateWindowA("COMBOBOX", "",
+    reg_cfg(g_hCfgWmodeCombo = CreateWindowW(L"COMBOBOX", L"",
             WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
             cx + 74, cy, 150, 200,
             hwnd, (HMENU)(LONG_PTR)IDC_CFG_WMODE_COMBO, g_hInst, NULL));
     SendMessage(g_hCfgWmodeCombo, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-    ComboBox_AddString(g_hCfgWmodeCombo, "广播透传 (默认)");
-    ComboBox_AddString(g_hCfgWmodeCombo, "指定节点");
-    ComboBox_AddString(g_hCfgWmodeCombo, "主动上报");
+    SendMessageW(g_hCfgWmodeCombo, CB_ADDSTRING, 0, (LPARAM)L"广播透传 (默认)");
+    SendMessageW(g_hCfgWmodeCombo, CB_ADDSTRING, 0, (LPARAM)L"指定节点");
+    SendMessageW(g_hCfgWmodeCombo, CB_ADDSTRING, 0, (LPARAM)L"主动上报");
     ComboBox_SetCurSel(g_hCfgWmodeCombo, 0);
     reg_cfg(g_hCfgWmodeSet = make_button(hwnd, "Set", IDC_CFG_WMODE_SET, cx + 230, cy, 55, RH));
     reg_cfg(g_hCfgWmodeQuery = make_button(hwnd, "Query", IDC_CFG_WMODE_QUERY, cx + 291, cy, 60, RH));
@@ -1135,6 +1209,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg,
             g_log_len = 0;
             g_log_buf[0] = '\0';
             SetWindowTextA(g_hLogEdit, "");
+            g_test_count = 0;
+            break;
+        case IDC_SAVE_CSV_BTN:
+            do_save_csv();
             break;
         /* 配置页按钮 */
         case IDC_CFG_SEARCH_BTN:

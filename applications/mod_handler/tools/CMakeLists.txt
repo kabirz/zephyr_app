@@ -20,6 +20,7 @@ target_link_libraries(lora_gateway_tool PRIVATE
     ws2_32
     comctl32
     iphlpapi
+    comdlg32
 )
 
 # MSVC: /utf-8 for source + exec charset

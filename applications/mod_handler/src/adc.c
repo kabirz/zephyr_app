@@ -52,6 +52,7 @@ void adc_read_thread(void)
 	uint16_t buf;
 	struct adc_sequence sequence = {.buffer = &buf, .buffer_size = sizeof(buf)};
 	int32_t val_mv, power_mv = 0;
+	uint32_t lora_send_count = 0;
 	int x_degree = 0, y_degree = 0;
 
 	LOG_INF("ADC read thread started");
@@ -111,12 +112,18 @@ void adc_read_thread(void)
 				mod_can_send_handler_state(&global_params);
 			} else {
 				lora_send_telemetry(&global_params);
+				lora_send_count = 0;
 			}
+		} else if(lora_send_count < 10) {
+			if (global_params.connect_type == LORA_TYPE) {
+				lora_send_telemetry(&global_params);
+				lora_send_count += 1;
+			}
+
 		}
 		battery_status_t battery_status = read_battery_status();
 		if (power_mv != global_params.power_mv ||
 			global_params.battery_status != battery_status) {
-			power_mv = power_mv > global_params.power_mv ? power_mv - 50 : power_mv + 50;
 			mod_display_battery(power_mv, battery_status);
 			global_params.power_mv = power_mv;
 			global_params.battery_status = battery_status;

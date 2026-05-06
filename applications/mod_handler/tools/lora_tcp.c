@@ -201,9 +201,19 @@ static int parse_frame(net_ctx_t *ctx, const uint8_t *data, int len)
         break;
 
     case LORA_DATA_TEST:
-        ctx->cb.log_append(ctx->user_data, "RX TEST");
-        ctx->cb.log_hex(ctx->user_data, "RX TEST data", body, body_len);
-        ctx->cb.add_history_entry(ctx->user_data, nid, "Test", body, body_len);
+        if (body_len >= 2) {
+            uint16_t idx = (uint16_t)get_be16(body);
+            char desc[64];
+            snprintf(desc, sizeof(desc), "RX TEST index=%u", idx);
+            ctx->cb.log_append(ctx->user_data, desc);
+            ctx->cb.add_history_entry(ctx->user_data, nid, "Test", body, body_len);
+            if (ctx->cb.on_test_frame)
+                ctx->cb.on_test_frame(ctx->user_data, nid, idx);
+        } else {
+            ctx->cb.log_append(ctx->user_data, "RX TEST (short)");
+            ctx->cb.log_hex(ctx->user_data, "RX TEST data", body, body_len);
+            ctx->cb.add_history_entry(ctx->user_data, nid, "Test", body, body_len);
+        }
         break;
 
     case LORA_DATA_RSSI:

@@ -221,6 +221,11 @@ bool lora_data_send(const uint8_t *data, size_t len)
 		return false;
 	}
 
+	if (!lora_get_link_status()) {
+		LOG_WRN("Lora not connect");
+		return false;
+	}
+
 	k_mutex_lock(&lora_tx_mutex, K_FOREVER);
 
 	/* 帧头: 0xAA 0x55 */
@@ -962,6 +967,35 @@ static void lora_rssi_thread(void)
 	}
 }
 K_THREAD_DEFINE(lora_heart, 1024, lora_rssi_thread, NULL, NULL, NULL, 12, 0, 0);
+/* ================================================================
+ * 测试发送线程 — 每 200ms 发送一帧, 携带递增 index (uint16_t BE)
+ * Data: [LORA_DATA_TEST][index_hi][index_lo]
+ * ================================================================ */
+static void lora_test_tx_thread(void)
+{
+	static uint16_t test_index = 0;
+	uint8_t frame[3];
+
+	frame[0] = LORA_DATA_TEST;
+
+	while (true) {
+		if (global_params.sleeping) {
+			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
+			continue;
+		}
+
+		test_index++;
+		sys_put_be16(test_index, &frame[1]);
+
+		bool ok = lora_data_send(frame, sizeof(frame));
+		/* LOG_INF("test tx: index=%u %s", test_index, ok ? "OK" : "FAIL"); */
+		if (!ok)
+			test_index--;
+
+		k_msleep(200);
+	}
+}
+K_THREAD_DEFINE(lora_test_tx, 512, lora_test_tx_thread, NULL, NULL, NULL, 12, 0, 0);
 
 /* ================================================================
  * 网关 ID 设置 — 独立于通信参数

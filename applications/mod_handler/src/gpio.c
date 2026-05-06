@@ -28,12 +28,13 @@ static const struct gpio_dt_spec can_power_gpio = GPIO_DT_SPEC_GET(USER_NODE, ca
 static const struct gpio_dt_spec lora_power_gpio = GPIO_DT_SPEC_GET(USER_NODE, lorapower_gpios);
 static const struct gpio_dt_spec dis_power_gpio = GPIO_DT_SPEC_GET(USER_NODE, dispower_gpios);
 static const struct gpio_dt_spec handler_power_gpio = GPIO_DT_SPEC_GET(USER_NODE, handlerpower_gpios);
+static const struct gpio_dt_spec loralink_gpio = GPIO_DT_SPEC_GET(USER_NODE, loralink_gpios);
 
 static struct gpio_callback power_button_cb_data;
 static struct gpio_callback linksw_cb_data;
 
 static struct k_work_delayable btn_display_work;
-static struct k_work linksw_work;
+static struct k_work_delayable linksw_work;
 static struct k_work_delayable sleep_work;
 
 static void btn_display_work_handler(struct k_work *work)
@@ -81,6 +82,11 @@ static void linksw_work_handler(struct k_work *work)
 int handler_get_btn(void)
 {
 	return gpio_pin_get_dt(&handle_button);
+}
+
+bool lora_get_link_status(void)
+{
+	return gpio_pin_get_dt(&loralink_gpio) == 1;
 }
 
 void can_power_enable(bool up)
@@ -178,7 +184,7 @@ static void linksw_irq(const struct device *dev, struct gpio_callback *cb, uint3
 	if (global_params.sleeping) {
 		return;
 	}
-	k_work_submit(&linksw_work);
+	k_work_reschedule(&linksw_work, K_MSEC(10));
 }
 
 static int power_init(void)
@@ -210,7 +216,7 @@ static int power_init(void)
 	}
 
 	global_params.can_heart_time = CAN_HEART_TIME;
-	global_params.connect_type = CAN_TYPE;
+	global_params.connect_type = LORA_TYPE;
 	k_event_init(&global_params.event);
 	k_event_set(&global_params.event, CAN_EVENT);
 
@@ -280,6 +286,12 @@ int gpio_init(void)
 		return ret;
 	}
 
+	ret = gpio_pin_configure_dt(&loralink_gpio, GPIO_INPUT);
+	if (ret < 0) {
+		LOG_ERR("Failed to configure loralink pin: %d", ret);
+		return ret;
+	}
+
 	ret = gpio_pin_interrupt_configure_dt(&power_button, GPIO_INT_EDGE_FALLING);
 	if (ret < 0) {
 		LOG_ERR("Failed to configure power button interrupt: %d", ret);
@@ -304,7 +316,7 @@ int gpio_init(void)
 	gpio_add_callback(link_switch.port, &linksw_cb_data);
 
 	k_work_init_delayable(&btn_display_work, btn_display_work_handler);
-	k_work_init(&linksw_work, linksw_work_handler);
+	k_work_init_delayable(&linksw_work, linksw_work_handler);
 	k_work_init_delayable(&sleep_work, sleep_work_handler);
 
 	LOG_INF("GPIO initialized successfully");
