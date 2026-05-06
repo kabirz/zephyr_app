@@ -749,6 +749,25 @@ static bool parse_lora_frame(const uint8_t *data, uint16_t len, const uint8_t **
  * ================================================================ */
 #define ASM_BUF_SIZE (LORA_BUF_SIZE * 2)
 
+/* ================================================================
+ * LoRa 测试统计 — 时延 (RTT) + 丢包率
+ *
+ * TX: 每 200ms 发送 [0x02][index 2B BE][timestamp 4B BE]
+ * RX: 网关回传同一帧, 计算 RTT = now - timestamp, 检测 index 间隔丢包
+ * ================================================================ */
+static struct {
+	uint32_t tx_count;
+	uint32_t rx_count;
+	uint32_t rtt_last;   /* ms */
+	uint32_t rtt_min;    /* ms, UINT32_MAX = 未初始化 */
+	uint32_t rtt_max;    /* ms */
+	uint64_t rtt_sum;    /* ms, 用于算平均 */
+	uint16_t last_rx_index;
+	uint32_t gap_lost;   /* index 间隔检测到的丢包数 */
+} test_stats = {
+	.rtt_min = UINT32_MAX,
+};
+
 static void lora_msg_process_thread(void)
 {
 	static uint8_t asm_buf[ASM_BUF_SIZE];
@@ -887,8 +906,49 @@ static void lora_msg_process_thread(void)
 						break;
 					}
 					case LORA_DATA_TEST:
-						LOG_HEXDUMP_INF(asm_buf + 2, content_len,
-								"LoRa RX (Test):");
+						/* 网关回传测试帧:
+						 * [0x02][index 2B BE][timestamp 4B BE]
+						 * RTT = now - timestamp, 丢包通过 index 间隔检测
+						 */
+						if (payload_len >= 7) {
+							uint16_t rx_idx = sys_get_be16(payload + 1);
+							uint32_t tx_ts = sys_get_be32(payload + 3);
+							uint32_t rtt = k_uptime_get_32() - tx_ts;
+
+							test_stats.rx_count++;
+							test_stats.rtt_last = rtt;
+							if (rtt < test_stats.rtt_min)
+								test_stats.rtt_min = rtt;
+							if (rtt > test_stats.rtt_max)
+								test_stats.rtt_max = rtt;
+							test_stats.rtt_sum += rtt;
+
+							if (test_stats.rx_count > 1) {
+								uint16_t gap = rx_idx -
+									test_stats.last_rx_index;
+								if (gap > 1)
+									test_stats.gap_lost += gap - 1;
+							}
+							test_stats.last_rx_index = rx_idx;
+
+							uint32_t avg = (uint32_t)(test_stats.rtt_sum /
+										  test_stats.rx_count);
+							uint32_t loss_pct = 0;
+							if (test_stats.tx_count > 0) {
+								loss_pct = (test_stats.tx_count -
+									    test_stats.rx_count) *
+									   100 / test_stats.tx_count;
+							}
+							LOG_INF("test: idx=%u rtt=%u avg=%u "
+								"min=%u max=%u "
+								"rx=%u/%u(%u%%) gap_lost=%u",
+								rx_idx, rtt, avg,
+								test_stats.rtt_min,
+								test_stats.rtt_max,
+								test_stats.rx_count,
+								test_stats.tx_count,
+								loss_pct, test_stats.gap_lost);
+						}
 						break;
 
 					default:
@@ -967,14 +1027,11 @@ static void lora_rssi_thread(void)
 	}
 }
 K_THREAD_DEFINE(lora_heart, 1024, lora_rssi_thread, NULL, NULL, NULL, 12, 0, 0);
-/* ================================================================
- * 测试发送线程 — 每 200ms 发送一帧, 携带递增 index (uint16_t BE)
- * Data: [LORA_DATA_TEST][index_hi][index_lo]
- * ================================================================ */
+
 static void lora_test_tx_thread(void)
 {
 	static uint16_t test_index = 0;
-	uint8_t frame[3];
+	uint8_t frame[7]; /* [type 1B][index 2B BE][timestamp 4B BE] */
 
 	frame[0] = LORA_DATA_TEST;
 
@@ -986,11 +1043,14 @@ static void lora_test_tx_thread(void)
 
 		test_index++;
 		sys_put_be16(test_index, &frame[1]);
+		sys_put_be32(k_uptime_get_32(), &frame[3]);
 
 		bool ok = lora_data_send(frame, sizeof(frame));
-		/* LOG_INF("test tx: index=%u %s", test_index, ok ? "OK" : "FAIL"); */
-		if (!ok)
+		if (ok) {
+			test_stats.tx_count++;
+		} else {
 			test_index--;
+		}
 
 		k_msleep(200);
 	}
@@ -1257,6 +1317,50 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_gw_cmds,
 					     cmd_gw_query, 1, 0),
 			       SHELL_SUBCMD_SET_END);
 
+	static int cmd_test_stats(const struct shell *ctx, size_t argc, char **argv)
+	{
+		ARG_UNUSED(argc);
+		ARG_UNUSED(argv);
+
+		if (test_stats.rx_count > 0) {
+			uint32_t avg = (uint32_t)(test_stats.rtt_sum / test_stats.rx_count);
+			uint32_t loss_pct = 0;
+			if (test_stats.tx_count > 0) {
+				loss_pct = (test_stats.tx_count - test_stats.rx_count) *
+					   100 / test_stats.tx_count;
+			}
+			shell_print(ctx, "tx=%u rx=%u loss=%u%% gap_lost=%u",
+				    test_stats.tx_count, test_stats.rx_count,
+				    loss_pct, test_stats.gap_lost);
+			shell_print(ctx, "rtt: last=%u avg=%u min=%u max=%u (ms)",
+				    test_stats.rtt_last, avg,
+				    test_stats.rtt_min, test_stats.rtt_max);
+		} else {
+			shell_print(ctx, "tx=%u rx=0 (no reply yet)",
+				    test_stats.tx_count);
+		}
+		return 0;
+	}
+
+	static int cmd_test_reset(const struct shell *ctx, size_t argc, char **argv)
+	{
+		ARG_UNUSED(ctx);
+		ARG_UNUSED(argc);
+		ARG_UNUSED(argv);
+
+		memset(&test_stats, 0, sizeof(test_stats));
+		test_stats.rtt_min = UINT32_MAX;
+		shell_print(ctx, "Test stats reset");
+		return 0;
+	}
+
+	SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_test_cmds,
+				       SHELL_CMD_ARG(stats, NULL, "Show test statistics",
+						     cmd_test_stats, 1, 0),
+				       SHELL_CMD_ARG(reset, NULL, "Reset test statistics",
+						     cmd_test_reset, 1, 0),
+				       SHELL_SUBCMD_SET_END);
+
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_cmds,
 			       SHELL_CMD_ARG(send, NULL,
 					     "Send data in transparent mode\n"
@@ -1267,6 +1371,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_cmds,
 					     "Usage: at <command>",
 					     cmd_at, 2, 0),
 			       SHELL_CMD(gw, &sub_lora_gw_cmds, "LG210 gateway operations", NULL),
+			       SHELL_CMD(test, &sub_lora_test_cmds, "Test RTT/loss stats", NULL),
 			       SHELL_CMD_ARG(nid, NULL,
 					     "Get/set node ID\n"
 					     "Usage: nid [hex_value]",

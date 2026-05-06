@@ -54,7 +54,7 @@ typedef struct {
     void (*log_append)(void *ud, const char *text);
     void (*log_hex)(void *ud, const char *prefix,
                     const uint8_t *data, int len);
-    void (*on_test_frame)(void *ud, uint32_t nid, uint16_t index);
+    void (*on_test_frame)(void *ud, uint32_t nid, uint16_t index, uint32_t timestamp);
 
     /* 配置页回调 */
     void (*cfg_log_append)(void *ud, const char *text);

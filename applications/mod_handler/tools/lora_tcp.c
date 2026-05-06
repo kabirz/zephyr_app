@@ -201,18 +201,34 @@ static int parse_frame(net_ctx_t *ctx, const uint8_t *data, int len)
         break;
 
     case LORA_DATA_TEST:
-        if (body_len >= 2) {
+        /* Echo test frame back to device for RTT measurement */
+        net_send_data_frame(ctx, nid, payload, data_len);
+        if (body_len >= 6) {
+            /* New format: [index 2B BE][timestamp 4B BE] */
+            uint16_t idx = (uint16_t)get_be16(body);
+            uint32_t ts  = get_be32(body + 2);
+            char desc[128];
+            snprintf(desc, sizeof(desc),
+                     "RX TEST idx=%u ts=%u ms -> echo", idx, ts);
+            ctx->cb.log_append(ctx->user_data, desc);
+            ctx->cb.add_history_entry(ctx->user_data, nid, "Test",
+                                      body, body_len);
+            if (ctx->cb.on_test_frame)
+                ctx->cb.on_test_frame(ctx->user_data, nid, idx, ts);
+        } else if (body_len >= 2) {
             uint16_t idx = (uint16_t)get_be16(body);
             char desc[64];
-            snprintf(desc, sizeof(desc), "RX TEST index=%u", idx);
+            snprintf(desc, sizeof(desc), "RX TEST index=%u -> echo", idx);
             ctx->cb.log_append(ctx->user_data, desc);
-            ctx->cb.add_history_entry(ctx->user_data, nid, "Test", body, body_len);
+            ctx->cb.add_history_entry(ctx->user_data, nid, "Test",
+                                      body, body_len);
             if (ctx->cb.on_test_frame)
-                ctx->cb.on_test_frame(ctx->user_data, nid, idx);
+                ctx->cb.on_test_frame(ctx->user_data, nid, idx, 0);
         } else {
             ctx->cb.log_append(ctx->user_data, "RX TEST (short)");
             ctx->cb.log_hex(ctx->user_data, "RX TEST data", body, body_len);
-            ctx->cb.add_history_entry(ctx->user_data, nid, "Test", body, body_len);
+            ctx->cb.add_history_entry(ctx->user_data, nid, "Test",
+                                      body, body_len);
         }
         break;
 

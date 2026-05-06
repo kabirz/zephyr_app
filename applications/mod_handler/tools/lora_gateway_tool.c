@@ -197,6 +197,7 @@ static HFONT g_hFontTitle;
 typedef struct {
     uint32_t nid;
     uint16_t index;
+    uint32_t dev_ts; /* device uptime ms */
     char time[32]; /* HH:MM:SS.mmm */
 } test_entry_t;
 
@@ -531,13 +532,14 @@ static void cb_update_connection_status(void *ud)
     }
 }
 
-static void cb_on_test_frame(void *ud, uint32_t nid, uint16_t index)
+static void cb_on_test_frame(void *ud, uint32_t nid, uint16_t index, uint32_t timestamp)
 {
     (void)ud;
     if (g_test_count < TEST_MAX_ENTRIES) {
         test_entry_t *e = &g_test_entries[g_test_count++];
         e->nid = nid;
         e->index = index;
+        e->dev_ts = timestamp;
 
         SYSTEMTIME st;
         GetLocalTime(&st);
@@ -572,12 +574,13 @@ static void do_save_csv(void)
         return;
     }
 
-    fprintf(fp, "Index,Time,NID\n");
+    fprintf(fp, "Index,Time,NID,DevTimestamp_ms\n");
     for (int i = 0; i < g_test_count; i++) {
-        fprintf(fp, "%u,%s,%08X\n",
+        fprintf(fp, "%u,%s,%08X,%u\n",
                 g_test_entries[i].index,
                 g_test_entries[i].time,
-                g_test_entries[i].nid);
+                g_test_entries[i].nid,
+                g_test_entries[i].dev_ts);
     }
     fclose(fp);
 
