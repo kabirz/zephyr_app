@@ -55,6 +55,10 @@ void adc_read_thread(void)
 	uint32_t lora_send_count = 0;
 	int x_degree = 0, y_degree = 0;
 
+	#define POWER_SAMPLE_COUNT 10
+	int32_t power_samples[POWER_SAMPLE_COUNT];
+	int power_sample_idx = 0;
+
 	LOG_INF("ADC read thread started");
 
 	ret = adc_init_channels();
@@ -95,8 +99,9 @@ void adc_read_thread(void)
 				y_degree = (CLAMP(val_mv * 10 / 6, 500, 4500) - 500) * 400 / 4000 - 200;
 				break;
 			case 2:
-				// Power VCC
-				power_mv = val_mv*2;
+				// Power VCC: 存入采样缓冲区
+				power_samples[power_sample_idx] = val_mv * 2;
+				power_sample_idx++;
 				break;
 			default:
 				break;
@@ -121,12 +126,29 @@ void adc_read_thread(void)
 			}
 
 		}
-		battery_status_t battery_status = read_battery_status();
-		if (power_mv != global_params.power_mv ||
-			global_params.battery_status != battery_status) {
-			mod_display_battery(power_mv, battery_status);
-			global_params.power_mv = power_mv;
-			global_params.battery_status = battery_status;
+
+		/* 每 10 次采样 (2s) 去极值取平均更新电池电量 */
+		if (power_sample_idx >= POWER_SAMPLE_COUNT) {
+			int32_t min_v = power_samples[0];
+			int32_t max_v = power_samples[0];
+			int32_t sum = 0;
+			for (int j = 0; j < POWER_SAMPLE_COUNT; j++) {
+				if (power_samples[j] < min_v)
+					min_v = power_samples[j];
+				if (power_samples[j] > max_v)
+					max_v = power_samples[j];
+				sum += power_samples[j];
+			}
+			power_mv = (sum - min_v - max_v) / (POWER_SAMPLE_COUNT - 2);
+			power_sample_idx = 0;
+
+			battery_status_t battery_status = read_battery_status();
+			if (power_mv != global_params.power_mv ||
+				global_params.battery_status != battery_status) {
+				mod_display_battery(power_mv, battery_status);
+				global_params.power_mv = power_mv;
+				global_params.battery_status = battery_status;
+			}
 		}
 
 		uint32_t diff = k_uptime_get_32() - t1;
