@@ -637,12 +637,13 @@ static void udp_process_response(net_ctx_t *ctx,
                             char *buf = _strdup(info);
                             char *token = strtok(buf, ",");
                             int field_idx = 0;
+                            int snr_val = 0;
                             int rssi_val = -120;
 
                             while (token) {
                                 field_idx++;
                                 if (field_idx == 4) {
-                                    /* SNR 字段，跳过 */
+                                    snr_val = atoi(token);
                                 } else if (field_idx == 5) {
                                     rssi_val = atoi(token);
                                     break;
@@ -651,8 +652,11 @@ static void udp_process_response(net_ctx_t *ctx,
                             }
                             free(buf);
 
-                            uint8_t rssi_level = rssi_to_level(rssi_val);
-                            net_send_rssi_response(ctx, g_pending_rssi_nid, rssi_level);
+                            extern BOOL g_testModeEnabled;
+                            uint8_t snr_raw = (uint8_t)(int8_t)snr_val;
+                            uint8_t rssi_raw = (uint8_t)(int8_t)rssi_val;
+                            net_send_rssi_response(ctx, g_pending_rssi_nid, snr_raw,
+                                                   rssi_raw, g_testModeEnabled ? 1 : 0);
                             g_pending_rssi_nid = 0;
                         }
                     }

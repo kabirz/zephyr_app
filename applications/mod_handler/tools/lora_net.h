@@ -171,7 +171,8 @@ void net_on_tcp_rx(net_ctx_t *ctx, tcp_rx_chunk_t *chunk);
 int  net_on_socket_event(net_ctx_t *ctx, int event, int error);
 void net_send_data_frame(net_ctx_t *ctx, uint32_t nid,
                          const uint8_t *data, uint16_t data_len);
-void net_send_rssi_response(net_ctx_t *ctx, uint32_t nid, uint8_t rssi);
+void net_send_rssi_response(net_ctx_t *ctx, uint32_t nid, uint8_t snr_raw,
+                            uint8_t rssi_raw, uint8_t test_flag);
 
 /* ----------------------------------------------------------------
  * UDP 配置操作 (lora_udp.c)

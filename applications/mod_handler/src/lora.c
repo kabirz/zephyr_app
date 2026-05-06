@@ -223,6 +223,8 @@ bool lora_data_send(const uint8_t *data, size_t len)
 
 	if (!lora_get_link_status()) {
 		LOG_WRN("Lora not connect");
+		global_params.rssi = 0;
+		mod_display_lora(0);
 		return false;
 	}
 
@@ -279,10 +281,17 @@ bool lora_data_send(const uint8_t *data, size_t len)
 }
 
 /* ================================================================
+ * 测试模式 — 由 RSSI 响应中的 test_flag 控制
+ * ================================================================ */
+static volatile bool test_mode_active;
+
+/* ================================================================
  * 遥测数据帧打包发送 — Data: [0x01][X 2B BE][Y 2B BE][btn][0xFF 3B]
  * ================================================================ */
 bool lora_send_telemetry(const gloval_params_t *params)
 {
+	if (test_mode_active) return false;
+
 	uint8_t frame[9];
 
 	frame[0] = LORA_DATA_HANDLER;
@@ -768,6 +777,54 @@ static struct {
 	.rtt_min = UINT32_MAX,
 };
 
+// 定义信号等级枚举
+typedef enum {
+    SIGNAL_NONE = 0,    // 无信号/极差
+    SIGNAL_BAD = 1,     // 差
+    SIGNAL_FAIR = 2,    // 一般
+    SIGNAL_GOOD = 3,    // 良好
+    SIGNAL_EXCELLENT = 4 // 极好
+} SignalQuality_t;
+
+SignalQuality_t get_lora_signal_level(int32_t rssi, int32_t snr)
+{
+    uint8_t score = 0;
+
+    // --- 1. SNR 评分 (权重较高，因为 LoRa 对信噪比敏感) ---
+    if (snr > 10) {
+        score += 3;       // SNR 极佳
+    } else if (snr > 0) {
+        score += 2;       // SNR 良好
+    } else if (snr > -10) {
+        score += 1;       // SNR 一般
+    }
+    // SNR < -10 不得分
+
+    // --- 2. RSSI 评分 ---
+    if (rssi > -80) {
+        score += 3;       // 信号极强
+    } else if (rssi > -100) {
+        score += 2;       // 信号良好
+    } else if (rssi > -115) {
+        score += 1;       // 信号一般
+    }
+    // RSSI < -115 不得分
+
+    // --- 3. 综合判定等级 ---
+    // 满分 6 分，最低 0 分
+    if (score >= 5) {
+        return SIGNAL_EXCELLENT; // 4级：极好
+    } else if (score >= 4) {
+        return SIGNAL_GOOD;      // 3级：良好
+    } else if (score >= 2) {
+        return SIGNAL_FAIR;      // 2级：一般
+    } else if (score >= 1) {
+        return SIGNAL_BAD;       // 1级：差
+    } else {
+        return SIGNAL_NONE;      // 0级：无/无效
+    }
+}
+
 static void lora_msg_process_thread(void)
 {
 	static uint8_t asm_buf[ASM_BUF_SIZE];
@@ -864,19 +921,31 @@ static void lora_msg_process_thread(void)
 
 					switch (type) {
 					case LORA_DATA_RSSI:
-						if (payload_len >= 2) {
-							uint8_t rssi = payload[1];
+						if (payload_len >= 4) {
+							int8_t raw_snr = (int8_t)payload[1];
+							int8_t raw_rssi = (int8_t)payload[2];
+							uint8_t test_flag = payload[3];
+							SignalQuality_t level;
 
-							/* if (rssi > 4) { */
-								/* rssi = 4; */
-							/* } */
-							if (global_params.rssi != rssi) {
-								global_params.rssi = rssi;
-								mod_display_lora(rssi);
-								LOG_INF("LoRa RSSI level: %d", rssi);
+							int32_t rssi = ((int32_t)raw_rssi - 241) * 3100 + 437887;
+							rssi = rssi / 9700;
+							level = get_lora_signal_level(raw_rssi, raw_snr);
+
+							if (global_params.rssi != (uint8_t)level) {
+								global_params.rssi = (uint8_t)level;
+								mod_display_lora((uint8_t)level);
+								LOG_INF("LoRa RSSI: rssi=%d snr=%d, level=%d",
+									raw_rssi, raw_snr, level);
 							}
+
+							bool was_test = test_mode_active;
+							test_mode_active = (test_flag != 0);
+							if (test_mode_active && !was_test)
+								LOG_INF("Test mode activated");
+							else if (!test_mode_active && was_test)
+								LOG_INF("Test mode deactivated");
+
 							rssi_fail_count = 0;
-							LOG_INF("RSSI ACK!");
 							k_sem_give(&lora_rssi_sem);
 						}
 						break;
@@ -1041,6 +1110,11 @@ static void lora_test_tx_thread(void)
 			continue;
 		}
 
+		if (!test_mode_active) {
+			k_msleep(200);
+			continue;
+		}
+
 		test_index++;
 		sys_put_be16(test_index, &frame[1]);
 		sys_put_be32(k_uptime_get_32(), &frame[3]);
@@ -1056,6 +1130,11 @@ static void lora_test_tx_thread(void)
 	}
 }
 K_THREAD_DEFINE(lora_test_tx, 512, lora_test_tx_thread, NULL, NULL, NULL, 12, 0, 0);
+
+bool lora_is_test_mode(void)
+{
+	return test_mode_active;
+}
 
 /* ================================================================
  * 网关 ID 设置 — 独立于通信参数

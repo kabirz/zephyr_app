@@ -126,6 +126,9 @@
 #define IDC_CFG_PWR_SET       1264
 #define IDC_CFG_PWR_QUERY     1265
 
+/* 测试模式控件 */
+#define IDC_TEST_MODE_CHECK    1280
+
 /* ================================================================
  * UI 全局状态
  * ================================================================ */
@@ -174,6 +177,10 @@ static HWND g_hCfgUpwidText, g_hCfgUpwidQuery, g_hCfgUpwidOn, g_hCfgUpwidOff;
 static HWND g_hCfgChCombo, g_hCfgChEdit, g_hCfgChSet, g_hCfgChQuery;
 static HWND g_hCfgSpdEdit, g_hCfgSpdSet, g_hCfgSpdQuery;
 static HWND g_hCfgPwrEdit, g_hCfgPwrSet, g_hCfgPwrQuery;
+
+/* 测试模式 */
+static HWND g_hTestModeCheck;
+BOOL g_testModeEnabled = FALSE;
 
 /* 页面控件数组 (用于显示/隐藏) — 见 MAX_PAGE_CTLS 定义 */
 
@@ -790,6 +797,11 @@ static void create_data_page(HWND hwnd, RECT *pageRc)
     reg_data(g_hNidEdit = make_edit(hwnd, "--------", IDC_NID_EDIT,
                                     cx + 32, cy, 90, RH));
     SendMessage(g_hNidEdit, EM_SETREADONLY, TRUE, 0);
+    reg_data(g_hTestModeCheck = CreateWindowA("BUTTON", "Test Mode",
+            WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+            cx + 130, cy, 100, RH, hwnd,
+            (HMENU)(LONG_PTR)IDC_TEST_MODE_CHECK, g_hInst, NULL));
+    SendMessage(g_hTestModeCheck, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
     y += conn_h + GAP;
 
@@ -1216,6 +1228,9 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg,
             break;
         case IDC_SAVE_CSV_BTN:
             do_save_csv();
+            break;
+        case IDC_TEST_MODE_CHECK:
+            g_testModeEnabled = (IsDlgButtonChecked(hwnd, IDC_TEST_MODE_CHECK) == BST_CHECKED);
             break;
         /* 配置页按钮 */
         case IDC_CFG_SEARCH_BTN:

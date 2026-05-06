@@ -71,12 +71,13 @@ void net_send_data_frame(net_ctx_t *ctx, uint32_t nid,
     ctx->cb.update_stats(ctx->user_data);
 }
 
-void net_send_rssi_response(net_ctx_t *ctx, uint32_t nid, uint8_t rssi)
+void net_send_rssi_response(net_ctx_t *ctx, uint32_t nid, uint8_t snr_raw,
+                            uint8_t rssi_raw, uint8_t test_flag)
 {
     if (tcp_sock == INVALID_SOCKET) return;
 
-    uint8_t payload[2] = { LORA_DATA_RSSI, rssi };
-    uint8_t buf[LORA_GATEWAY_PREFIX + LORA_FRAME_WRAPPER_SIZE + LORA_FRAME_OVERHEAD + 2];
+    uint8_t payload[4] = { LORA_DATA_RSSI, snr_raw, rssi_raw, test_flag };
+    uint8_t buf[LORA_GATEWAY_PREFIX + LORA_FRAME_WRAPPER_SIZE + LORA_FRAME_OVERHEAD + 4];
     int off = 0;
 
     /* NID 前缀 */
@@ -88,7 +89,7 @@ void net_send_rssi_response(net_ctx_t *ctx, uint32_t nid, uint8_t rssi)
     buf[off++] = LORA_FRAME_HDR_BYTE2;
 
     int len = net_build_frame(buf + off, sizeof(buf) - off - 2,
-                              nid, payload, 2);
+                              nid, payload, 3);
     if (len <= 0) return;
     off += len;
 
@@ -99,10 +100,11 @@ void net_send_rssi_response(net_ctx_t *ctx, uint32_t nid, uint8_t rssi)
     send(tcp_sock, (const char *)buf, off, 0);
     g_tx_count++;
     char desc[64];
-    snprintf(desc, sizeof(desc), "TX RSSI response: level %d", rssi);
+    snprintf(desc, sizeof(desc), "TX RSSI response: raw=%d test=%d",
+             (int)(int8_t)rssi_raw, test_flag);
     ctx->cb.log_append(ctx->user_data, desc);
     ctx->cb.log_hex(ctx->user_data, "TX RSSI", buf, off);
-    ctx->cb.add_history_entry(ctx->user_data, nid, "TX RSSI", payload, 2);
+    ctx->cb.add_history_entry(ctx->user_data, nid, "TX RSSI", payload, 3);
     ctx->cb.update_stats(ctx->user_data);
 }
 
@@ -189,6 +191,35 @@ static int parse_frame(net_ctx_t *ctx, const uint8_t *data, int len)
             ctx->cb.add_history_entry(ctx->user_data, nid, "Telemetry",
                                       (const uint8_t *)detail, (uint16_t)strlen(detail));
             ctx->cb.update_telemetry(ctx->user_data);
+
+            /* 自动回复随机扫描仪数据 */
+            {
+                uint8_t scan[11]; /* [type 1B][CAN_ID 2B][data 8B] */
+                scan[0] = LORA_DATA_HANDLER;
+
+                /* 0x263: OVERBREAK_LASER */
+                put_be16(scan + 1, 0x0263);
+                scan[3] = 0x03; /* overbreak_valid=1, laser_valid=1 */
+                scan[4] = 0x00;
+                put_be16(scan + 5, (uint16_t)(rand() % 200 - 100));
+                put_be32(scan + 7, (uint32_t)(rand() % 50000 + 1000));
+                net_send_data_frame(ctx, nid, scan, 11);
+
+                /* 0x363: COORD_XY */
+                put_be16(scan + 1, 0x0363);
+                put_be32(scan + 3, (uint32_t)(rand() % 10000 - 5000));
+                put_be32(scan + 7, (uint32_t)(rand() % 10000 - 5000));
+                net_send_data_frame(ctx, nid, scan, 11);
+
+                /* 0x463: COORD_Z */
+                put_be16(scan + 1, 0x0463);
+                put_be32(scan + 3, (uint32_t)(rand() % 5000));
+                scan[7] = 0x01; /* coord_z_valid=1 */
+                scan[8] = 0xFF;
+                scan[9] = 0xFF;
+                scan[10] = 0xFF;
+                net_send_data_frame(ctx, nid, scan, 11);
+            }
         } else {
             /* 非标准遥测格式: 记录原始数据 */
             char desc[64];
