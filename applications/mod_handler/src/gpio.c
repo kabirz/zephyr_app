@@ -36,6 +36,7 @@ static struct gpio_callback linksw_cb_data;
 static struct k_work_delayable btn_display_work;
 static struct k_work_delayable linksw_work;
 static struct k_work_delayable sleep_work;
+static struct k_work_delayable delayed_sleep_work;
 
 static void btn_display_work_handler(struct k_work *work)
 {
@@ -140,13 +141,20 @@ static void system_wake(void)
 	LOG_INF("system woke up");
 }
 
+static void delayed_sleep_handler(struct k_work *work)
+{
+	if (!global_params.sleeping) {
+		system_sleep();
+	}
+}
+
 static void sleep_work_handler(struct k_work *work)
 {
 	if (gpio_pin_get_dt(&power_button) == 0) {
 		if (global_params.sleeping) {
 			system_wake();
 		} else {
-			system_sleep();
+			k_work_reschedule(&delayed_sleep_work, K_SECONDS(1));
 		}
 	}
 }
@@ -318,6 +326,7 @@ int gpio_init(void)
 	k_work_init_delayable(&btn_display_work, btn_display_work_handler);
 	k_work_init_delayable(&linksw_work, linksw_work_handler);
 	k_work_init_delayable(&sleep_work, sleep_work_handler);
+	k_work_init_delayable(&delayed_sleep_work, delayed_sleep_handler);
 
 	LOG_INF("GPIO initialized successfully");
 	LOG_INF("  PB12 (Charge Full): %s", gpio_pin_get_dt(&charge_full) ? "HIGH" : "LOW");
