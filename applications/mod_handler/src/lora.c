@@ -290,7 +290,9 @@ static volatile bool test_mode_active;
  * ================================================================ */
 bool lora_send_telemetry(const gloval_params_t *params)
 {
-	if (test_mode_active) return false;
+	if (test_mode_active) {
+		return false;
+	}
 
 	uint8_t frame[9];
 
@@ -779,50 +781,50 @@ static struct {
 
 // 定义信号等级枚举
 typedef enum {
-    SIGNAL_NONE = 0,    // 无信号/极差
-    SIGNAL_BAD = 1,     // 差
-    SIGNAL_FAIR = 2,    // 一般
-    SIGNAL_GOOD = 3,    // 良好
-    SIGNAL_EXCELLENT = 4 // 极好
+	SIGNAL_NONE = 0,     // 无信号/极差
+	SIGNAL_BAD = 1,      // 差
+	SIGNAL_FAIR = 2,     // 一般
+	SIGNAL_GOOD = 3,     // 良好
+	SIGNAL_EXCELLENT = 4 // 极好
 } SignalQuality_t;
 
 SignalQuality_t get_lora_signal_level(int32_t rssi, int32_t snr)
 {
-    uint8_t score = 0;
+	uint8_t score = 0;
 
-    // --- 1. SNR 评分 (权重较高，因为 LoRa 对信噪比敏感) ---
-    if (snr > 10) {
-        score += 3;       // SNR 极佳
-    } else if (snr > 0) {
-        score += 2;       // SNR 良好
-    } else if (snr > -10) {
-        score += 1;       // SNR 一般
-    }
-    // SNR < -10 不得分
+	// --- 1. SNR 评分 (权重较高，因为 LoRa 对信噪比敏感) ---
+	if (snr > 10) {
+		score += 3; // SNR 极佳
+	} else if (snr > 0) {
+		score += 2; // SNR 良好
+	} else if (snr > -10) {
+		score += 1; // SNR 一般
+	}
+	// SNR < -10 不得分
 
-    // --- 2. RSSI 评分 ---
-    if (rssi > -80) {
-        score += 3;       // 信号极强
-    } else if (rssi > -100) {
-        score += 2;       // 信号良好
-    } else if (rssi > -115) {
-        score += 1;       // 信号一般
-    }
-    // RSSI < -115 不得分
+	// --- 2. RSSI 评分 ---
+	if (rssi > -80) {
+		score += 3; // 信号极强
+	} else if (rssi > -100) {
+		score += 2; // 信号良好
+	} else if (rssi > -115) {
+		score += 1; // 信号一般
+	}
+	// RSSI < -115 不得分
 
-    // --- 3. 综合判定等级 ---
-    // 满分 6 分，最低 0 分
-    if (score >= 5) {
-        return SIGNAL_EXCELLENT; // 4级：极好
-    } else if (score >= 4) {
-        return SIGNAL_GOOD;      // 3级：良好
-    } else if (score >= 2) {
-        return SIGNAL_FAIR;      // 2级：一般
-    } else if (score >= 1) {
-        return SIGNAL_BAD;       // 1级：差
-    } else {
-        return SIGNAL_NONE;      // 0级：无/无效
-    }
+	// --- 3. 综合判定等级 ---
+	// 满分 6 分，最低 0 分
+	if (score >= 5) {
+		return SIGNAL_EXCELLENT; // 4级：极好
+	} else if (score >= 4) {
+		return SIGNAL_GOOD; // 3级：良好
+	} else if (score >= 2) {
+		return SIGNAL_FAIR; // 2级：一般
+	} else if (score >= 1) {
+		return SIGNAL_BAD; // 1级：差
+	} else {
+		return SIGNAL_NONE; // 0级：无/无效
+	}
 }
 
 static void lora_msg_process_thread(void)
@@ -940,10 +942,11 @@ static void lora_msg_process_thread(void)
 
 							bool was_test = test_mode_active;
 							test_mode_active = (test_flag != 0);
-							if (test_mode_active && !was_test)
+							if (test_mode_active && !was_test) {
 								LOG_INF("Test mode activated");
-							else if (!test_mode_active && was_test)
+							} else if (!test_mode_active && was_test) {
 								LOG_INF("Test mode deactivated");
+							}
 
 							rssi_fail_count = 0;
 							k_sem_give(&lora_rssi_sem);
@@ -986,22 +989,28 @@ static void lora_msg_process_thread(void)
 
 							test_stats.rx_count++;
 							test_stats.rtt_last = rtt;
-							if (rtt < test_stats.rtt_min)
+							if (rtt < test_stats.rtt_min) {
 								test_stats.rtt_min = rtt;
-							if (rtt > test_stats.rtt_max)
+							}
+							if (rtt > test_stats.rtt_max) {
 								test_stats.rtt_max = rtt;
+							}
 							test_stats.rtt_sum += rtt;
 
 							if (test_stats.rx_count > 1) {
-								uint16_t gap = rx_idx -
+								uint16_t gap =
+									rx_idx -
 									test_stats.last_rx_index;
-								if (gap > 1)
-									test_stats.gap_lost += gap - 1;
+								if (gap > 1) {
+									test_stats.gap_lost +=
+										gap - 1;
+								}
 							}
 							test_stats.last_rx_index = rx_idx;
 
-							uint32_t avg = (uint32_t)(test_stats.rtt_sum /
-										  test_stats.rx_count);
+							uint32_t avg =
+								(uint32_t)(test_stats.rtt_sum /
+									   test_stats.rx_count);
 							uint32_t loss_pct = 0;
 							if (test_stats.tx_count > 0) {
 								loss_pct = (test_stats.tx_count -
@@ -1015,8 +1024,8 @@ static void lora_msg_process_thread(void)
 								test_stats.rtt_min,
 								test_stats.rtt_max,
 								test_stats.rx_count,
-								test_stats.tx_count,
-								loss_pct, test_stats.gap_lost);
+								test_stats.tx_count, loss_pct,
+								test_stats.gap_lost);
 						}
 						break;
 
@@ -1091,8 +1100,9 @@ static void lora_rssi_thread(void)
 		}
 
 		uint32_t diff = k_uptime_get_32() - t1;
-		if (LORA_RSSI_PERIOD_MS > diff)
+		if (LORA_RSSI_PERIOD_MS > diff) {
 			k_sleep(K_MSEC(LORA_RSSI_PERIOD_MS - diff));
+		}
 	}
 }
 K_THREAD_DEFINE(lora_heart, 1024, lora_rssi_thread, NULL, NULL, NULL, 12, 0, 0);
@@ -1224,9 +1234,9 @@ static int cmd_send(const struct shell *ctx, size_t argc, char **argv)
 	uint8_t tx_data[64];
 	tx_data[0] = LORA_DATA_TEST;
 	size_t len = strlen(argv[1]);
-	memcpy(tx_data+1, argv[1], len);
+	memcpy(tx_data + 1, argv[1], len);
 
-	if (!lora_data_send(tx_data, len+1)) {
+	if (!lora_data_send(tx_data, len + 1)) {
 		shell_error(ctx, "LoRa busy or not in data mode");
 		return -EIO;
 	}
@@ -1396,49 +1406,46 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_gw_cmds,
 					     cmd_gw_query, 1, 0),
 			       SHELL_SUBCMD_SET_END);
 
-	static int cmd_test_stats(const struct shell *ctx, size_t argc, char **argv)
-	{
-		ARG_UNUSED(argc);
-		ARG_UNUSED(argv);
+static int cmd_test_stats(const struct shell *ctx, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
 
-		if (test_stats.rx_count > 0) {
-			uint32_t avg = (uint32_t)(test_stats.rtt_sum / test_stats.rx_count);
-			uint32_t loss_pct = 0;
-			if (test_stats.tx_count > 0) {
-				loss_pct = (test_stats.tx_count - test_stats.rx_count) *
-					   100 / test_stats.tx_count;
-			}
-			shell_print(ctx, "tx=%u rx=%u loss=%u%% gap_lost=%u",
-				    test_stats.tx_count, test_stats.rx_count,
-				    loss_pct, test_stats.gap_lost);
-			shell_print(ctx, "rtt: last=%u avg=%u min=%u max=%u (ms)",
-				    test_stats.rtt_last, avg,
-				    test_stats.rtt_min, test_stats.rtt_max);
-		} else {
-			shell_print(ctx, "tx=%u rx=0 (no reply yet)",
-				    test_stats.tx_count);
+	if (test_stats.rx_count > 0) {
+		uint32_t avg = (uint32_t)(test_stats.rtt_sum / test_stats.rx_count);
+		uint32_t loss_pct = 0;
+		if (test_stats.tx_count > 0) {
+			loss_pct = (test_stats.tx_count - test_stats.rx_count) * 100 /
+				   test_stats.tx_count;
 		}
-		return 0;
+		shell_print(ctx, "tx=%u rx=%u loss=%u%% gap_lost=%u", test_stats.tx_count,
+			    test_stats.rx_count, loss_pct, test_stats.gap_lost);
+		shell_print(ctx, "rtt: last=%u avg=%u min=%u max=%u (ms)", test_stats.rtt_last, avg,
+			    test_stats.rtt_min, test_stats.rtt_max);
+	} else {
+		shell_print(ctx, "tx=%u rx=0 (no reply yet)", test_stats.tx_count);
 	}
+	return 0;
+}
 
-	static int cmd_test_reset(const struct shell *ctx, size_t argc, char **argv)
-	{
-		ARG_UNUSED(ctx);
-		ARG_UNUSED(argc);
-		ARG_UNUSED(argv);
+static int cmd_test_reset(const struct shell *ctx, size_t argc, char **argv)
+{
+	ARG_UNUSED(ctx);
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
 
-		memset(&test_stats, 0, sizeof(test_stats));
-		test_stats.rtt_min = UINT32_MAX;
-		shell_print(ctx, "Test stats reset");
-		return 0;
-	}
+	memset(&test_stats, 0, sizeof(test_stats));
+	test_stats.rtt_min = UINT32_MAX;
+	shell_print(ctx, "Test stats reset");
+	return 0;
+}
 
-	SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_test_cmds,
-				       SHELL_CMD_ARG(stats, NULL, "Show test statistics",
-						     cmd_test_stats, 1, 0),
-				       SHELL_CMD_ARG(reset, NULL, "Reset test statistics",
-						     cmd_test_reset, 1, 0),
-				       SHELL_SUBCMD_SET_END);
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_test_cmds,
+			       SHELL_CMD_ARG(stats, NULL, "Show test statistics", cmd_test_stats, 1,
+					     0),
+			       SHELL_CMD_ARG(reset, NULL, "Reset test statistics", cmd_test_reset,
+					     1, 0),
+			       SHELL_SUBCMD_SET_END);
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_cmds,
 			       SHELL_CMD_ARG(send, NULL,

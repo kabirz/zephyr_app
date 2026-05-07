@@ -89,7 +89,6 @@ void mod_display_reinit(void)
 	if (display_dev->ops.init) {
 		display_dev->ops.init(display_dev);
 	}
-
 }
 
 /* 用空格填充到行尾, 覆盖旧内容 */
@@ -138,15 +137,17 @@ void mod_display_lora_nid(uint32_t nid)
 	k_mutex_unlock(&display_mutex);
 }
 
-
 /* Row 0 左侧3(24x16): 电池图标 */
 void mod_display_battery(uint32_t power_mv, battery_status_t status)
 {
 	k_mutex_lock(&display_mutex, K_FOREVER);
 
 	display_char(' ', 96, 0);
-	int idx = power_mv >= 3850 ? 4 : power_mv >= 3750 ? 3 : power_mv >= 3550 ? 3 :
-		power_mv >= 3400 ? 1 : 0;
+	int idx = power_mv >= 3850   ? 4
+		  : power_mv >= 3750 ? 3
+		  : power_mv >= 3550 ? 3
+		  : power_mv >= 3400 ? 1
+				     : 0;
 	if (status == BATTERY_STATUS_FULL) {
 		display_write_buf(104, 0, BATTERY_ICON_W, BATTERY_ICON_H, battery_full);
 	} else if (status == BATTERY_STATUS_CHARGING) {

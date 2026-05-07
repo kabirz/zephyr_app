@@ -55,7 +55,7 @@ void adc_read_thread(void)
 	uint32_t lora_send_count = 0;
 	int x_degree = 0, y_degree = 0;
 
-	#define POWER_SAMPLE_COUNT 10
+#define POWER_SAMPLE_COUNT 10
 	int32_t power_samples[POWER_SAMPLE_COUNT];
 	int power_sample_idx = 0;
 
@@ -121,13 +121,11 @@ void adc_read_thread(void)
 					lora_send_count = 0;
 				}
 			}
-		} else if(lora_send_count < 10) {
-			if (global_params.connect_type == LORA_TYPE &&
-			    !lora_is_test_mode()) {
+		} else if (lora_send_count < 10) {
+			if (global_params.connect_type == LORA_TYPE && !lora_is_test_mode()) {
 				lora_send_telemetry(&global_params);
 				lora_send_count += 1;
 			}
-
 		}
 
 		/* 每 10 次采样 (2s) 去极值取平均更新电池电量 */
@@ -136,10 +134,12 @@ void adc_read_thread(void)
 			int32_t max_v = power_samples[0];
 			int32_t sum = 0;
 			for (int j = 0; j < POWER_SAMPLE_COUNT; j++) {
-				if (power_samples[j] < min_v)
+				if (power_samples[j] < min_v) {
 					min_v = power_samples[j];
-				if (power_samples[j] > max_v)
+				}
+				if (power_samples[j] > max_v) {
 					max_v = power_samples[j];
+				}
 				sum += power_samples[j];
 			}
 			power_mv = (sum - min_v - max_v) / (POWER_SAMPLE_COUNT - 2);
@@ -147,7 +147,7 @@ void adc_read_thread(void)
 
 			battery_status_t battery_status = read_battery_status();
 			if (power_mv != global_params.power_mv ||
-				global_params.battery_status != battery_status) {
+			    global_params.battery_status != battery_status) {
 				mod_display_battery(power_mv, battery_status);
 				global_params.power_mv = power_mv;
 				global_params.battery_status = battery_status;
@@ -155,8 +155,9 @@ void adc_read_thread(void)
 		}
 
 		uint32_t diff = k_uptime_get_32() - t1;
-		if (diff < 200)
+		if (diff < 200) {
 			k_sleep(K_MSEC(200 - diff));
+		}
 	}
 }
 
