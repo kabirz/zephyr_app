@@ -127,21 +127,14 @@ void mod_display_can(void)
 	k_mutex_unlock(&display_mutex);
 }
 
-/* Row 0 左侧2: 节点ID */
-void mod_display_lora_nid(uint32_t nid)
+/* Row 0 左侧2(8*16 24x16): 电池电量和图标 */
+void mod_display_battery(uint32_t power_mv, battery_status_t status)
 {
 	char line[32] = {0};
 	k_mutex_lock(&display_mutex, K_FOREVER);
-	snprintf(line, sizeof(line), "%08X", nid);
+
+	snprintf(line, sizeof(line), " %04d ", power_mv);
 	display_str_pad(line, 32, 0, 64);
-	k_mutex_unlock(&display_mutex);
-}
-
-/* Row 0 左侧3(24x16): 电池图标 */
-void mod_display_battery(uint32_t power_mv, battery_status_t status)
-{
-	k_mutex_lock(&display_mutex, K_FOREVER);
-
 	display_char(' ', 96, 0);
 	int idx = power_mv >= 3850   ? 4
 		  : power_mv >= 3750 ? 3
@@ -218,7 +211,6 @@ void mod_display_all(const gloval_params_t *params)
 	} else {
 		mod_display_lora(params->rssi);
 	}
-	mod_display_lora_nid(params->nid);
 	mod_display_battery(params->power_mv, params->battery_status);
 
 	mod_display_scanner(&params->scanner);

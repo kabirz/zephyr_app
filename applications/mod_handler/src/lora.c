@@ -100,7 +100,7 @@ static K_SEM_DEFINE(at_resp_sem, 0, 1);
  * ================================================================ */
 static K_SEM_DEFINE(lora_rssi_sem, 0, 1);
 
-#define LORA_RSSI_PERIOD_MS  10000 /* RSSI 轮询周期 */
+#define LORA_RSSI_PERIOD_MS  4000  /* RSSI 轮询周期 */
 #define LORA_RSSI_TIMEOUT_MS 1500  /* RSSI 响应等待超时 */
 #define LORA_RSSI_FAIL_MAX   3     /* 连续失败判定断连 */
 
@@ -946,6 +946,8 @@ static void lora_msg_process_thread(void)
 								LOG_INF("Test mode activated");
 							} else if (!test_mode_active && was_test) {
 								LOG_INF("Test mode deactivated");
+								memset(&test_stats, 0, sizeof(test_stats));
+								test_stats.rtt_min = UINT32_MAX;
 							}
 
 							rssi_fail_count = 0;
@@ -1205,7 +1207,6 @@ int lora_set_node_id(uint32_t nid)
 
 	/* 模块重启后直接进入透传模式, 更新本地缓存 */
 	global_params.nid = nid;
-	mod_display_lora_nid(global_params.nid);
 	k_msleep(50);
 	lora_rx_disable_sync();
 	atomic_set(&lora_current_mode, LORA_MODE_DATA);
@@ -1549,7 +1550,6 @@ static int lora_serial_init(void)
 		ret = lora_send_at("AT+NID", resp, sizeof(resp), 2000);
 		if (ret == 0) {
 			global_params.nid = (uint32_t)parse_at_hex(resp);
-			mod_display_lora_nid(global_params.nid);
 			LOG_INF("LoRa NID: 0x%08X", global_params.nid);
 		}
 

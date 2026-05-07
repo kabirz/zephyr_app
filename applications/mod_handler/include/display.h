@@ -8,7 +8,6 @@ void mod_display_clear(void);
 void mod_display_lora(uint8_t rssi);
 void mod_display_battery(uint32_t mv, battery_status_t status);
 void mod_display_can(void);
-void mod_display_lora_nid(uint32_t nid);
 
 void mod_display_scanner(const scanner_data_t *s);
 void mod_display_handler_xy(int x, int y);
