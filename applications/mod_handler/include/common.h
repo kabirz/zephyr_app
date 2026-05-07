@@ -41,10 +41,15 @@ typedef struct {
 	battery_status_t battery_status;
 	scanner_data_t scanner;
 	uint8_t rssi;
+	uint8_t prot;  /* 通信协议 (enum lora_gw_prot) */
+	uint8_t mode;  /* 通信模式 (enum lora_gw_mode) */
 	uint32_t gwid;
 	uint32_t nid;
-	uint16_t ch1; /* 通道1频率 (4100~5100, 单位100KHz) */
-	uint16_t ch2; /* 通道2频率 (4100~5100, 单位100KHz) */
+	uint16_t ch1;  /* 通道1频率 (4100~5100, 单位100KHz) */
+	uint16_t ch2;  /* 通道2频率 (4100~5100, 单位100KHz) */
+	uint8_t spd1;  /* 通道1速率等级 (4-11) */
+	uint8_t spd2;  /* 通道2速率等级 (4-11) */
+	uint8_t pnum;  /* 通道选择 (0/1/2) */
 	volatile bool sleeping;
 	struct k_event event;
 

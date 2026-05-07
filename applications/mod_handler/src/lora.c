@@ -469,109 +469,6 @@ int lora_exit_at(void)
 	return 0;
 }
 
-/* ================================================================
- * LG210 网关配置 — LORAPROT + SPD + CH + 保存 + 重启
- * ================================================================ */
-int lora_gw_configure(const struct lora_gw_config *cfg)
-{
-	struct lora_gw_config defaults = {
-		.mode = LORA_GW_MODE_TRANS,
-		.prot = LORA_PROT_LG210,
-	};
-
-	if (!cfg) {
-		cfg = &defaults;
-	}
-
-	int ret = lora_enter_at();
-	if (ret) {
-		return ret;
-	}
-
-	char resp[128];
-	char cmd[64];
-
-	/* 选择通信协议 */
-	const char *prot_str;
-
-	switch (cfg->prot) {
-	case LORA_PROT_LG210:
-		prot_str = "LG210";
-		break;
-	case LORA_PROT_LG220:
-		prot_str = "LG220";
-		break;
-	default:
-		prot_str = "NODE";
-		break;
-	}
-	snprintf(cmd, sizeof(cmd), "AT+LORAPROT=%s", prot_str);
-	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
-	if (ret) {
-		LOG_ERR("Set LORAPROT failed");
-		goto out;
-	}
-
-	/* 设置速率等级 */
-	snprintf(cmd, sizeof(cmd), "AT+SPD=%d", cfg->spd);
-	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
-	if (ret) {
-		LOG_ERR("Set SPD failed");
-		goto out;
-	}
-
-	/* 设置信道 */
-	snprintf(cmd, sizeof(cmd), "AT+CH=%d", cfg->ch);
-	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
-	if (ret) {
-		LOG_ERR("Set CH failed");
-		goto out;
-	}
-
-	/* 设置工作模式 — FP=点对点, TRANS=透传, NET=组网 */
-	const char *wmode_str;
-
-	switch (cfg->mode) {
-	case LORA_GW_MODE_FP:
-		wmode_str = "FP";
-		break;
-	case LORA_GW_MODE_NETWORK:
-		wmode_str = "NET";
-		break;
-	default:
-		wmode_str = "TRANS";
-		break;
-	}
-
-	snprintf(cmd, sizeof(cmd), "AT+WMODE=%s", wmode_str);
-	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
-	if (ret) {
-		LOG_ERR("Set WMODE failed");
-		goto out;
-	}
-
-	/* 重启使配置生效 */
-	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
-
-	/* 模块重启后直接进入透传模式, 恢复数据模式 RX */
-	k_msleep(1000);
-	lora_rx_disable_sync();
-	atomic_set(&lora_current_mode, LORA_MODE_DATA);
-	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
-	k_mutex_unlock(&lora_mode_mutex);
-
-	LOG_INF("Gateway configured: prot=%s mode=%s spd=%d ch=%d", prot_str,
-		cfg->mode == LORA_GW_MODE_NETWORK ? "network" : "trans", cfg->spd, cfg->ch);
-	return 0;
-
-out:
-	lora_exit_at();
-	return ret;
-}
-
-/* ================================================================
- * LG210 网关参数查询 — 读取 SPD/CH
- * ================================================================ */
 static int parse_at_number(const char *resp)
 {
 	/* AT 查询响应格式: \r\n+CMD:<value>\r\n\r\nOK\r\n
@@ -615,7 +512,139 @@ static int parse_at_hex(const char *resp)
 
 	return 0;
 }
-int lora_gw_query(struct lora_gw_config *cfg)
+
+/* ================================================================
+ * LG210 网关配置 — LORAPROT + SPD + CH + 保存 + 重启
+ * ================================================================ */
+
+
+int lora_configure(const struct lora_config *cfg)
+{
+	struct lora_config defaults = {
+		.mode = LORA_GW_MODE_TRANS,
+		.prot = LORA_PROT_LG210,
+	};
+
+	if (!cfg) {
+		cfg = &defaults;
+	}
+
+	int ret = lora_enter_at();
+	if (ret) {
+		return ret;
+	}
+
+	char resp[128];
+	char cmd[64];
+
+	/* 选择通信协议 */
+	const char *prot_str;
+
+	switch (cfg->prot) {
+	case LORA_PROT_LG210:
+		prot_str = "LG210";
+		break;
+	case LORA_PROT_LG220:
+		prot_str = "LG220";
+		break;
+	default:
+		prot_str = "NODE";
+		break;
+	}
+	snprintf(cmd, sizeof(cmd), "AT+LORAPROT=%s", prot_str);
+	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	if (ret) {
+		LOG_ERR("Set LORAPROT failed");
+		goto out;
+	}
+
+	/* 设置工作模式 */
+	const char *wmode_str;
+
+	switch (cfg->mode) {
+	case LORA_GW_MODE_FP:
+		wmode_str = "FP";
+		break;
+	case LORA_GW_MODE_NETWORK:
+		wmode_str = "NET";
+		break;
+	default:
+		wmode_str = "TRANS";
+		break;
+	}
+	snprintf(cmd, sizeof(cmd), "AT+WMODE=%s", wmode_str);
+	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	if (ret) {
+		LOG_ERR("Set WMODE failed");
+		goto out;
+	}
+
+	/* 设置通道1参数 */
+	snprintf(cmd, sizeof(cmd), "AT+SPD1=%d", cfg->spd1);
+	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	if (ret) {
+		LOG_ERR("Set SPD1 failed");
+		goto out;
+	}
+
+	snprintf(cmd, sizeof(cmd), "AT+CH1=%d", cfg->ch1);
+	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	if (ret) {
+		LOG_ERR("Set CH1 failed");
+		goto out;
+	}
+
+	/* 设置通道2参数 */
+	snprintf(cmd, sizeof(cmd), "AT+SPD2=%d", cfg->spd2);
+	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	if (ret) {
+		LOG_ERR("Set SPD2 failed");
+		goto out;
+	}
+
+	snprintf(cmd, sizeof(cmd), "AT+CH2=%d", cfg->ch2);
+	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	if (ret) {
+		LOG_ERR("Set CH2 failed");
+		goto out;
+	}
+
+	/* 设置通道选择 */
+	snprintf(cmd, sizeof(cmd), "AT+PNUM=%d", cfg->pnum);
+	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	if (ret) {
+		LOG_ERR("Set PNUM failed");
+		goto out;
+	}
+
+	/* 重启使配置生效 */
+	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
+
+	k_msleep(1000);
+	lora_rx_disable_sync();
+	atomic_set(&lora_current_mode, LORA_MODE_DATA);
+	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
+	k_mutex_unlock(&lora_mode_mutex);
+
+	/* 更新本地缓存 */
+	global_params.prot = (uint8_t)cfg->prot;
+	global_params.mode = (uint8_t)cfg->mode;
+	global_params.spd1 = cfg->spd1;
+	global_params.ch1 = cfg->ch1;
+	global_params.spd2 = cfg->spd2;
+	global_params.ch2 = cfg->ch2;
+	global_params.pnum = cfg->pnum;
+
+	LOG_INF("Configured: prot=%s mode=%s spd1=%d ch1=%d spd2=%d ch2=%d pnum=%d",
+		prot_str, wmode_str, cfg->spd1, cfg->ch1, cfg->spd2, cfg->ch2, cfg->pnum);
+	return 0;
+
+out:
+	lora_exit_at();
+	return ret;
+}
+
+int lora_query(struct lora_config *cfg)
 {
 	if (!cfg) {
 		return -EINVAL;
@@ -632,7 +661,6 @@ int lora_gw_query(struct lora_gw_config *cfg)
 	/* 查询通信协议 */
 	ret = lora_send_at("AT+LORAPROT", resp, sizeof(resp), 2000);
 	if (ret == 0) {
-		/* 响应格式: \r\n+LORAPROT:LG210\r\n\r\nOK\r\n */
 		if (strstr(resp, "LG210")) {
 			cfg->prot = LORA_PROT_LG210;
 		} else if (strstr(resp, "LG220")) {
@@ -644,10 +672,9 @@ int lora_gw_query(struct lora_gw_config *cfg)
 		LOG_WRN("Query LORAPROT failed");
 	}
 
-	/* 查询工作模式 — AT+WMODE: FP=点对点, TRANS=透传, NET=组网 */
+	/* 查询工作模式 */
 	ret = lora_send_at("AT+WMODE", resp, sizeof(resp), 2000);
 	if (ret == 0) {
-		/* 响应格式: \r\n+WMODE:TRANS\r\n\r\nOK\r\n */
 		if (strstr(resp, "TRANS")) {
 			cfg->mode = LORA_GW_MODE_TRANS;
 		} else if (strstr(resp, "NET")) {
@@ -655,32 +682,64 @@ int lora_gw_query(struct lora_gw_config *cfg)
 		} else {
 			cfg->mode = LORA_GW_MODE_FP;
 		}
-		/* TRANS 或默认都是透传模式 */
 	} else {
 		LOG_WRN("Query WMODE failed");
 	}
 
-	/* 查询速率 */
-	ret = lora_send_at("AT+SPD", resp, sizeof(resp), 2000);
+	/* 查询通道1参数 */
+	ret = lora_send_at("AT+SPD1", resp, sizeof(resp), 2000);
 	if (ret == 0) {
-		cfg->spd = (uint8_t)parse_at_number(resp);
+		cfg->spd1 = (uint8_t)parse_at_number(resp);
 	} else {
-		LOG_WRN("Query SPD failed");
-		cfg->spd = 0;
+		LOG_WRN("Query SPD1 failed");
+		cfg->spd1 = 0;
 	}
 
-	/* 查询信道 */
-	ret = lora_send_at("AT+CH", resp, sizeof(resp), 2000);
+	ret = lora_send_at("AT+CH1", resp, sizeof(resp), 2000);
 	if (ret == 0) {
-		cfg->ch = (uint8_t)parse_at_number(resp);
+		cfg->ch1 = (uint16_t)parse_at_number(resp);
 	} else {
-		LOG_WRN("Query CH failed");
-		cfg->ch = 0;
+		LOG_WRN("Query CH1 failed");
+		cfg->ch1 = 0;
+	}
+
+	/* 查询通道2参数 */
+	ret = lora_send_at("AT+SPD2", resp, sizeof(resp), 2000);
+	if (ret == 0) {
+		cfg->spd2 = (uint8_t)parse_at_number(resp);
+	} else {
+		LOG_WRN("Query SPD2 failed");
+		cfg->spd2 = 0;
+	}
+
+	ret = lora_send_at("AT+CH2", resp, sizeof(resp), 2000);
+	if (ret == 0) {
+		cfg->ch2 = (uint16_t)parse_at_number(resp);
+	} else {
+		LOG_WRN("Query CH2 failed");
+		cfg->ch2 = 0;
+	}
+
+	/* 查询通道选择 */
+	ret = lora_send_at("AT+PNUM", resp, sizeof(resp), 2000);
+	if (ret == 0) {
+		cfg->pnum = (uint8_t)parse_at_number(resp);
+	} else {
+		LOG_WRN("Query PNUM failed");
+		cfg->pnum = 0;
 	}
 
 	lora_exit_at();
 	return 0;
 }
+
+
+
+/* ================================================================
+ * 数值参数解析
+ * ================================================================ */
+
+
 
 /* ================================================================
  * 统一帧解析 — 验证 NID + Length + CRC16
@@ -1218,7 +1277,7 @@ int lora_set_node_id(uint32_t nid)
 }
 
 /* ================================================================
- * 通道频率设置 — AT+CH1/AT+CH2, 重启生效
+ * 通道参数设置 — AT+CH1/AT+CH2/AT+SPD1/AT+SPD2/AT+PNUM, 重启生效
  * ================================================================ */
 int lora_set_ch1(uint16_t ch)
 {
@@ -1279,6 +1338,99 @@ int lora_set_ch2(uint16_t ch)
 	k_mutex_unlock(&lora_mode_mutex);
 
 	LOG_INF("CH2 set to %d", ch);
+	return 0;
+}
+
+int lora_set_spd1(uint8_t spd)
+{
+	int ret = lora_enter_at();
+
+	if (ret) {
+		return ret;
+	}
+
+	char resp[128];
+	char cmd[32];
+
+	snprintf(cmd, sizeof(cmd), "AT+SPD1=%d", spd);
+	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	if (ret) {
+		LOG_ERR("Set SPD1 failed");
+		lora_exit_at();
+		return ret;
+	}
+
+	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
+	global_params.spd1 = spd;
+	k_msleep(50);
+	lora_rx_disable_sync();
+	atomic_set(&lora_current_mode, LORA_MODE_DATA);
+	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
+	k_mutex_unlock(&lora_mode_mutex);
+
+	LOG_INF("SPD1 set to %d", spd);
+	return 0;
+}
+
+int lora_set_spd2(uint8_t spd)
+{
+	int ret = lora_enter_at();
+
+	if (ret) {
+		return ret;
+	}
+
+	char resp[128];
+	char cmd[32];
+
+	snprintf(cmd, sizeof(cmd), "AT+SPD2=%d", spd);
+	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	if (ret) {
+		LOG_ERR("Set SPD2 failed");
+		lora_exit_at();
+		return ret;
+	}
+
+	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
+	global_params.spd2 = spd;
+	k_msleep(50);
+	lora_rx_disable_sync();
+	atomic_set(&lora_current_mode, LORA_MODE_DATA);
+	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
+	k_mutex_unlock(&lora_mode_mutex);
+
+	LOG_INF("SPD2 set to %d", spd);
+	return 0;
+}
+
+int lora_set_pnum(uint8_t pnum)
+{
+	int ret = lora_enter_at();
+
+	if (ret) {
+		return ret;
+	}
+
+	char resp[128];
+	char cmd[32];
+
+	snprintf(cmd, sizeof(cmd), "AT+PNUM=%d", pnum);
+	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	if (ret) {
+		LOG_ERR("Set PNUM failed");
+		lora_exit_at();
+		return ret;
+	}
+
+	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
+	global_params.pnum = pnum;
+	k_msleep(50);
+	lora_rx_disable_sync();
+	atomic_set(&lora_current_mode, LORA_MODE_DATA);
+	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
+	k_mutex_unlock(&lora_mode_mutex);
+
+	LOG_INF("PNUM set to %d", pnum);
 	return 0;
 }
 
@@ -1355,54 +1507,50 @@ static int cmd_at(const struct shell *ctx, size_t argc, char **argv)
 	}
 }
 
-static int cmd_gw_config(const struct shell *ctx, size_t argc, char **argv)
+static int cmd_gw_mode(const struct shell *ctx, size_t argc, char **argv)
 {
-	struct lora_gw_config cfg = {
-		.mode = LORA_GW_MODE_TRANS,
-		.prot = LORA_PROT_LG210,
-		.spd = 10,
-		.ch = 72,
-	};
+	/* lora gw mode [prot] [mode] */
+	enum lora_gw_prot prot = LORA_PROT_LG210;
+	enum lora_gw_mode mode = LORA_GW_MODE_TRANS;
 
-	/* lora gw config [prot] [mode] [spd] [ch]
-	 * prot: "node" (default), "lg210", "lg220"
-	 * mode: "trans" (default), "fp", "net"
-	 */
 	if (argc >= 2) {
 		if (strcmp(argv[1], "lg210") == 0) {
-			cfg.prot = LORA_PROT_LG210;
+			prot = LORA_PROT_LG210;
 		} else if (strcmp(argv[1], "lg220") == 0) {
-			cfg.prot = LORA_PROT_LG220;
+			prot = LORA_PROT_LG220;
+		} else if (strcmp(argv[1], "node") == 0) {
+			prot = LORA_PROT_NODE;
 		}
 	}
 	if (argc >= 3) {
 		if (strcmp(argv[2], "net") == 0) {
-			cfg.mode = LORA_GW_MODE_NETWORK;
+			mode = LORA_GW_MODE_NETWORK;
 		} else if (strcmp(argv[2], "fp") == 0) {
-			cfg.mode = LORA_GW_MODE_FP;
+			mode = LORA_GW_MODE_FP;
 		}
 	}
-	if (argc >= 4) {
-		cfg.spd = (uint8_t)strtol(argv[3], NULL, 10);
-	}
-	if (argc >= 5) {
-		cfg.ch = (uint8_t)strtol(argv[4], NULL, 10);
-	}
 
-	int ret = lora_gw_configure(&cfg);
+	struct lora_config cfg = {
+		.mode = mode,
+		.prot = prot,
+		.spd1 = global_params.spd1,
+		.ch1 = global_params.ch1,
+		.spd2 = global_params.spd2,
+		.ch2 = global_params.ch2,
+		.pnum = global_params.pnum,
+	};
+
+	int ret = lora_configure(&cfg);
 
 	if (ret) {
-		shell_error(ctx, "Gateway config failed (%d)", ret);
+		shell_error(ctx, "Mode config failed (%d)", ret);
 		return ret;
 	}
-	const char *prot_str = cfg.prot == LORA_PROT_LG210   ? "lg210"
-			       : cfg.prot == LORA_PROT_LG220 ? "lg220"
-							     : "node";
-	shell_print(ctx, "Gateway configured: prot=%s mode=%s spd=%d ch=%d", prot_str,
-		    cfg.mode == LORA_GW_MODE_NETWORK ? "net"
-		    : cfg.mode == LORA_GW_MODE_FP    ? "fp"
-						     : "trans",
-		    cfg.spd, cfg.ch);
+	const char *prot_str = prot == LORA_PROT_LG210  ? "lg210"
+			       : prot == LORA_PROT_LG220 ? "lg220" : "node";
+	shell_print(ctx, "Mode set: prot=%s mode=%s", prot_str,
+		    mode == LORA_GW_MODE_NETWORK ? "net"
+		    : mode == LORA_GW_MODE_FP    ? "fp" : "trans");
 	return 0;
 }
 
@@ -1411,21 +1559,112 @@ static int cmd_gw_query(const struct shell *ctx, size_t argc, char **argv)
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 
-	struct lora_gw_config cfg;
-	int ret = lora_gw_query(&cfg);
+	struct lora_config cfg;
+	int ret = lora_query(&cfg);
 
 	if (ret) {
 		shell_error(ctx, "Query failed (%d)", ret);
 		return ret;
 	}
 	const char *prot_str = cfg.prot == LORA_PROT_LG210   ? "lg210"
-			       : cfg.prot == LORA_PROT_LG220 ? "lg220"
-							     : "node";
-	shell_print(ctx, "Gateway params: prot=%s mode=%s spd=%d ch=%d", prot_str,
+			       : cfg.prot == LORA_PROT_LG220 ? "lg220" : "node";
+	shell_print(ctx, "prot=%s mode=%s spd1=%d ch1=%d spd2=%d ch2=%d pnum=%d",
+		    prot_str,
 		    cfg.mode == LORA_GW_MODE_NETWORK ? "net"
-		    : cfg.mode == LORA_GW_MODE_FP    ? "fp"
-						     : "trans",
-		    cfg.spd, cfg.ch);
+		    : cfg.mode == LORA_GW_MODE_FP    ? "fp" : "trans",
+		    cfg.spd1, cfg.ch1, cfg.spd2, cfg.ch2, cfg.pnum);
+	return 0;
+}
+
+static int cmd_ch1(const struct shell *ctx, size_t argc, char **argv)
+{
+	if (argc < 2) {
+		shell_print(ctx, "CH1: spd=%d ch=%d (%dKHz)", global_params.spd1,
+			    global_params.ch1, global_params.ch1 * 100);
+		return 0;
+	}
+	/* lora ch1 <spd> <ch> */
+	if (argc < 3) {
+		shell_error(ctx, "Usage: ch1 <spd 4-11> <ch 4100-5100>");
+		return -EINVAL;
+	}
+	uint8_t spd = (uint8_t)strtol(argv[1], NULL, 10);
+	uint16_t ch = (uint16_t)strtol(argv[2], NULL, 10);
+	if (spd < 4 || spd > 11) {
+		shell_error(ctx, "SPD1 range: 4~11");
+		return -EINVAL;
+	}
+	if (ch < 4100 || ch > 5100) {
+		shell_error(ctx, "CH1 range: 4100~5100");
+		return -EINVAL;
+	}
+	int ret = lora_set_spd1(spd);
+	if (ret) {
+		shell_error(ctx, "Set SPD1 failed (%d)", ret);
+		return ret;
+	}
+	ret = lora_set_ch1(ch);
+	if (ret) {
+		shell_error(ctx, "Set CH1 failed (%d)", ret);
+		return ret;
+	}
+	shell_print(ctx, "CH1 set: spd=%d ch=%d", spd, ch);
+	return 0;
+}
+
+static int cmd_ch2(const struct shell *ctx, size_t argc, char **argv)
+{
+	if (argc < 2) {
+		shell_print(ctx, "CH2: spd=%d ch=%d (%dKHz)", global_params.spd2,
+			    global_params.ch2, global_params.ch2 * 100);
+		return 0;
+	}
+	/* lora ch2 <spd> <ch> */
+	if (argc < 3) {
+		shell_error(ctx, "Usage: ch2 <spd 4-11> <ch 4100-5100>");
+		return -EINVAL;
+	}
+	uint8_t spd = (uint8_t)strtol(argv[1], NULL, 10);
+	uint16_t ch = (uint16_t)strtol(argv[2], NULL, 10);
+	if (spd < 4 || spd > 11) {
+		shell_error(ctx, "SPD2 range: 4~11");
+		return -EINVAL;
+	}
+	if (ch < 4100 || ch > 5100) {
+		shell_error(ctx, "CH2 range: 4100~5100");
+		return -EINVAL;
+	}
+	int ret = lora_set_spd2(spd);
+	if (ret) {
+		shell_error(ctx, "Set SPD2 failed (%d)", ret);
+		return ret;
+	}
+	ret = lora_set_ch2(ch);
+	if (ret) {
+		shell_error(ctx, "Set CH2 failed (%d)", ret);
+		return ret;
+	}
+	shell_print(ctx, "CH2 set: spd=%d ch=%d", spd, ch);
+	return 0;
+}
+
+static int cmd_pnum(const struct shell *ctx, size_t argc, char **argv)
+{
+	if (argc < 2) {
+		shell_print(ctx, "PNUM: %d", global_params.pnum);
+		return 0;
+	}
+	uint8_t pnum = (uint8_t)strtol(argv[1], NULL, 10);
+	if (pnum > 2) {
+		shell_error(ctx, "PNUM range: 0~2");
+		return -EINVAL;
+	}
+	int ret = lora_set_pnum(pnum);
+	if (ret) {
+		shell_error(ctx, "Set PNUM failed (%d)", ret);
+		return ret;
+	}
+	shell_print(ctx, "PNUM set to %d", pnum);
 	return 0;
 }
 
@@ -1461,56 +1700,14 @@ static int cmd_nid(const struct shell *ctx, size_t argc, char **argv)
 	return 0;
 }
 
-static int cmd_ch1(const struct shell *ctx, size_t argc, char **argv)
-{
-	if (argc < 2) {
-		shell_print(ctx, "CH1: %d (%dKHz)", global_params.ch1,
-			    global_params.ch1 * 100);
-		return 0;
-	}
-	uint16_t ch = (uint16_t)strtol(argv[1], NULL, 10);
-	if (ch < 4100 || ch > 5100) {
-		shell_error(ctx, "CH1 range: 4100~5100");
-		return -EINVAL;
-	}
-	int ret = lora_set_ch1(ch);
-	if (ret) {
-		shell_error(ctx, "Set CH1 failed (%d)", ret);
-		return ret;
-	}
-	shell_print(ctx, "CH1 set to %d", ch);
-	return 0;
-}
-
-static int cmd_ch2(const struct shell *ctx, size_t argc, char **argv)
-{
-	if (argc < 2) {
-		shell_print(ctx, "CH2: %d (%dKHz)", global_params.ch2,
-			    global_params.ch2 * 100);
-		return 0;
-	}
-	uint16_t ch = (uint16_t)strtol(argv[1], NULL, 10);
-	if (ch < 4100 || ch > 5100) {
-		shell_error(ctx, "CH2 range: 4100~5100");
-		return -EINVAL;
-	}
-	int ret = lora_set_ch2(ch);
-	if (ret) {
-		shell_error(ctx, "Set CH2 failed (%d)", ret);
-		return ret;
-	}
-	shell_print(ctx, "CH2 set to %d", ch);
-	return 0;
-}
-
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_gw_cmds,
-			       SHELL_CMD_ARG(config, NULL,
-					     "Configure gateway params and reboot\n"
-					     "Usage: config [prot] [mode] [spd] [ch]\n"
-					     "  prot: node (default), lg210, lg220\n"
+			       SHELL_CMD_ARG(mode, NULL,
+					     "Set protocol and mode\n"
+					     "Usage: mode [prot] [mode]\n"
+					     "  prot: node, lg210 (default), lg220\n"
 					     "  mode: trans (default), fp, net",
-					     cmd_gw_config, 1, 4),
-			       SHELL_CMD_ARG(query, NULL, "Query current gateway params",
+					     cmd_gw_mode, 1, 2),
+			       SHELL_CMD_ARG(query, NULL, "Query all params",
 					     cmd_gw_query, 1, 0),
 			       SHELL_SUBCMD_SET_END);
 
@@ -1566,32 +1763,15 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_test_cmds,
 			       SHELL_SUBCMD_SET_END);
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_cmds,
-			       SHELL_CMD_ARG(send, NULL,
-					     "Send data in transparent mode\n"
-					     "Usage: send <data>",
-					     cmd_send, 2, 0),
-			       SHELL_CMD_ARG(at, NULL,
-					     "Send AT command (auto enter AT mode)\n"
-					     "Usage: at <command>",
-					     cmd_at, 2, 0),
-			       SHELL_CMD(gw, &sub_lora_gw_cmds, "LG210 gateway operations", NULL),
+			       SHELL_CMD_ARG(send, NULL, "Send data in transparent mode", cmd_send, 2, 0),
+			       SHELL_CMD_ARG(at, NULL, "Send AT command", cmd_at, 2, 0),
+			       SHELL_CMD(gw, &sub_lora_gw_cmds, "Gateway operations", NULL),
 			       SHELL_CMD(test, &sub_lora_test_cmds, "Test RTT/loss stats", NULL),
-			       SHELL_CMD_ARG(nid, NULL,
-					     "Get/set node ID\n"
-					     "Usage: nid [hex_value]",
-					     cmd_nid, 1, 1),
-			       SHELL_CMD_ARG(gwid, NULL,
-					     "Get/set gateway ID\n"
-					     "Usage: gwid [hex_value]",
-					     cmd_gwid, 1, 1),
-			       SHELL_CMD_ARG(ch1, NULL,
-				     "Get/set channel 1 freq (4100~5100)\n"
-				     "Usage: ch1 [value]",
-				     cmd_ch1, 1, 1),
-			       SHELL_CMD_ARG(ch2, NULL,
-				     "Get/set channel 2 freq (4100~5100)\n"
-				     "Usage: ch2 [value]",
-				     cmd_ch2, 1, 1),
+			       SHELL_CMD_ARG(nid, NULL, "Get/set node ID [hex]", cmd_nid, 1, 1),
+			       SHELL_CMD_ARG(gwid, NULL, "Get/set gateway ID [hex]", cmd_gwid, 1, 1),
+			       SHELL_CMD_ARG(ch1, NULL, "Get/set CH1 [spd] [ch]", cmd_ch1, 1, 2),
+			       SHELL_CMD_ARG(ch2, NULL, "Get/set CH2 [spd] [ch]", cmd_ch2, 1, 2),
+			       SHELL_CMD_ARG(pnum, NULL, "Get/set channel select [0/1/2]", cmd_pnum, 1, 1),
 			       SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(lora, &sub_lora_cmds, "LoRa WH-L101-L commands", NULL);
@@ -1653,16 +1833,20 @@ static int lora_serial_init(void)
 	/* 上电 + 复位 + 等待就绪 + 启动 DMA */
 	lora_init();
 
-	/* 进入 AT 模式读取模块参数 (NID/GWID/SPD/CH) */
-	struct lora_gw_config cfg;
+	/* 进入 AT 模式读取模块参数 */
+	struct lora_config cfg;
 
-	ret = lora_gw_query(&cfg);
+	ret = lora_query(&cfg);
 	if (ret == 0) {
-		LOG_INF("LoRa params: prot=%s mode=%s spd=%d ch=%d",
-			cfg.prot == LORA_PROT_LG210   ? "LG210"
-			: cfg.prot == LORA_PROT_LG220 ? "LG220"
-						      : "NODE",
-			cfg.mode == LORA_GW_MODE_NETWORK ? "net" : "trans", cfg.spd, cfg.ch);
+		global_params.prot = (uint8_t)cfg.prot;
+		global_params.mode = (uint8_t)cfg.mode;
+		global_params.spd1 = cfg.spd1;
+		global_params.ch1 = cfg.ch1;
+		global_params.spd2 = cfg.spd2;
+		global_params.ch2 = cfg.ch2;
+		global_params.pnum = cfg.pnum;
+		LOG_INF("LoRa params: prot=%d mode=%d spd1=%d ch1=%d spd2=%d ch2=%d pnum=%d",
+			cfg.prot, cfg.mode, cfg.spd1, cfg.ch1, cfg.spd2, cfg.ch2, cfg.pnum);
 	} else {
 		LOG_WRN("LoRa param query failed (%d), using defaults", ret);
 	}
@@ -1682,18 +1866,6 @@ static int lora_serial_init(void)
 		if (ret == 0) {
 			global_params.gwid = (uint32_t)parse_at_hex(resp);
 			LOG_INF("LoRa GWID: 0x%08X", global_params.gwid);
-		}
-
-		ret = lora_send_at("AT+CH1", resp, sizeof(resp), 2000);
-		if (ret == 0) {
-			global_params.ch1 = (uint16_t)parse_at_number(resp);
-			LOG_INF("LoRa CH1: %d", global_params.ch1);
-		}
-
-		ret = lora_send_at("AT+CH2", resp, sizeof(resp), 2000);
-		if (ret == 0) {
-			global_params.ch2 = (uint16_t)parse_at_number(resp);
-			LOG_INF("LoRa CH2: %d", global_params.ch2);
 		}
 
 		lora_exit_at();

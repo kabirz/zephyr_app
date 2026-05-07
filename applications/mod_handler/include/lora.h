@@ -113,35 +113,38 @@ enum lora_gw_prot {
 };
 
 /**
- * @brief LG210 网关连接参数
+ * @brief LoRa 通信配置参数
  */
-struct lora_gw_config {
+struct lora_config {
 	enum lora_gw_mode mode; /* 通信模式 */
 	enum lora_gw_prot prot; /* 通信协议 */
-	uint8_t spd;            /* 速率等级 1-12, 默认 10 */
-	uint8_t ch;             /* 信道 0-127, 默认 72 (470MHz) */
+	uint8_t spd1;           /* 通道1空中速率等级 4-11 */
+	uint16_t ch1;           /* 通道1频率 4100~5100, 单位100KHz */
+	uint8_t spd2;           /* 通道2空中速率等级 4-11 */
+	uint16_t ch2;           /* 通道2频率 4100~5100, 单位100KHz */
+	uint8_t pnum;           /* 选择通道 0/1/2 */
 };
 
 /**
- * @brief 配置 L101 与 LG210 网关连接参数
+ * @brief 配置 LoRa 通信参数
  *
- * 进入 AT 模式, 依次设置 LORAPROT/SPD/CH, 保存并重启模块.
+ * 进入 AT 模式, 依次设置 LORAPROT/WMODE/SPD1/CH1/SPD2/CH2/PNUM, 保存并重启模块.
  * 重启完成后自动恢复数据模式.
  *
- * @param cfg 网关参数 (NULL 则使用默认值: spd=10, ch=72)
+ * @param cfg 参数 (NULL 则仅设置 mode+prot 默认值)
  * @return 0 成功, -EBUSY 模块繁忙, -ETIMEDOUT 指令超时
  */
-int lora_gw_configure(const struct lora_gw_config *cfg);
+int lora_configure(const struct lora_config *cfg);
 
 /**
- * @brief 查询当前网关连接参数
+ * @brief 查询当前通信参数
  *
- * 进入 AT 模式, 读取 SPD/CH, 退出 AT 模式.
+ * 进入 AT 模式, 读取所有参数, 退出 AT 模式.
  *
  * @param cfg 返回当前参数
  * @return 0 成功, 负数失败
  */
-int lora_gw_query(struct lora_gw_config *cfg);
+int lora_query(struct lora_config *cfg);
 
 /* ================================================================
  * LoRa 数据帧格式 (数据模式收发)
@@ -227,5 +230,20 @@ int lora_set_ch1(uint16_t ch);
  * @brief 设置通道2频率并重启模块
  */
 int lora_set_ch2(uint16_t ch);
+
+/**
+ * @brief 设置通道1空中速率等级并重启模块
+ */
+int lora_set_spd1(uint8_t spd);
+
+/**
+ * @brief 设置通道2空中速率等级并重启模块
+ */
+int lora_set_spd2(uint8_t spd);
+
+/**
+ * @brief 设置工作通道选择并重启模块
+ */
+int lora_set_pnum(uint8_t pnum);
 
 #endif /* __LORA_H__ */

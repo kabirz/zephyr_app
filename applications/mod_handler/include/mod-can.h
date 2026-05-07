@@ -45,16 +45,18 @@ enum {
 
 /* LoRa 配置命令 */
 enum lora_config_cmd {
-	LORA_CMD_SET = 0x01,
-	LORA_CMD_QUERY = 0x02,
-	LORA_CMD_QUERY_NID = 0x03,
-	LORA_CMD_SET_NID = 0x04,
-	LORA_CMD_QUERY_GWID = 0x05,
-	LORA_CMD_SET_GWID = 0x06,
-	LORA_CMD_QUERY_CH1 = 0x07,
-	LORA_CMD_SET_CH1 = 0x08,
-	LORA_CMD_QUERY_CH2 = 0x09,
-	LORA_CMD_SET_CH2 = 0x0A,
+	LORA_CMD_SET_MODE   = 0x01, /* 设置 mode+prot */
+	LORA_CMD_QUERY_MODE = 0x02, /* 查询 mode+prot */
+	LORA_CMD_SET_CH1    = 0x03, /* 设置通道1 spd1+ch1 */
+	LORA_CMD_QUERY_CH1  = 0x04, /* 查询通道1 */
+	LORA_CMD_SET_CH2    = 0x05, /* 设置通道2 spd2+ch2 */
+	LORA_CMD_QUERY_CH2  = 0x06, /* 查询通道2 */
+	LORA_CMD_QUERY_NID  = 0x07, /* 查询节点 ID */
+	LORA_CMD_SET_NID    = 0x08, /* 设置节点 ID */
+	LORA_CMD_QUERY_GWID = 0x09, /* 查询网关 ID */
+	LORA_CMD_SET_GWID   = 0x0A, /* 设置网关 ID */
+	LORA_CMD_QUERY_PNUM = 0x0B, /* 查询通道选择 */
+	LORA_CMD_SET_PNUM   = 0x0C, /* 设置通道选择 */
 };
 
 /* LoRa 配置结果 */
