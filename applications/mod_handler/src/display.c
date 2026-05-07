@@ -203,6 +203,65 @@ void mod_display_handler_button(uint8_t h_button)
 	k_mutex_unlock(&display_mutex);
 }
 
+/* ================================================================
+ * 测试模式显示 (Row 1-3)
+ * ================================================================ */
+
+/* Row 1: RSSI + SNR */
+void mod_display_test_rssi(int8_t rssi_raw, int8_t snr_raw)
+{
+	char line[17];
+
+	k_mutex_lock(&display_mutex, K_FOREVER);
+	snprintf(line, sizeof(line), "R:%-4d S:%-3d", (int)rssi_raw, (int)snr_raw);
+	display_str_pad(line, 0, 16, 128);
+	k_mutex_unlock(&display_mutex);
+}
+
+/* Row 2: 丢包统计 */
+void mod_display_test_loss(uint32_t tx_count, uint32_t rx_count)
+{
+	char line[17];
+	uint32_t loss_pct = 0;
+
+	if (tx_count > 0) {
+		loss_pct = (tx_count - rx_count) * 100 / tx_count;
+	}
+
+	k_mutex_lock(&display_mutex, K_FOREVER);
+	snprintf(line, sizeof(line), "RX:%u/%u %u%%",
+		 (unsigned)rx_count, (unsigned)tx_count, (unsigned)loss_pct);
+	display_str_pad(line, 0, 32, 128);
+	k_mutex_unlock(&display_mutex);
+}
+
+/* Row 3: RTT 延迟 */
+void mod_display_test_rtt(uint32_t rtt_ms)
+{
+	char line[17];
+
+	k_mutex_lock(&display_mutex, K_FOREVER);
+	snprintf(line, sizeof(line), "RTT:%u ms", (unsigned)rtt_ms);
+	display_str_pad(line, 0, 48, 128);
+	k_mutex_unlock(&display_mutex);
+}
+
+/* 测试模式 Row 1-3 全刷新 */
+void mod_display_test_all(const gloval_params_t *params)
+{
+	mod_display_test_rssi(params->test_rssi_raw, params->test_snr_raw);
+	mod_display_test_loss(params->test_tx_count, params->test_rx_count);
+	mod_display_test_rtt(params->test_rtt_last);
+}
+
+/* 恢复正常模式 Row 1-3 */
+void mod_display_normal_rows(const gloval_params_t *params)
+{
+	mod_display_scanner(&params->scanner);
+	mod_display_handler_xy(params->x_degree, params->y_degree);
+	mod_display_handler_button(params->h_button);
+}
+
 /* 全屏刷新 */
 void mod_display_all(const gloval_params_t *params)
 {
@@ -213,9 +272,11 @@ void mod_display_all(const gloval_params_t *params)
 	}
 	mod_display_battery(params->power_mv, params->battery_status);
 
-	mod_display_scanner(&params->scanner);
-	mod_display_handler_xy(params->x_degree, params->y_degree);
-	mod_display_handler_button(params->h_button);
+	if (params->test_mode) {
+		mod_display_test_all(params);
+	} else {
+		mod_display_normal_rows(params);
+	}
 }
 /* ================================================================
  * 初始化

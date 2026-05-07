@@ -283,14 +283,13 @@ bool lora_data_send(const uint8_t *data, size_t len)
 /* ================================================================
  * 测试模式 — 由 RSSI 响应中的 test_flag 控制
  * ================================================================ */
-static volatile bool test_mode_active;
 
 /* ================================================================
  * 遥测数据帧打包发送 — Data: [0x01][X 2B BE][Y 2B BE][btn][0xFF 3B]
  * ================================================================ */
 bool lora_send_telemetry(const gloval_params_t *params)
 {
-	if (test_mode_active) {
+	if (global_params.test_mode) {
 		return false;
 	}
 
@@ -765,19 +764,8 @@ static bool parse_lora_frame(const uint8_t *data, uint16_t len, const uint8_t **
  *
  * TX: 每 200ms 发送 [0x02][index 2B BE][timestamp 4B BE]
  * RX: 网关回传同一帧, 计算 RTT = now - timestamp, 检测 index 间隔丢包
+ * 统计数据存储在 global_params 的 test_* 字段中.
  * ================================================================ */
-static struct {
-	uint32_t tx_count;
-	uint32_t rx_count;
-	uint32_t rtt_last;   /* ms */
-	uint32_t rtt_min;    /* ms, UINT32_MAX = 未初始化 */
-	uint32_t rtt_max;    /* ms */
-	uint64_t rtt_sum;    /* ms, 用于算平均 */
-	uint16_t last_rx_index;
-	uint32_t gap_lost;   /* index 间隔检测到的丢包数 */
-} test_stats = {
-	.rtt_min = UINT32_MAX,
-};
 
 // 定义信号等级枚举
 typedef enum {
@@ -940,14 +928,32 @@ static void lora_msg_process_thread(void)
 									raw_rssi, raw_snr, level);
 							}
 
-							bool was_test = test_mode_active;
-							test_mode_active = (test_flag != 0);
-							if (test_mode_active && !was_test) {
+							/* 保存原始值用于测试模式显示 */
+							global_params.test_rssi_raw = raw_rssi;
+							global_params.test_snr_raw = raw_snr;
+
+							bool was_test = global_params.test_mode;
+							global_params.test_mode = (test_flag != 0);
+							if (global_params.test_mode && !was_test) {
 								LOG_INF("Test mode activated");
-							} else if (!test_mode_active && was_test) {
+								global_params.test_rtt_min = UINT32_MAX;
+								mod_display_test_all(&global_params);
+							} else if (!global_params.test_mode && was_test) {
 								LOG_INF("Test mode deactivated");
-								memset(&test_stats, 0, sizeof(test_stats));
-								test_stats.rtt_min = UINT32_MAX;
+								global_params.test_tx_count = 0;
+								global_params.test_rx_count = 0;
+								global_params.test_rtt_last = 0;
+								global_params.test_rtt_min = UINT32_MAX;
+								global_params.test_rtt_max = 0;
+								global_params.test_rtt_sum = 0;
+								global_params.test_last_rx_idx = 0;
+								global_params.test_gap_lost = 0;
+								mod_display_normal_rows(&global_params);
+							}
+
+							/* 测试模式下刷新 Row 1 */
+							if (global_params.test_mode) {
+								mod_display_test_rssi(raw_rssi, raw_snr);
 							}
 
 							rssi_fail_count = 0;
@@ -989,45 +995,52 @@ static void lora_msg_process_thread(void)
 							uint32_t tx_ts = sys_get_be32(payload + 3);
 							uint32_t rtt = k_uptime_get_32() - tx_ts;
 
-							test_stats.rx_count++;
-							test_stats.rtt_last = rtt;
-							if (rtt < test_stats.rtt_min) {
-								test_stats.rtt_min = rtt;
+							global_params.test_rx_count++;
+							global_params.test_rtt_last = rtt;
+							if (rtt < global_params.test_rtt_min) {
+								global_params.test_rtt_min = rtt;
 							}
-							if (rtt > test_stats.rtt_max) {
-								test_stats.rtt_max = rtt;
+							if (rtt > global_params.test_rtt_max) {
+								global_params.test_rtt_max = rtt;
 							}
-							test_stats.rtt_sum += rtt;
+							global_params.test_rtt_sum += rtt;
 
-							if (test_stats.rx_count > 1) {
+							if (global_params.test_rx_count > 1) {
 								uint16_t gap =
 									rx_idx -
-									test_stats.last_rx_index;
+									global_params.test_last_rx_idx;
 								if (gap > 1) {
-									test_stats.gap_lost +=
+									global_params.test_gap_lost +=
 										gap - 1;
 								}
 							}
-							test_stats.last_rx_index = rx_idx;
+							global_params.test_last_rx_idx = rx_idx;
 
 							uint32_t avg =
-								(uint32_t)(test_stats.rtt_sum /
-									   test_stats.rx_count);
+								(uint32_t)(global_params.test_rtt_sum /
+									   global_params.test_rx_count);
 							uint32_t loss_pct = 0;
-							if (test_stats.tx_count > 0) {
-								loss_pct = (test_stats.tx_count -
-									    test_stats.rx_count) *
-									   100 / test_stats.tx_count;
+							if (global_params.test_tx_count > 0) {
+								loss_pct = (global_params.test_tx_count -
+									    global_params.test_rx_count) *
+									   100 / global_params.test_tx_count;
 							}
 							LOG_INF("test: idx=%u rtt=%u avg=%u "
 								"min=%u max=%u "
 								"rx=%u/%u(%u%%) gap_lost=%u",
 								rx_idx, rtt, avg,
-								test_stats.rtt_min,
-								test_stats.rtt_max,
-								test_stats.rx_count,
-								test_stats.tx_count, loss_pct,
-								test_stats.gap_lost);
+								global_params.test_rtt_min,
+								global_params.test_rtt_max,
+								global_params.test_rx_count,
+								global_params.test_tx_count, loss_pct,
+								global_params.test_gap_lost);
+
+							/* 刷新测试模式显示 */
+							if (global_params.test_mode) {
+								mod_display_test_loss(global_params.test_tx_count,
+										     global_params.test_rx_count);
+								mod_display_test_rtt(global_params.test_rtt_last);
+							}
 						}
 						break;
 
@@ -1122,7 +1135,7 @@ static void lora_test_tx_thread(void)
 			continue;
 		}
 
-		if (!test_mode_active) {
+		if (!global_params.test_mode) {
 			k_msleep(200);
 			continue;
 		}
@@ -1133,7 +1146,7 @@ static void lora_test_tx_thread(void)
 
 		bool ok = lora_data_send(frame, sizeof(frame));
 		if (ok) {
-			test_stats.tx_count++;
+			global_params.test_tx_count++;
 		} else {
 			test_index--;
 		}
@@ -1145,7 +1158,7 @@ K_THREAD_DEFINE(lora_test_tx, 512, lora_test_tx_thread, NULL, NULL, NULL, 12, 0,
 
 bool lora_is_test_mode(void)
 {
-	return test_mode_active;
+	return global_params.test_mode;
 }
 
 /* ================================================================
@@ -1412,19 +1425,19 @@ static int cmd_test_stats(const struct shell *ctx, size_t argc, char **argv)
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 
-	if (test_stats.rx_count > 0) {
-		uint32_t avg = (uint32_t)(test_stats.rtt_sum / test_stats.rx_count);
+	if (global_params.test_rx_count > 0) {
+		uint32_t avg = (uint32_t)(global_params.test_rtt_sum / global_params.test_rx_count);
 		uint32_t loss_pct = 0;
-		if (test_stats.tx_count > 0) {
-			loss_pct = (test_stats.tx_count - test_stats.rx_count) * 100 /
-				   test_stats.tx_count;
+		if (global_params.test_tx_count > 0) {
+			loss_pct = (global_params.test_tx_count - global_params.test_rx_count) * 100 /
+				   global_params.test_tx_count;
 		}
-		shell_print(ctx, "tx=%u rx=%u loss=%u%% gap_lost=%u", test_stats.tx_count,
-			    test_stats.rx_count, loss_pct, test_stats.gap_lost);
-		shell_print(ctx, "rtt: last=%u avg=%u min=%u max=%u (ms)", test_stats.rtt_last, avg,
-			    test_stats.rtt_min, test_stats.rtt_max);
+		shell_print(ctx, "tx=%u rx=%u loss=%u%% gap_lost=%u", global_params.test_tx_count,
+			    global_params.test_rx_count, loss_pct, global_params.test_gap_lost);
+		shell_print(ctx, "rtt: last=%u avg=%u min=%u max=%u (ms)", global_params.test_rtt_last, avg,
+			    global_params.test_rtt_min, global_params.test_rtt_max);
 	} else {
-		shell_print(ctx, "tx=%u rx=0 (no reply yet)", test_stats.tx_count);
+		shell_print(ctx, "tx=%u rx=0 (no reply yet)", global_params.test_tx_count);
 	}
 	return 0;
 }
@@ -1435,8 +1448,18 @@ static int cmd_test_reset(const struct shell *ctx, size_t argc, char **argv)
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 
-	memset(&test_stats, 0, sizeof(test_stats));
-	test_stats.rtt_min = UINT32_MAX;
+	global_params.test_tx_count = 0;
+	global_params.test_rx_count = 0;
+	global_params.test_rtt_last = 0;
+	global_params.test_rtt_min = UINT32_MAX;
+	global_params.test_rtt_max = 0;
+	global_params.test_rtt_sum = 0;
+	global_params.test_last_rx_idx = 0;
+	global_params.test_gap_lost = 0;
+	if (global_params.test_mode) {
+		mod_display_test_loss(0, 0);
+		mod_display_test_rtt(0);
+	}
 	shell_print(ctx, "Test stats reset");
 	return 0;
 }

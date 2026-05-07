@@ -45,6 +45,19 @@ typedef struct {
 	uint32_t nid;
 	volatile bool sleeping;
 	struct k_event event;
+
+	/* 测试模式状态 (由 lora.c 读写, UI/Shell 读取) */
+	bool test_mode;            /* true = 测试模式激活 */
+	int8_t test_rssi_raw;      /* 网关测量的 RSSI (dBm) */
+	int8_t test_snr_raw;       /* 网关测量的 SNR (dB) */
+	uint32_t test_tx_count;    /* 测试包发送计数 */
+	uint32_t test_rx_count;    /* 测试包接收计数 */
+	uint32_t test_rtt_last;    /* 最近 RTT (ms) */
+	uint32_t test_rtt_min;     /* 最小 RTT (ms), UINT32_MAX = 未初始化 */
+	uint32_t test_rtt_max;     /* 最大 RTT (ms) */
+	uint64_t test_rtt_sum;     /* RTT 累加和 (ms), 用于算平均 */
+	uint16_t test_last_rx_idx; /* 上次收包序号 (丢包检测) */
+	uint32_t test_gap_lost;    /* index 间隔检测到的丢包数 */
 } gloval_params_t;
 
 extern gloval_params_t global_params;
