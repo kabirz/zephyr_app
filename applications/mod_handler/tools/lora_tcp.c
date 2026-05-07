@@ -180,14 +180,14 @@ static int parse_frame(net_ctx_t *ctx, const uint8_t *data, int len)
             g_last_btn = body[4] & 0x01;
 
             char desc[128];
-            snprintf(desc, sizeof(desc), "Telemetry: X=%.1f Y=%.1f Btn=%s",
-                     g_last_x / 10.0, g_last_y / 10.0,
+            snprintf(desc, sizeof(desc), "Telemetry: X=%d Y=%d Btn=%s",
+                     g_last_x, g_last_y,
                      g_last_btn ? "Released" : "Pressed");
             ctx->cb.log_append(ctx->user_data, desc);
 
             char detail[64];
-            snprintf(detail, sizeof(detail), "X=%.1f Y=%.1f Btn=%d",
-                     g_last_x / 10.0, g_last_y / 10.0, g_last_btn);
+            snprintf(detail, sizeof(detail), "X=%d Y=%d Btn=%d",
+                     g_last_x, g_last_y, g_last_btn);
             ctx->cb.add_history_entry(ctx->user_data, nid, "Telemetry",
                                       (const uint8_t *)detail, (uint16_t)strlen(detail));
             ctx->cb.update_telemetry(ctx->user_data);

@@ -91,12 +91,12 @@ void adc_read_thread(void)
 			}
 			switch (i) {
 			case 0:
-				// X: 500~4500mV → -200~+200 (0.1° 单位)
-				x_degree = (CLAMP(val_mv * 10 / 6, 500, 4500) - 500) * 400 / 4000 - 200;
+				// X: 500~4500mV → -20~+20 (1° 单位)
+				x_degree = (CLAMP(val_mv * 10 / 6, 500, 4500) - 500) * 40 / 4000 - 20;
 				break;
 			case 1:
-				// Y: 500~4500mV → -200~+200 (0.1° 单位)
-				y_degree = (CLAMP(val_mv * 10 / 6, 500, 4500) - 500) * 400 / 4000 - 200;
+				// Y: 500~4500mV → -20~+20 (1° 单位)
+				y_degree = (CLAMP(val_mv * 10 / 6, 500, 4500) - 500) * 40 / 4000 - 20;
 				break;
 			case 2:
 				// Power VCC: 存入采样缓冲区

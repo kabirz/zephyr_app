@@ -358,8 +358,8 @@ K_THREAD_DEFINE(can_heart, 1024, can_heart_thread, NULL, NULL, NULL, 11, 0, 0);
 /* ================================================================
  * 手柄状态帧发送 — 0x1E3, 大端序, 8 字节
  *
- * Data[0-1]: coord_x (int16_t BE, 0.1° 单位)
- * Data[2-3]: coord_y (int16_t BE, 0.1° 单位)
+ * Data[0-1]: coord_x (int16_t BE, 1° 单位)
+ * Data[2-3]: coord_y (int16_t BE, 1° 单位)
  * Data[4]:   btn flags (bit0: btnHandler 反转, bit1: btnBox)
  * Data[5-7]: reserved (0xFF)
  * ================================================================ */

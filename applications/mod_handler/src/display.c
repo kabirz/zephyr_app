@@ -176,18 +176,15 @@ void mod_display_scanner(const scanner_data_t *s)
 	k_mutex_unlock(&display_mutex);
 }
 
-/* Row 2: X/Y 角度 (紧凑格式, 整数运算避免 %f 代码膨胀) */
+/* Row 2: X/Y 角度 (1° 精度, 整数格式) */
 void mod_display_handler_xy(int x, int y)
 {
 	char line[32];
-	/* 角度范围 ±20.0° → abs 值 0~200, uint16 足够且消除 snprintf 截断警告 */
-	uint16_t ax = (uint16_t)(x < 0 ? -x : x);
-	uint16_t ay = (uint16_t)(y < 0 ? -y : y);
 
 	k_mutex_lock(&display_mutex, K_FOREVER);
-	snprintf(line, sizeof(line), "X:%c%u.%u ", x < 0 ? '-' : '+', ax / 10, ax % 10);
+	snprintf(line, sizeof(line), "X:%+d ", x);
 	display_str_pad(line, 0, 32, 64);
-	snprintf(line, sizeof(line), "Y:%c%u.%u ", y < 0 ? '-' : '+', ay / 10, ay % 10);
+	snprintf(line, sizeof(line), "Y:%+d ", y);
 	display_str_pad(line, 64, 32, 64);
 	k_mutex_unlock(&display_mutex);
 }

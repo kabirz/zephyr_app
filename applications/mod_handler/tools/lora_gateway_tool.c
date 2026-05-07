@@ -232,9 +232,9 @@ static void cb_update_telemetry(void *ud)
 {
     (void)ud;
     char buf[64];
-    snprintf(buf, sizeof(buf), "X Angle: %.1f deg", g_last_x / 10.0);
+    snprintf(buf, sizeof(buf), "X Angle: %d deg", g_last_x);
     SetWindowTextA(g_hXText, buf);
-    snprintf(buf, sizeof(buf), "Y Angle: %.1f deg", g_last_y / 10.0);
+    snprintf(buf, sizeof(buf), "Y Angle: %d deg", g_last_y);
     SetWindowTextA(g_hYText, buf);
     snprintf(buf, sizeof(buf), "Button: %s",
              g_last_btn ? "Released" : "Pressed");
