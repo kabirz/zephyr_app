@@ -192,14 +192,11 @@ void mod_display_handler_xy(int x, int y)
 	k_mutex_unlock(&display_mutex);
 }
 
-/* Row 3: 按键状态 */
+/* Row 3: 按键状态 cleaning */
 void mod_display_handler_button(uint8_t h_button)
 {
-	char line[17];
-
 	k_mutex_lock(&display_mutex, K_FOREVER);
-	snprintf(line, sizeof(line), "BTN: %s", h_button ? "ON " : "OFF");
-	display_str_pad(line, 0, 48, 128);
+	display_str_pad("", 0, 48, 128);
 	k_mutex_unlock(&display_mutex);
 }
 

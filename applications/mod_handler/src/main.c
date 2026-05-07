@@ -21,6 +21,7 @@ LOG_MODULE_REGISTER(main_app, LOG_LEVEL_INF);
 #define ACTIVITY_TIMEOUT_MS (10 * 60 * 1000) /* 10 minutes */
 
 volatile uint32_t last_activity_time;
+extern void system_sleep(void);
 
 int main(void)
 {
@@ -41,15 +42,7 @@ int main(void)
 		}
 
 		if ((k_uptime_get_32() - last_activity_time) > ACTIVITY_TIMEOUT_MS) {
-			k_event_clear(&global_params.event, WAKE_EVENT);
-			global_params.sleeping = true;
-			if (global_params.connect_type == CAN_TYPE) {
-				can_power_enable(false);
-			} else {
-				lora_deinit();
-			}
-			dis_power_enable(false);
-			handler_power_enable(false);
+			system_sleep();
 			LOG_INF("system entering sleep (inactivity timeout)");
 			continue;
 		}

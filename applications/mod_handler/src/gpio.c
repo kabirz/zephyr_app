@@ -36,7 +36,6 @@ static struct gpio_callback linksw_cb_data;
 static struct k_work_delayable btn_display_work;
 static struct k_work_delayable linksw_work;
 static struct k_work_delayable sleep_work;
-static struct k_work_delayable delayed_sleep_work;
 
 static void btn_display_work_handler(struct k_work *work)
 {
@@ -46,7 +45,7 @@ static void btn_display_work_handler(struct k_work *work)
 	if (gpio_pin_get_dt(&handle_button) != global_params.h_button) {
 		global_params.h_button = !global_params.h_button;
 		last_activity_time = k_uptime_get_32();
-		mod_display_handler_button(global_params.h_button);
+		// mod_display_handler_button(global_params.h_button);
 
 		if (global_params.connect_type == CAN_TYPE) {
 			mod_can_send_handler_state(&global_params);
@@ -76,8 +75,10 @@ void canlora_switch(uint8_t type)
 
 static void linksw_work_handler(struct k_work *work)
 {
-	global_params.connect_type = (global_params.connect_type == CAN_TYPE) ? LORA_TYPE : CAN_TYPE;
-	canlora_switch(global_params.connect_type);
+	if (gpio_pin_get_dt(&link_switch) == 0) {
+		global_params.connect_type = (global_params.connect_type == CAN_TYPE) ? LORA_TYPE : CAN_TYPE;
+		canlora_switch(global_params.connect_type);
+	}
 }
 
 int handler_get_btn(void)
@@ -109,7 +110,8 @@ void handler_power_enable(bool up)
 {
 	gpio_pin_set_dt(&handler_power_gpio, up);
 }
-static void system_sleep(void)
+
+void system_sleep(void)
 {
 	k_event_clear(&global_params.event, WAKE_EVENT);
 	global_params.sleeping = true;
@@ -120,7 +122,6 @@ static void system_sleep(void)
 	}
 	dis_power_enable(false);
 	handler_power_enable(false);
-	LOG_INF("system entering sleep");
 }
 
 static void system_wake(void)
@@ -141,20 +142,11 @@ static void system_wake(void)
 	LOG_INF("system woke up");
 }
 
-static void delayed_sleep_handler(struct k_work *work)
-{
-	if (!global_params.sleeping) {
-		system_sleep();
-	}
-}
-
 static void sleep_work_handler(struct k_work *work)
 {
 	if (gpio_pin_get_dt(&power_button) == 0) {
 		if (global_params.sleeping) {
 			system_wake();
-		} else {
-			k_work_reschedule(&delayed_sleep_work, K_SECONDS(1));
 		}
 	}
 }
@@ -192,7 +184,7 @@ static void linksw_irq(const struct device *dev, struct gpio_callback *cb, uint3
 	if (global_params.sleeping) {
 		return;
 	}
-	k_work_reschedule(&linksw_work, K_MSEC(10));
+	k_work_reschedule(&linksw_work, K_MSEC(20));
 }
 
 static int power_init(void)
@@ -315,7 +307,7 @@ int gpio_init(void)
 				   BIT(power_button.pin) | BIT(handle_button.pin));
 	gpio_add_callback(power_button.port, &power_button_cb_data);
 
-	ret = gpio_pin_interrupt_configure_dt(&link_switch, GPIO_INT_EDGE_BOTH);
+	ret = gpio_pin_interrupt_configure_dt(&link_switch, GPIO_INT_EDGE_FALLING);
 	if (ret < 0) {
 		LOG_ERR("Failed to configure link switch interrupt: %d", ret);
 		return ret;
@@ -326,7 +318,6 @@ int gpio_init(void)
 	k_work_init_delayable(&btn_display_work, btn_display_work_handler);
 	k_work_init_delayable(&linksw_work, linksw_work_handler);
 	k_work_init_delayable(&sleep_work, sleep_work_handler);
-	k_work_init_delayable(&delayed_sleep_work, delayed_sleep_handler);
 
 	LOG_INF("GPIO initialized successfully");
 	LOG_INF("  PB12 (Charge Full): %s", gpio_pin_get_dt(&charge_full) ? "HIGH" : "LOW");
