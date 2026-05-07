@@ -477,26 +477,13 @@ int lora_gw_configure(const struct lora_gw_config *cfg)
 	struct lora_gw_config defaults = {
 		.mode = LORA_GW_MODE_TRANS,
 		.prot = LORA_PROT_LG210,
-		.spd = 10,
-		.ch = 72,
 	};
 
 	if (!cfg) {
 		cfg = &defaults;
 	}
 
-	if (cfg->spd < 1 || cfg->spd > 12) {
-		LOG_ERR("Invalid SPD %d (1-12)", cfg->spd);
-		return -EINVAL;
-	}
-
-	if (cfg->ch > 127) {
-		LOG_ERR("Invalid CH %d (0-127)", cfg->ch);
-		return -EINVAL;
-	}
-
 	int ret = lora_enter_at();
-
 	if (ret) {
 		return ret;
 	}
@@ -1231,6 +1218,71 @@ int lora_set_node_id(uint32_t nid)
 }
 
 /* ================================================================
+ * 通道频率设置 — AT+CH1/AT+CH2, 重启生效
+ * ================================================================ */
+int lora_set_ch1(uint16_t ch)
+{
+	int ret = lora_enter_at();
+
+	if (ret) {
+		return ret;
+	}
+
+	char resp[128];
+	char cmd[32];
+
+	snprintf(cmd, sizeof(cmd), "AT+CH1=%d", ch);
+	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	if (ret) {
+		LOG_ERR("Set CH1 failed");
+		lora_exit_at();
+		return ret;
+	}
+
+	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
+	global_params.ch1 = ch;
+	k_msleep(50);
+	lora_rx_disable_sync();
+	atomic_set(&lora_current_mode, LORA_MODE_DATA);
+	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
+	k_mutex_unlock(&lora_mode_mutex);
+
+	LOG_INF("CH1 set to %d", ch);
+	return 0;
+}
+
+int lora_set_ch2(uint16_t ch)
+{
+	int ret = lora_enter_at();
+
+	if (ret) {
+		return ret;
+	}
+
+	char resp[128];
+	char cmd[32];
+
+	snprintf(cmd, sizeof(cmd), "AT+CH2=%d", ch);
+	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	if (ret) {
+		LOG_ERR("Set CH2 failed");
+		lora_exit_at();
+		return ret;
+	}
+
+	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
+	global_params.ch2 = ch;
+	k_msleep(50);
+	lora_rx_disable_sync();
+	atomic_set(&lora_current_mode, LORA_MODE_DATA);
+	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
+	k_mutex_unlock(&lora_mode_mutex);
+
+	LOG_INF("CH2 set to %d", ch);
+	return 0;
+}
+
+/* ================================================================
  * Shell 调试命令
  *   lora send <data>   — 透传模式发送
  *   lora at <cmd>      — AT 指令 (自动进入 AT 模式)
@@ -1409,6 +1461,48 @@ static int cmd_nid(const struct shell *ctx, size_t argc, char **argv)
 	return 0;
 }
 
+static int cmd_ch1(const struct shell *ctx, size_t argc, char **argv)
+{
+	if (argc < 2) {
+		shell_print(ctx, "CH1: %d (%dKHz)", global_params.ch1,
+			    global_params.ch1 * 100);
+		return 0;
+	}
+	uint16_t ch = (uint16_t)strtol(argv[1], NULL, 10);
+	if (ch < 4100 || ch > 5100) {
+		shell_error(ctx, "CH1 range: 4100~5100");
+		return -EINVAL;
+	}
+	int ret = lora_set_ch1(ch);
+	if (ret) {
+		shell_error(ctx, "Set CH1 failed (%d)", ret);
+		return ret;
+	}
+	shell_print(ctx, "CH1 set to %d", ch);
+	return 0;
+}
+
+static int cmd_ch2(const struct shell *ctx, size_t argc, char **argv)
+{
+	if (argc < 2) {
+		shell_print(ctx, "CH2: %d (%dKHz)", global_params.ch2,
+			    global_params.ch2 * 100);
+		return 0;
+	}
+	uint16_t ch = (uint16_t)strtol(argv[1], NULL, 10);
+	if (ch < 4100 || ch > 5100) {
+		shell_error(ctx, "CH2 range: 4100~5100");
+		return -EINVAL;
+	}
+	int ret = lora_set_ch2(ch);
+	if (ret) {
+		shell_error(ctx, "Set CH2 failed (%d)", ret);
+		return ret;
+	}
+	shell_print(ctx, "CH2 set to %d", ch);
+	return 0;
+}
+
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_gw_cmds,
 			       SHELL_CMD_ARG(config, NULL,
 					     "Configure gateway params and reboot\n"
@@ -1490,6 +1584,14 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_cmds,
 					     "Get/set gateway ID\n"
 					     "Usage: gwid [hex_value]",
 					     cmd_gwid, 1, 1),
+			       SHELL_CMD_ARG(ch1, NULL,
+				     "Get/set channel 1 freq (4100~5100)\n"
+				     "Usage: ch1 [value]",
+				     cmd_ch1, 1, 1),
+			       SHELL_CMD_ARG(ch2, NULL,
+				     "Get/set channel 2 freq (4100~5100)\n"
+				     "Usage: ch2 [value]",
+				     cmd_ch2, 1, 1),
 			       SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(lora, &sub_lora_cmds, "LoRa WH-L101-L commands", NULL);
@@ -1580,6 +1682,18 @@ static int lora_serial_init(void)
 		if (ret == 0) {
 			global_params.gwid = (uint32_t)parse_at_hex(resp);
 			LOG_INF("LoRa GWID: 0x%08X", global_params.gwid);
+		}
+
+		ret = lora_send_at("AT+CH1", resp, sizeof(resp), 2000);
+		if (ret == 0) {
+			global_params.ch1 = (uint16_t)parse_at_number(resp);
+			LOG_INF("LoRa CH1: %d", global_params.ch1);
+		}
+
+		ret = lora_send_at("AT+CH2", resp, sizeof(resp), 2000);
+		if (ret == 0) {
+			global_params.ch2 = (uint16_t)parse_at_number(resp);
+			LOG_INF("LoRa CH2: %d", global_params.ch2);
 		}
 
 		lora_exit_at();

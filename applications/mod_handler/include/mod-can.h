@@ -51,6 +51,10 @@ enum lora_config_cmd {
 	LORA_CMD_SET_NID = 0x04,
 	LORA_CMD_QUERY_GWID = 0x05,
 	LORA_CMD_SET_GWID = 0x06,
+	LORA_CMD_QUERY_CH1 = 0x07,
+	LORA_CMD_SET_CH1 = 0x08,
+	LORA_CMD_QUERY_CH2 = 0x09,
+	LORA_CMD_SET_CH2 = 0x0A,
 };
 
 /* LoRa 配置结果 */

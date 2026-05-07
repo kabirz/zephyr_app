@@ -69,6 +69,7 @@ static struct k_work lora_cfg_work;
 static struct lora_gw_config pending_lora_cfg;
 static uint32_t pending_nid;
 static uint32_t pending_gwid;
+static uint16_t pending_ch;
 static uint8_t lora_cfg_cmd;
 
 static void lora_cfg_work_handler(struct k_work *work)
@@ -137,6 +138,38 @@ static void lora_cfg_work_handler(struct k_work *work)
 			LOG_ERR("LoRa GWID SET failed: %d", ret);
 		}
 		mod_can_send(&resp);
+	} else if (lora_cfg_cmd == LORA_CMD_QUERY_CH1) {
+		resp.data[0] = LORA_CFG_OK;
+		sys_put_be16(global_params.ch1, &resp.data[2]);
+		LOG_INF("LoRa CH1 QUERY: ch1=%d", global_params.ch1);
+		mod_can_send(&resp);
+	} else if (lora_cfg_cmd == LORA_CMD_SET_CH1) {
+		int ret = lora_set_ch1(pending_ch);
+
+		resp.data[0] = (ret == 0) ? LORA_CFG_OK : LORA_CFG_FAIL;
+		if (ret == 0) {
+			sys_put_be16(pending_ch, &resp.data[2]);
+			LOG_INF("LoRa CH1 SET: ch1=%d", pending_ch);
+		} else {
+			LOG_ERR("LoRa CH1 SET failed: %d", ret);
+		}
+		mod_can_send(&resp);
+	} else if (lora_cfg_cmd == LORA_CMD_QUERY_CH2) {
+		resp.data[0] = LORA_CFG_OK;
+		sys_put_be16(global_params.ch2, &resp.data[2]);
+		LOG_INF("LoRa CH2 QUERY: ch2=%d", global_params.ch2);
+		mod_can_send(&resp);
+	} else if (lora_cfg_cmd == LORA_CMD_SET_CH2) {
+		int ret = lora_set_ch2(pending_ch);
+
+		resp.data[0] = (ret == 0) ? LORA_CFG_OK : LORA_CFG_FAIL;
+		if (ret == 0) {
+			sys_put_be16(pending_ch, &resp.data[2]);
+			LOG_INF("LoRa CH2 SET: ch2=%d", pending_ch);
+		} else {
+			LOG_ERR("LoRa CH2 SET failed: %d", ret);
+		}
+		mod_can_send(&resp);
 	}
 }
 
@@ -161,6 +194,16 @@ static void can_lora_config_handler(struct can_frame *frame)
 		k_work_submit(&lora_cfg_work);
 	} else if (lora_cfg_cmd == LORA_CMD_SET_GWID) {
 		pending_gwid = sys_get_be32(&frame->data[4]);
+		k_work_submit(&lora_cfg_work);
+	} else if (lora_cfg_cmd == LORA_CMD_QUERY_CH1) {
+		k_work_submit(&lora_cfg_work);
+	} else if (lora_cfg_cmd == LORA_CMD_SET_CH1) {
+		pending_ch = sys_get_be16(&frame->data[2]);
+		k_work_submit(&lora_cfg_work);
+	} else if (lora_cfg_cmd == LORA_CMD_QUERY_CH2) {
+		k_work_submit(&lora_cfg_work);
+	} else if (lora_cfg_cmd == LORA_CMD_SET_CH2) {
+		pending_ch = sys_get_be16(&frame->data[2]);
 		k_work_submit(&lora_cfg_work);
 	} else {
 		LOG_ERR("Unknown LoRa config cmd: 0x%02x", lora_cfg_cmd);

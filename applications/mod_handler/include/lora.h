@@ -218,4 +218,14 @@ void lora_deinit(void);
  */
 bool lora_is_test_mode(void);
 
+/**
+ * @brief 设置通道1频率并重启模块
+ */
+int lora_set_ch1(uint16_t ch);
+
+/**
+ * @brief 设置通道2频率并重启模块
+ */
+int lora_set_ch2(uint16_t ch);
+
 #endif /* __LORA_H__ */

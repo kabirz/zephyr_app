@@ -43,6 +43,8 @@ typedef struct {
 	uint8_t rssi;
 	uint32_t gwid;
 	uint32_t nid;
+	uint16_t ch1; /* 通道1频率 (4100~5100, 单位100KHz) */
+	uint16_t ch2; /* 通道2频率 (4100~5100, 单位100KHz) */
 	volatile bool sleeping;
 	struct k_event event;
 
