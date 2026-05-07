@@ -10,6 +10,8 @@
  */
 
 #define WIN32_LEAN_AND_MEAN
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -51,19 +53,6 @@ static int udp_wrap_json(cJSON *root, uint8_t *out, int out_size)
     return total;
 }
 
-/* RSSI 到信号等级转换
- * 4 (优秀): RSSI ≥ -80
- * 3 (良好): -90 ≤ RSSI < -80
- * 2 (一般): -100 ≤ RSSI < -90
- * 1 (差): RSSI < -100 */
-static uint8_t rssi_to_level(int rssi)
-{
-    if (rssi >= -80) return 4;
-    if (rssi >= -90) return 3;
-    if (rssi >= -100) return 2;
-    return 1;
-}
-
 /* ================================================================
  * UDP 工作线程
  * ================================================================ */
@@ -83,7 +72,48 @@ static DWORD WINAPI udp_worker(LPVOID param)
     dest.sin_port = htons(UDP_BROADCAST_PORT);
 
     if (work->target_ip[0]) {
-        /* ---- 单播模式：向已发现的设备 IP 发送 ---- */
+        /* ---- 单播模式：绑定网口 IP + SO_BROADCAST 以接收广播响应 ---- */
+        struct in_addr target_addr;
+        inet_pton(AF_INET, work->target_ip, &target_addr);
+        uint32_t target_net = ntohl(target_addr.s_addr) & 0xFFFFFF00;
+
+        /* 枚举网卡，找到与目标 IP 同子网的接口 */
+        ULONG bufLen = 0;
+        GetAdaptersAddresses(AF_INET,
+            GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
+            GAA_FLAG_SKIP_FRIENDLY_NAME,
+            NULL, NULL, &bufLen);
+
+        PIP_ADAPTER_ADDRESSES adapters = (PIP_ADAPTER_ADDRESSES)malloc(bufLen);
+        if (!adapters) {
+            PostMessage(hwnd, WM_USER + 2, 0,
+                        (LPARAM)_strdup("Failed to enumerate adapters"));
+            free(work);
+            return 0;
+        }
+
+        struct in_addr matched_ip = {0};
+        if (GetAdaptersAddresses(AF_INET,
+                GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
+                GAA_FLAG_SKIP_FRIENDLY_NAME,
+                NULL, adapters, &bufLen) == ERROR_SUCCESS) {
+            for (PIP_ADAPTER_ADDRESSES aa = adapters; aa; aa = aa->Next) {
+                if (aa->OperStatus != IfOperStatusUp) continue;
+                if (aa->IfType == IF_TYPE_SOFTWARE_LOOPBACK) continue;
+                for (PIP_ADAPTER_UNICAST_ADDRESS ua = aa->FirstUnicastAddress;
+                     ua; ua = ua->Next) {
+                    struct sockaddr_in *sa = (struct sockaddr_in *)ua->Address.lpSockaddr;
+                    if (sa->sin_family != AF_INET) continue;
+                    if ((ntohl(sa->sin_addr.s_addr) & 0xFFFFFF00) == target_net) {
+                        matched_ip = sa->sin_addr;
+                        break;
+                    }
+                }
+                if (matched_ip.s_addr) break;
+            }
+        }
+        free(adapters);
+
         SOCKET sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         if (sock == INVALID_SOCKET) {
             PostMessage(hwnd, WM_USER + 2, 0,
@@ -91,6 +121,18 @@ static DWORD WINAPI udp_worker(LPVOID param)
             free(work);
             return 0;
         }
+
+        /* 启用广播接收 */
+        BOOL bcast = TRUE;
+        setsockopt(sock, SOL_SOCKET, SO_BROADCAST,
+                   (const char *)&bcast, sizeof(bcast));
+
+        /* 绑定到匹配的网口 IP，确保能收到该子网的广播响应 */
+        struct sockaddr_in local;
+        memset(&local, 0, sizeof(local));
+        local.sin_family = AF_INET;
+        local.sin_addr = matched_ip;
+        bind(sock, (struct sockaddr *)&local, sizeof(local));
 
         inet_pton(AF_INET, work->target_ip, &dest.sin_addr);
 
@@ -624,33 +666,49 @@ static void udp_process_response(net_ctx_t *ctx,
                 /* 解析 NINFO 响应: "+NINFO:<info>"
                  * 格式: 网络id,节点id,?,SNR,RSSI,...
                  * 示例: "NINFO:001,001DADC0,1,+012,+0,000000F8,00000000,1,2026/04/20-18:28:42,0000000000,000"
-                 * 其中 +012 是 SNR, +0 是 RSSI (实际值可能是 -80 的特殊表示)
-                 * 若有 pending RSSI 请求，提取信号值回复 TCP */
+                 * 内容可能为空 ("+NINFO:\r\n"), SNR/RSSI 字段也可能为空
+                 * 若有 pending RSSI 请求，用默认值回复避免卡住 */
                 {
                     const char *p = strstr(val, "+NINFO:");
                     if (p) {
                         const char *info = p + 7;
-                        ctx->cb.cfg_log_append(ctx->user_data, info);
+                        /* 跳过尾部的 \r\n 得到实际内容长度 */
+                        int info_len = (int)strlen(info);
+                        while (info_len > 0 && (info[info_len - 1] == '\r' ||
+                               info[info_len - 1] == '\n' ||
+                               info[info_len - 1] == ' '))
+                            info_len--;
+
+                        if (info_len > 0)
+                            ctx->cb.cfg_log_append(ctx->user_data, info);
+                        else
+                            ctx->cb.cfg_log_append(ctx->user_data, "(empty)");
 
                         if (g_pending_rssi_nid != 0) {
-                            /* 按逗号分隔解析，第4字段 SNR，第5字段 RSSI */
-                            char *buf = _strdup(info);
-                            char *token = strtok(buf, ",");
-                            int field_idx = 0;
-                            int snr_val = 0;
-                            int rssi_val = -120;
+                            int snr_val = 0, rssi_val = -120;
 
-                            while (token) {
-                                field_idx++;
-                                if (field_idx == 4) {
-                                    snr_val = atoi(token);
-                                } else if (field_idx == 5) {
-                                    rssi_val = atoi(token);
-                                    break;
+                            if (info_len > 0) {
+                                /* 手动遍历逗号分隔字段，保留空字段位置 */
+                                int field_idx = 0;
+                                const char *cur = info;
+
+                                while (*cur && *cur != '\r' && *cur != '\n' && field_idx < 5) {
+                                    field_idx++;
+                                    const char *end = cur;
+                                    while (*end && *end != ',' && *end != '\r' && *end != '\n')
+                                        end++;
+                                    int flen = (int)(end - cur);
+
+                                    if (field_idx == 4 && flen > 0) {
+                                        snr_val = atoi(cur);
+                                    } else if (field_idx == 5 && flen > 0) {
+                                        rssi_val = atoi(cur);
+                                    }
+
+                                    if (*end != ',') break;
+                                    cur = end + 1;
                                 }
-                                token = strtok(NULL, ",");
                             }
-                            free(buf);
 
                             extern BOOL g_testModeEnabled;
                             uint8_t snr_raw = (uint8_t)(int8_t)snr_val;

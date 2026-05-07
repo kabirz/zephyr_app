@@ -42,6 +42,9 @@ static void btn_display_work_handler(struct k_work *work)
 	if (global_params.sleeping) {
 		return;
 	}
+	if (gpio_pin_get_dt(&link_switch)) {
+		return;
+	}
 	if (gpio_pin_get_dt(&handle_button) != global_params.h_button) {
 		global_params.h_button = !global_params.h_button;
 		last_activity_time = k_uptime_get_32();

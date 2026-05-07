@@ -28,6 +28,7 @@ typedef struct {
 #define CAN_RX_EVENT   BIT(1)
 #define CAN_EVENT      BIT(2)
 #define LORA_EVENT     BIT(3)
+#define TEST_EVENT     BIT(4)
 
 typedef struct {
 	int x_degree;

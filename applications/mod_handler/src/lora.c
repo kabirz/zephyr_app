@@ -99,10 +99,11 @@ static K_SEM_DEFINE(at_resp_sem, 0, 1);
  * 链路检测 — RSSI 轮询
  * ================================================================ */
 static K_SEM_DEFINE(lora_rssi_sem, 0, 1);
+static K_SEM_DEFINE(lora_test_sem, 0, 1);
 
-#define LORA_RSSI_PERIOD_MS  4000  /* RSSI 轮询周期 */
-#define LORA_RSSI_TIMEOUT_MS 1500  /* RSSI 响应等待超时 */
-#define LORA_RSSI_FAIL_MAX   3     /* 连续失败判定断连 */
+#define LORA_RSSI_PERIOD_MS  4000 /* RSSI 轮询周期 */
+#define LORA_RSSI_TIMEOUT_MS 1500 /* RSSI 响应等待超时 */
+#define LORA_RSSI_FAIL_MAX   3    /* 连续失败判定断连 */
 
 /* ================================================================
  * HOSTWAKE 管理
@@ -283,6 +284,7 @@ bool lora_data_send(const uint8_t *data, size_t len)
 /* ================================================================
  * 测试模式 — 由 RSSI 响应中的 test_flag 控制
  * ================================================================ */
+static bool test_mode_from_shell;
 
 /* ================================================================
  * 遥测数据帧打包发送 — Data: [0x01][X 2B BE][Y 2B BE][btn][0xFF 3B]
@@ -516,8 +518,6 @@ static int parse_at_hex(const char *resp)
 /* ================================================================
  * LG210 网关配置 — LORAPROT + SPD + CH + 保存 + 重启
  * ================================================================ */
-
-
 int lora_configure(const struct lora_config *cfg)
 {
 	struct lora_config defaults = {
@@ -983,6 +983,8 @@ static void lora_msg_process_thread(void)
 							if (global_params.test_mode && !was_test) {
 								LOG_INF("Test mode activated");
 								global_params.test_rtt_min = UINT32_MAX;
+								test_mode_from_shell = false;
+								k_event_set(&global_params.event, TEST_EVENT);
 								mod_display_test_all(&global_params);
 							} else if (!global_params.test_mode && was_test) {
 								LOG_INF("Test mode deactivated");
@@ -994,6 +996,7 @@ static void lora_msg_process_thread(void)
 								global_params.test_rtt_sum = 0;
 								global_params.test_last_rx_idx = 0;
 								global_params.test_gap_lost = 0;
+								k_event_clear(&global_params.event, TEST_EVENT);
 								mod_display_normal_rows(&global_params);
 							}
 
@@ -1088,6 +1091,7 @@ static void lora_msg_process_thread(void)
 								mod_display_test_rtt(global_params.test_rtt_last);
 							}
 						}
+						k_sem_give(&lora_test_sem);
 						break;
 
 					default:
@@ -1126,8 +1130,8 @@ static void lora_rssi_thread(void)
 		}
 		k_event_wait(&global_params.event, LORA_EVENT, false, K_FOREVER);
 
-		/* AT 模式: 跳过 RSSI 轮询 */
-		if (atomic_get(&lora_current_mode) == LORA_MODE_AT) {
+		/* AT 模式或 shell 手动测试模式: 跳过 RSSI 轮询 */
+		if (atomic_get(&lora_current_mode) == LORA_MODE_AT || test_mode_from_shell) {
 			k_sleep(K_MSEC(LORA_RSSI_PERIOD_MS));
 			continue;
 		}
@@ -1161,7 +1165,7 @@ static void lora_rssi_thread(void)
 		}
 
 		uint32_t diff = k_uptime_get_32() - t1;
-		if (LORA_RSSI_PERIOD_MS > diff) {
+		if (diff < LORA_RSSI_PERIOD_MS) {
 			k_sleep(K_MSEC(LORA_RSSI_PERIOD_MS - diff));
 		}
 	}
@@ -1176,28 +1180,29 @@ static void lora_test_tx_thread(void)
 	frame[0] = LORA_DATA_TEST;
 
 	while (true) {
-		if (global_params.sleeping) {
-			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
-			continue;
-		}
-
 		if (!global_params.test_mode) {
 			k_msleep(200);
 			continue;
 		}
+		k_event_wait(&global_params.event, TEST_EVENT, false, K_FOREVER);
 
-		test_index++;
+		uint32_t t1 = k_uptime_get_32();
 		sys_put_be16(test_index, &frame[1]);
-		sys_put_be32(k_uptime_get_32(), &frame[3]);
+		sys_put_be32(t1, &frame[3]);
 
+		k_sem_reset(&lora_test_sem);
 		bool ok = lora_data_send(frame, sizeof(frame));
 		if (ok) {
+			test_index++;
 			global_params.test_tx_count++;
-		} else {
-			test_index--;
 		}
-
-		k_msleep(200);
+		if (k_sem_take(&lora_test_sem, K_MSEC(2000)) != 0) {
+			LOG_WRN("test mode response timeout");
+		}
+		uint32_t diff = k_uptime_get_32() - t1;
+		if (diff < 200) {
+			k_sleep(K_MSEC(200 - diff));
+		}
 	}
 }
 K_THREAD_DEFINE(lora_test_tx, 512, lora_test_tx_thread, NULL, NULL, NULL, 12, 0, 0);
@@ -1707,8 +1712,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_gw_cmds,
 					     "  prot: node, lg210 (default), lg220\n"
 					     "  mode: trans (default), fp, net",
 					     cmd_gw_mode, 1, 2),
-			       SHELL_CMD_ARG(query, NULL, "Query all params",
-					     cmd_gw_query, 1, 0),
+			       SHELL_CMD_ARG(query, NULL, "Query all params", cmd_gw_query, 1, 0),
 			       SHELL_SUBCMD_SET_END);
 
 static int cmd_test_stats(const struct shell *ctx, size_t argc, char **argv)
@@ -1755,24 +1759,76 @@ static int cmd_test_reset(const struct shell *ctx, size_t argc, char **argv)
 	return 0;
 }
 
-SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_test_cmds,
-			       SHELL_CMD_ARG(stats, NULL, "Show test statistics", cmd_test_stats, 1,
-					     0),
-			       SHELL_CMD_ARG(reset, NULL, "Reset test statistics", cmd_test_reset,
-					     1, 0),
-			       SHELL_SUBCMD_SET_END);
+static int cmd_test_on(const struct shell *ctx, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
 
-SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_cmds,
-			       SHELL_CMD_ARG(send, NULL, "Send data in transparent mode", cmd_send, 2, 0),
-			       SHELL_CMD_ARG(at, NULL, "Send AT command", cmd_at, 2, 0),
-			       SHELL_CMD(gw, &sub_lora_gw_cmds, "Gateway operations", NULL),
-			       SHELL_CMD(test, &sub_lora_test_cmds, "Test RTT/loss stats", NULL),
-			       SHELL_CMD_ARG(nid, NULL, "Get/set node ID [hex]", cmd_nid, 1, 1),
-			       SHELL_CMD_ARG(gwid, NULL, "Get/set gateway ID [hex]", cmd_gwid, 1, 1),
-			       SHELL_CMD_ARG(ch1, NULL, "Get/set CH1 [spd] [ch]", cmd_ch1, 1, 2),
-			       SHELL_CMD_ARG(ch2, NULL, "Get/set CH2 [spd] [ch]", cmd_ch2, 1, 2),
-			       SHELL_CMD_ARG(pnum, NULL, "Get/set channel select [0/1/2]", cmd_pnum, 1, 1),
-			       SHELL_SUBCMD_SET_END);
+	if (global_params.test_mode) {
+		shell_print(ctx, "Already in test mode");
+		return 0;
+	}
+
+	global_params.test_mode = true;
+	test_mode_from_shell = true;
+	k_event_set(&global_params.event, TEST_EVENT);
+	global_params.test_rtt_min = UINT32_MAX;
+	global_params.test_tx_count = 0;
+	global_params.test_rx_count = 0;
+	global_params.test_rtt_last = 0;
+	global_params.test_rtt_max = 0;
+	global_params.test_rtt_sum = 0;
+	global_params.test_last_rx_idx = 0;
+	global_params.test_gap_lost = 0;
+	mod_display_test_all(&global_params);
+	shell_print(ctx, "Test mode activated");
+	return 0;
+}
+
+static int cmd_test_off(const struct shell *ctx, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	if (!global_params.test_mode) {
+		shell_print(ctx, "Not in test mode");
+		return 0;
+	}
+
+	global_params.test_mode = false;
+	test_mode_from_shell = false;
+	k_event_clear(&global_params.event, TEST_EVENT);
+	global_params.test_tx_count = 0;
+	global_params.test_rx_count = 0;
+	global_params.test_rtt_last = 0;
+	global_params.test_rtt_min = UINT32_MAX;
+	global_params.test_rtt_max = 0;
+	global_params.test_rtt_sum = 0;
+	global_params.test_last_rx_idx = 0;
+	global_params.test_gap_lost = 0;
+	mod_display_normal_rows(&global_params);
+	shell_print(ctx, "Test mode deactivated");
+	return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(
+	sub_lora_test_cmds,
+	SHELL_CMD_ARG(stats, NULL, "Show test statistics", cmd_test_stats, 1, 0),
+	SHELL_CMD_ARG(reset, NULL, "Reset test statistics", cmd_test_reset, 1, 0),
+	SHELL_CMD_ARG(on, NULL, "Enter test mode", cmd_test_on, 1, 0),
+	SHELL_CMD_ARG(off, NULL, "Exit test mode", cmd_test_off, 1, 0), SHELL_SUBCMD_SET_END);
+
+SHELL_STATIC_SUBCMD_SET_CREATE(
+	sub_lora_cmds, SHELL_CMD_ARG(send, NULL, "Send data in transparent mode", cmd_send, 2, 0),
+	SHELL_CMD_ARG(at, NULL, "Send AT command", cmd_at, 2, 0),
+	SHELL_CMD(gw, &sub_lora_gw_cmds, "Gateway operations", NULL),
+	SHELL_CMD(test, &sub_lora_test_cmds, "Test RTT/loss stats", NULL),
+	SHELL_CMD_ARG(nid, NULL, "Get/set node ID [hex]", cmd_nid, 1, 1),
+	SHELL_CMD_ARG(gwid, NULL, "Get/set gateway ID [hex]", cmd_gwid, 1, 1),
+	SHELL_CMD_ARG(ch1, NULL, "Get/set CH1 [spd] [ch]", cmd_ch1, 1, 2),
+	SHELL_CMD_ARG(ch2, NULL, "Get/set CH2 [spd] [ch]", cmd_ch2, 1, 2),
+	SHELL_CMD_ARG(pnum, NULL, "Get/set channel select [0/1/2]", cmd_pnum, 1, 1),
+	SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(lora, &sub_lora_cmds, "LoRa WH-L101-L commands", NULL);
 #endif /* CONFIG_SHELL */
