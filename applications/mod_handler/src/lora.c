@@ -936,8 +936,7 @@ static void handle_rssi_response(const uint8_t *payload, uint16_t payload_len)
 	if (global_params.rssi != (uint8_t)level) {
 		global_params.rssi = (uint8_t)level;
 		mod_display_lora((uint8_t)level);
-		LOG_INF("LoRa RSSI: rssi=%d snr=%d, level=%d",
-			 raw_rssi, raw_snr, level);
+		LOG_INF("LoRa RSSI: rssi=%d snr=%d, level=%d", raw_rssi, raw_snr, level);
 	}
 
 	/* 保存原始值用于测试模式显示 */
@@ -1246,6 +1245,7 @@ static void lora_test_tx_thread(void)
 			k_msleep(200);
 			continue;
 		}
+		last_activity_time = k_uptime_get_32();
 		k_event_wait(&global_params.event, TEST_EVENT, false, K_FOREVER);
 
 		uint32_t t1 = k_uptime_get_32();
