@@ -90,7 +90,7 @@ void net_send_rssi_response(net_ctx_t *ctx, uint32_t nid, uint8_t snr_raw,
     buf[off++] = LORA_FRAME_HDR_BYTE2;
 
     int len = net_build_frame(buf + off, sizeof(buf) - off - 2,
-                              nid, payload, 3);
+                              nid, payload, 4);
     if (len <= 0) return;
     off += len;
 
@@ -101,11 +101,11 @@ void net_send_rssi_response(net_ctx_t *ctx, uint32_t nid, uint8_t snr_raw,
     send(tcp_sock, (const char *)buf, off, 0);
     g_tx_count++;
     char desc[64];
-    snprintf(desc, sizeof(desc), "TX RSSI response: raw=%d test=%d",
-             (int)(int8_t)rssi_raw, test_flag);
+    snprintf(desc, sizeof(desc), "TX RSSI response: rssi=%d snr=%d, test=%d",
+             (int)(int8_t)rssi_raw, (int)(int8_t)snr_raw, test_flag);
     ctx->cb.log_append(ctx->user_data, desc);
     ctx->cb.log_hex(ctx->user_data, "TX RSSI", buf, off);
-    ctx->cb.add_history_entry(ctx->user_data, nid, "TX RSSI", payload, 3);
+    ctx->cb.add_history_entry(ctx->user_data, nid, "TX RSSI", payload, 4);
     ctx->cb.update_stats(ctx->user_data);
 }
 

@@ -11,6 +11,7 @@
  */
 
 #include <zephyr/kernel.h>
+#include <zephyr/sys/ring_buffer.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/byteorder.h>
@@ -842,6 +843,12 @@ static bool parse_lora_frame(const uint8_t *data, uint16_t len, const uint8_t **
 #define ASM_BUF_SIZE (LORA_BUF_SIZE * 2)
 
 /* ================================================================
+ * 环形缓冲区: 用于接收数据重组
+ * ================================================================ */
+static uint8_t lora_rx_buf_data[ASM_BUF_SIZE];
+static struct ring_buf lora_rx_rb;
+
+/* ================================================================
  * LoRa 测试统计 — 时延 (RTT) + 丢包率
  *
  * TX: 每 200ms 发送 [0x02][index 2B BE][timestamp 4B BE]
@@ -1053,76 +1060,62 @@ static void handle_test_response(const uint8_t *payload, uint16_t payload_len)
 
 static void lora_msg_process_thread(void)
 {
-	static uint8_t asm_buf[ASM_BUF_SIZE];
-	static uint16_t asm_len;
 	struct lora_data_msg msg;
+	uint8_t peek_buf[256];  /* 临时缓冲区，用于 peek 数据 */
 
 	while (true) {
 		if (k_msgq_get(&lora_data_msgq, &msg, K_FOREVER) != 0) {
 			continue;
 		}
 
-		/* 追加到重组缓冲区, 溢出时丢弃旧数据重新开始 */
-		if (asm_len + msg.len > ASM_BUF_SIZE) {
-			LOG_WRN("asm_buf overflow, dropping %d bytes", asm_len);
-			if (msg.len > ASM_BUF_SIZE) {
-				continue;
-			}
-			memcpy(asm_buf, msg.data, msg.len);
-			asm_len = msg.len;
-		} else {
-			memcpy(asm_buf + asm_len, msg.data, msg.len);
-			asm_len += msg.len;
+		/* 写入环形缓冲区 */
+		uint32_t written = ring_buf_put(&lora_rx_rb, msg.data, msg.len);
+		if (written != msg.len) {
+			LOG_WRN("ring_buf overflow, dropped %u bytes", msg.len - written);
 		}
 
 		/* 循环提取完整帧 */
-		while (asm_len > 0) {
+		while (ring_buf_size_get(&lora_rx_rb) > 0) {
+			/* Peek 数据到临时缓冲区（最多 256 字节） */
+			uint32_t peek_len = ring_buf_peek(&lora_rx_rb, peek_buf, sizeof(peek_buf));
+			if (peek_len == 0) {
+				break;
+			}
+
 			/* 特殊处理: "LoRa Start!" 启动消息 (无帧头) */
-			if (asm_len >= 11 &&
-			    memcmp(asm_buf, "LoRa Start!", 11) == 0) {
+			if (memcmp(peek_buf, "LoRa Start!", MIN(peek_len, 11)) == 0) {
+				if (peek_len < 11) {
+					break;
+				}
 				LOG_INF("Lora start!");
-				int skip = 11;
+				uint32_t skip = 11;
 				/* 跳过可能的 \r\n 后缀 */
-				if (asm_len >= 13 &&
-				    asm_buf[11] == '\r' && asm_buf[12] == '\n') {
+				if (peek_len >= 13 && peek_buf[11] == '\r' &&
+				    peek_buf[12] == '\n') {
 					skip = 13;
 				}
-				asm_len -= skip;
-				if (asm_len > 0) {
-					memmove(asm_buf, asm_buf + skip, asm_len);
-				}
+				ring_buf_get(&lora_rx_rb, NULL, skip);
 				continue;
 			}
 
 			/* 查找帧头 0xAA 0x55 */
-			if (asm_buf[0] != 0xAA) {
-				/* 非帧头字节, 丢弃 */
-				asm_len--;
-				if (asm_len > 0) {
-					memmove(asm_buf, asm_buf + 1, asm_len);
-				}
+			if (peek_buf[0] != 0xAA) {
+				ring_buf_get(&lora_rx_rb, NULL, 1);
 				continue;
 			}
-
-			/* 仅有 0xAA, 等待下一字节确认 */
-			if (asm_len < 2) {
+			if (peek_len < 2) {
 				break;
 			}
-
-			/* 0xAA 后不是 0x55, 丢弃 0xAA 重新查找 */
-			if (asm_buf[1] != 0x55) {
-				asm_len--;
-				if (asm_len > 0) {
-					memmove(asm_buf, asm_buf + 1, asm_len);
-				}
+			if (peek_buf[1] != 0x55) {
+				ring_buf_get(&lora_rx_rb, NULL, 1);
 				continue;
 			}
 
 			/* 找到帧头, 在后续数据中搜索 \r\n 帧尾 */
 			int tail_pos = -1;
 
-			for (int i = 2; i + 1 < asm_len; i++) {
-				if (asm_buf[i] == 0x0D && asm_buf[i + 1] == 0x0A) {
+			for (int i = 2; i + 1 < peek_len; i++) {
+				if (peek_buf[i] == 0x0D && peek_buf[i + 1] == 0x0A) {
 					tail_pos = i;
 					break;
 				}
@@ -1141,8 +1134,8 @@ static void lora_msg_process_thread(void)
 				const uint8_t *payload;
 				uint16_t payload_len;
 
-				if (parse_lora_frame(asm_buf + 2, content_len,
-						     &payload, &payload_len)) {
+				if (parse_lora_frame(peek_buf + 2, content_len, &payload,
+						     &payload_len)) {
 					uint8_t type = payload[0];
 
 					switch (type) {
@@ -1166,11 +1159,8 @@ static void lora_msg_process_thread(void)
 				LOG_WRN("Frame content too short: %d", content_len);
 			}
 
-			/* 前进到下一帧 */
-			asm_len -= total_len;
-			if (asm_len > 0) {
-				memmove(asm_buf, asm_buf + total_len, asm_len);
-			}
+			/* 丢弃已处理的帧 */
+			ring_buf_get(&lora_rx_rb, NULL, total_len);
 		}
 	}
 }
@@ -1799,6 +1789,9 @@ static int lora_serial_init(void)
 
 	/* 注册 async 回调 (必须在 lora_init 之前) */
 	uart_callback_set(uart_dev, lora_uart_cb, NULL);
+
+	/* 初始化接收环形缓冲区 */
+	ring_buf_init(&lora_rx_rb, ASM_BUF_SIZE, lora_rx_buf_data);
 
 	/* 上电 + 复位 + 等待就绪 + 启动 DMA */
 	lora_init();
