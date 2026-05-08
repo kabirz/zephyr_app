@@ -70,50 +70,10 @@ static DWORD WINAPI udp_worker(LPVOID param)
     memset(&dest, 0, sizeof(dest));
     dest.sin_family = AF_INET;
     dest.sin_port = htons(UDP_BROADCAST_PORT);
+    dest.sin_addr.s_addr = htonl(INADDR_BROADCAST);
 
-    if (work->target_ip[0]) {
-        /* ---- 单播模式：绑定网口 IP + SO_BROADCAST 以接收广播响应 ---- */
-        struct in_addr target_addr;
-        inet_pton(AF_INET, work->target_ip, &target_addr);
-        uint32_t target_net = ntohl(target_addr.s_addr) & 0xFFFFFF00;
-
-        /* 枚举网卡，找到与目标 IP 同子网的接口 */
-        ULONG bufLen = 0;
-        GetAdaptersAddresses(AF_INET,
-            GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
-            GAA_FLAG_SKIP_FRIENDLY_NAME,
-            NULL, NULL, &bufLen);
-
-        PIP_ADAPTER_ADDRESSES adapters = (PIP_ADAPTER_ADDRESSES)malloc(bufLen);
-        if (!adapters) {
-            PostMessage(hwnd, WM_USER + 2, 0,
-                        (LPARAM)_strdup("Failed to enumerate adapters"));
-            free(work);
-            return 0;
-        }
-
-        struct in_addr matched_ip = {0};
-        if (GetAdaptersAddresses(AF_INET,
-                GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
-                GAA_FLAG_SKIP_FRIENDLY_NAME,
-                NULL, adapters, &bufLen) == ERROR_SUCCESS) {
-            for (PIP_ADAPTER_ADDRESSES aa = adapters; aa; aa = aa->Next) {
-                if (aa->OperStatus != IfOperStatusUp) continue;
-                if (aa->IfType == IF_TYPE_SOFTWARE_LOOPBACK) continue;
-                for (PIP_ADAPTER_UNICAST_ADDRESS ua = aa->FirstUnicastAddress;
-                     ua; ua = ua->Next) {
-                    struct sockaddr_in *sa = (struct sockaddr_in *)ua->Address.lpSockaddr;
-                    if (sa->sin_family != AF_INET) continue;
-                    if ((ntohl(sa->sin_addr.s_addr) & 0xFFFFFF00) == target_net) {
-                        matched_ip = sa->sin_addr;
-                        break;
-                    }
-                }
-                if (matched_ip.s_addr) break;
-            }
-        }
-        free(adapters);
-
+    if (g_local_if_ip[0]) {
+        /* ---- 已知网卡：仅在该网卡上广播 ---- */
         SOCKET sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         if (sock == INVALID_SOCKET) {
             PostMessage(hwnd, WM_USER + 2, 0,
@@ -122,26 +82,31 @@ static DWORD WINAPI udp_worker(LPVOID param)
             return 0;
         }
 
-        /* 启用广播接收 */
         BOOL bcast = TRUE;
         setsockopt(sock, SOL_SOCKET, SO_BROADCAST,
                    (const char *)&bcast, sizeof(bcast));
 
-        /* 绑定到匹配的网口 IP，确保能收到该子网的广播响应 */
         struct sockaddr_in local;
         memset(&local, 0, sizeof(local));
         local.sin_family = AF_INET;
-        local.sin_addr = matched_ip;
-        bind(sock, (struct sockaddr *)&local, sizeof(local));
+        inet_pton(AF_INET, g_local_if_ip, &local.sin_addr);
 
-        inet_pton(AF_INET, work->target_ip, &dest.sin_addr);
+        if (bind(sock, (struct sockaddr *)&local, sizeof(local)) != 0) {
+            char err[128];
+            snprintf(err, sizeof(err), "bind %s failed: %d",
+                     g_local_if_ip, WSAGetLastError());
+            PostMessage(hwnd, WM_USER + 2, 0, (LPARAM)_strdup(err));
+            closesocket(sock);
+            free(work);
+            return 0;
+        }
 
         int ret = sendto(sock, (const char *)work->payload, work->plen, 0,
                          (struct sockaddr *)&dest, sizeof(dest));
         if (ret == SOCKET_ERROR) {
             char err[128];
-            snprintf(err, sizeof(err), "sendto %s failed: %d",
-                     work->target_ip, WSAGetLastError());
+            snprintf(err, sizeof(err), "sendto failed on %s: %d",
+                     g_local_if_ip, WSAGetLastError());
             PostMessage(hwnd, WM_USER + 2, 0, (LPARAM)_strdup(err));
             closesocket(sock);
             free(work);
@@ -149,15 +114,15 @@ static DWORD WINAPI udp_worker(LPVOID param)
         }
 
         char log[1100];
-        snprintf(log, sizeof(log), "TX -> %s | %.*s",
-                 work->target_ip, work->plen, (const char *)work->payload);
+        snprintf(log, sizeof(log), "TX (%s) -> %.*s",
+                 g_local_if_ip, work->plen, (const char *)work->payload);
         PostMessage(hwnd, WM_USER + 2, 0, (LPARAM)_strdup(log));
 
         u_long mode = 1;
         ioctlsocket(sock, FIONBIO, &mode);
         socks[n_socks++] = sock;
     } else {
-        /* ---- 广播模式：枚举所有活跃 IPv4 网卡分别发送 ---- */
+        /* ---- 未知网卡：枚举所有活跃 IPv4 网卡分别广播 ---- */
         ULONG bufLen = 0;
         GetAdaptersAddresses(AF_INET,
             GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
@@ -205,8 +170,6 @@ static DWORD WINAPI udp_worker(LPVOID param)
             return 0;
         }
 
-        dest.sin_addr.s_addr = htonl(INADDR_BROADCAST);
-
         for (int i = 0; i < n_if; i++) {
             SOCKET sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
             if (sock == INVALID_SOCKET) continue;
@@ -246,7 +209,6 @@ static DWORD WINAPI udp_worker(LPVOID param)
 
             u_long mode = 1;
             ioctlsocket(sock, FIONBIO, &mode);
-
             socks[n_socks++] = sock;
         }
     }
@@ -286,6 +248,17 @@ static DWORD WINAPI udp_worker(LPVOID param)
                                          (struct sockaddr *)&from, &fromlen);
                     if (bytes > 0) {
                         buf[bytes] = '\0';
+
+                        /* 记录本端网卡 IP，后续命令仅使用此网卡广播 */
+                        struct sockaddr_in local_addr;
+                        int local_len = sizeof(local_addr);
+                        if (g_local_if_ip[0] == '\0' &&
+                            getsockname(socks[i], (struct sockaddr *)&local_addr,
+                                        &local_len) == 0) {
+                            inet_ntop(AF_INET, &local_addr.sin_addr,
+                                      g_local_if_ip, sizeof(g_local_if_ip));
+                        }
+
                         /* 构造携带源 IP 的消息 */
                         int msg_size = (int)offsetof(udp_rx_msg_t, data) + bytes + 1;
                         udp_rx_msg_t *msg = (udp_rx_msg_t *)malloc(msg_size);
@@ -324,20 +297,6 @@ static void udp_send_raw(HWND hwnd, const uint8_t *payload, int plen)
     if (!work) return;
     work->plen = plen;
     memcpy(work->payload, payload, plen);
-    work->hwnd = hwnd;
-
-    CloseHandle(CreateThread(NULL, 0, udp_worker, work, 0, NULL));
-}
-
-/* 单播发送到目标 IP */
-static void udp_send_unicast(HWND hwnd, const char *ip,
-                             const uint8_t *payload, int plen)
-{
-    udp_work_t *work = (udp_work_t *)calloc(1, sizeof(udp_work_t));
-    if (!work) return;
-    work->plen = plen;
-    memcpy(work->payload, payload, plen);
-    snprintf(work->target_ip, sizeof(work->target_ip), "%s", ip);
     work->hwnd = hwnd;
 
     CloseHandle(CreateThread(NULL, 0, udp_worker, work, 0, NULL));
@@ -383,11 +342,7 @@ static void udp_send_at_cmd(net_ctx_t *ctx, const char *cmd)
 
     if (plen <= 0) { ctx->cb.cfg_log_append(ctx->user_data, "Failed to build payload"); return; }
 
-    /* 有设备地址时单播，否则广播 */
-    if (g_dev_addr[0])
-        udp_send_unicast(ctx->hwnd, g_dev_addr, payload, plen);
-    else
-        udp_send_raw(ctx->hwnd, payload, plen);
+    udp_send_raw(ctx->hwnd, payload, plen);
 }
 
 /* ================================================================
@@ -740,6 +695,9 @@ static void udp_process_response(net_ctx_t *ctx,
 /* 搜索设备 */
 void net_cfg_search(net_ctx_t *ctx)
 {
+    /* 搜索前清除已知网卡，确保在所有接口上广播 */
+    g_local_if_ip[0] = '\0';
+
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "VER", "1.0");
     cJSON_AddStringToObject(root, "MSG", "SEARCH");
@@ -777,11 +735,7 @@ void net_cfg_get_net(net_ctx_t *ctx)
 
     if (plen <= 0) { ctx->cb.cfg_log_append(ctx->user_data, "Failed to build payload"); return; }
 
-    /* 有设备地址时单播，否则广播 */
-    if (g_dev_addr[0])
-        udp_send_unicast(ctx->hwnd, g_dev_addr, payload, plen);
-    else
-        udp_send_raw(ctx->hwnd, payload, plen);
+    udp_send_raw(ctx->hwnd, payload, plen);
 }
 
 /* 发送自定义 AT 命令 */

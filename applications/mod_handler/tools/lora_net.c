@@ -50,6 +50,7 @@ char g_dev_gw[64] = "";
 char g_dev_gwid[32] = "";
 char g_dev_name[64] = "";
 char g_dev_sw[32] = "";
+char g_local_if_ip[64] = "";
 
 /* ================================================================
  * Endianness helpers

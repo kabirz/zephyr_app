@@ -151,6 +151,7 @@ extern char g_dev_gw[64];
 extern char g_dev_gwid[32];
 extern char g_dev_name[64];
 extern char g_dev_sw[32];
+extern char g_local_if_ip[64];
 
 /* ----------------------------------------------------------------
  * 生命周期 (lora_net.c)
