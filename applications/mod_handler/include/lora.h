@@ -214,14 +214,6 @@ void lora_init(void);
 void lora_deinit(void);
 
 /**
- * @brief 查询当前是否处于测试模式
- *
- * 测试模式下停止遥测发送, 启动测试帧发送线程.
- * 由 RSSI 响应中的 test_flag 位控制.
- */
-bool lora_is_test_mode(void);
-
-/**
  * @brief 设置通道1频率并重启模块
  */
 int lora_set_ch1(uint16_t ch);

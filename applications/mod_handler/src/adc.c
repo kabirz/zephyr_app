@@ -116,13 +116,13 @@ void adc_read_thread(void)
 			if (global_params.connect_type == CAN_TYPE) {
 				mod_can_send_handler_state(&global_params);
 			} else {
-				if (!lora_is_test_mode()) {
+				if (!global_params.test_mode) {
 					lora_send_telemetry(&global_params);
 					lora_send_count = 0;
 				}
 			}
 		} else if (lora_send_count < 10) {
-			if (global_params.connect_type == LORA_TYPE && !lora_is_test_mode()) {
+			if (global_params.connect_type == LORA_TYPE && !global_params.test_mode) {
 				lora_send_telemetry(&global_params);
 				lora_send_count += 1;
 			}

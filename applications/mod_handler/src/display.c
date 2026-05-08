@@ -213,29 +213,23 @@ void mod_display_test_rssi(int8_t rssi_raw, int8_t snr_raw)
 }
 
 /* Row 2: 丢包统计 */
-void mod_display_test_loss(uint32_t tx_count, uint32_t rx_count)
+void mod_display_test_loss(uint32_t loss_count)
 {
 	char line[17];
-	uint32_t loss_pct = 0;
-
-	if (tx_count > 0) {
-		loss_pct = (tx_count - rx_count) * 100 / tx_count;
-	}
 
 	k_mutex_lock(&display_mutex, K_FOREVER);
-	snprintf(line, sizeof(line), "RX:%u/%u %u%%",
-		 (unsigned)rx_count, (unsigned)tx_count, (unsigned)loss_pct);
+	snprintf(line, sizeof(line), "LOST:%-5u", (unsigned)loss_count);
 	display_str_pad(line, 0, 32, 128);
 	k_mutex_unlock(&display_mutex);
 }
 
-/* Row 3: RTT 延迟 */
-void mod_display_test_rtt(uint32_t rtt_ms)
+/* Row 3: RTT 延迟 (实时 + 平均) */
+void mod_display_test_rtt(uint32_t rtt_ms, uint32_t avg_ms)
 {
 	char line[17];
 
 	k_mutex_lock(&display_mutex, K_FOREVER);
-	snprintf(line, sizeof(line), "RTT:%u ms", (unsigned)rtt_ms);
+	snprintf(line, sizeof(line), "R:%-4u A:%-4u", (unsigned)rtt_ms, (unsigned)avg_ms);
 	display_str_pad(line, 0, 48, 128);
 	k_mutex_unlock(&display_mutex);
 }
@@ -243,9 +237,12 @@ void mod_display_test_rtt(uint32_t rtt_ms)
 /* 测试模式 Row 1-3 全刷新 */
 void mod_display_test_all(const gloval_params_t *params)
 {
+	uint32_t avg = params->test_rx_count > 0
+		? (uint32_t)(params->test_rtt_sum / params->test_rx_count) : 0;
+
 	mod_display_test_rssi(params->test_rssi_raw, params->test_snr_raw);
-	mod_display_test_loss(params->test_tx_count, params->test_rx_count);
-	mod_display_test_rtt(params->test_rtt_last);
+	mod_display_test_loss(params->test_gap_lost);
+	mod_display_test_rtt(params->test_rtt_last, avg);
 }
 
 /* 恢复正常模式 Row 1-3 */

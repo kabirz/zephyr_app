@@ -16,8 +16,8 @@ void mod_display_all(const gloval_params_t *params);
 
 /* 测试模式显示 (Row 1-3) */
 void mod_display_test_rssi(int8_t rssi_raw, int8_t snr_raw);
-void mod_display_test_loss(uint32_t tx_count, uint32_t rx_count);
-void mod_display_test_rtt(uint32_t rtt_ms);
+void mod_display_test_loss(uint32_t loss_count);
+void mod_display_test_rtt(uint32_t rtt_ms, uint32_t avg_ms);
 void mod_display_test_all(const gloval_params_t *params);
 void mod_display_normal_rows(const gloval_params_t *params);
 

@@ -29,10 +29,8 @@ LOG_MODULE_REGISTER(lora_serial, LOG_LEVEL_INF);
 /* ================================================================
  * 硬件资源
  * ================================================================ */
-static const struct gpio_dt_spec lora_reset_pin =
-	GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), lorareset_gpios);
-static const struct gpio_dt_spec lora_hostwake_pin =
-	GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), hostwake_gpios);
+static const struct gpio_dt_spec lora_reset_pin = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), lorareset_gpios);
+static const struct gpio_dt_spec lora_hostwake_pin = GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), hostwake_gpios);
 static const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(usart2));
 
 /* hostwake_mutex 已移除: HOSTWAKE 仅作输入读取, 无需互斥 */
@@ -471,6 +469,59 @@ int lora_exit_at(void)
 	return 0;
 }
 
+/* ================================================================
+ * AT+Z 重启模块并恢复数据模式
+ * ================================================================ */
+static int lora_restart_to_data_mode(uint32_t restart_ms)
+{
+	char resp[128];
+
+	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
+	k_msleep(restart_ms);
+	lora_rx_disable_sync();
+	atomic_set(&lora_current_mode, LORA_MODE_DATA);
+	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
+	k_mutex_unlock(&lora_mode_mutex);
+	return 0;
+}
+
+/* ================================================================
+ * AT 参数设置统一实现
+ * ================================================================ */
+static int lora_set_at_param(const char *cmd, const char *tag)
+{
+	int ret = lora_enter_at();
+
+	if (ret) {
+		return ret;
+	}
+
+	char resp[128];
+
+	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	if (ret) {
+		LOG_ERR("Set %s failed", tag);
+		lora_exit_at();
+		return ret;
+	}
+
+	return lora_restart_to_data_mode(50);
+}
+
+/* ================================================================
+ * AT 模式下发送设置指令 (在已进入 AT 模式后使用)
+ * ================================================================ */
+static int lora_send_at_set(const char *cmd, const char *tag)
+{
+	char resp[128];
+	int ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+
+	if (ret) {
+		LOG_ERR("Set %s failed", tag);
+	}
+	return ret;
+}
+
 static int parse_at_number(const char *resp)
 {
 	/* AT 查询响应格式: \r\n+CMD:<value>\r\n\r\nOK\r\n
@@ -534,7 +585,6 @@ int lora_configure(const struct lora_config *cfg)
 		return ret;
 	}
 
-	char resp[128];
 	char cmd[64];
 
 	/* 选择通信协议 */
@@ -552,9 +602,8 @@ int lora_configure(const struct lora_config *cfg)
 		break;
 	}
 	snprintf(cmd, sizeof(cmd), "AT+LORAPROT=%s", prot_str);
-	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	ret = lora_send_at_set(cmd, "LORAPROT");
 	if (ret) {
-		LOG_ERR("Set LORAPROT failed");
 		goto out;
 	}
 
@@ -573,58 +622,43 @@ int lora_configure(const struct lora_config *cfg)
 		break;
 	}
 	snprintf(cmd, sizeof(cmd), "AT+WMODE=%s", wmode_str);
-	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	ret = lora_send_at_set(cmd, "WMODE");
 	if (ret) {
-		LOG_ERR("Set WMODE failed");
 		goto out;
 	}
 
 	/* 设置通道1参数 */
 	snprintf(cmd, sizeof(cmd), "AT+SPD1=%d", cfg->spd1);
-	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	ret = lora_send_at_set(cmd, "SPD1");
 	if (ret) {
-		LOG_ERR("Set SPD1 failed");
 		goto out;
 	}
 
 	snprintf(cmd, sizeof(cmd), "AT+CH1=%d", cfg->ch1);
-	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	ret = lora_send_at_set(cmd, "CH1");
 	if (ret) {
-		LOG_ERR("Set CH1 failed");
 		goto out;
 	}
 
 	/* 设置通道2参数 */
 	snprintf(cmd, sizeof(cmd), "AT+SPD2=%d", cfg->spd2);
-	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	ret = lora_send_at_set(cmd, "SPD2");
 	if (ret) {
-		LOG_ERR("Set SPD2 failed");
 		goto out;
 	}
 
 	snprintf(cmd, sizeof(cmd), "AT+CH2=%d", cfg->ch2);
-	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	ret = lora_send_at_set(cmd, "CH2");
 	if (ret) {
-		LOG_ERR("Set CH2 failed");
 		goto out;
 	}
 
 	/* 设置通道选择 */
 	snprintf(cmd, sizeof(cmd), "AT+PNUM=%d", cfg->pnum);
-	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
+	ret = lora_send_at_set(cmd, "PNUM");
 	if (ret) {
-		LOG_ERR("Set PNUM failed");
 		goto out;
 	}
-
-	/* 重启使配置生效 */
-	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
-
-	k_msleep(1000);
-	lora_rx_disable_sync();
-	atomic_set(&lora_current_mode, LORA_MODE_DATA);
-	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
-	k_mutex_unlock(&lora_mode_mutex);
 
 	/* 更新本地缓存 */
 	global_params.prot = (uint8_t)cfg->prot;
@@ -637,7 +671,9 @@ int lora_configure(const struct lora_config *cfg)
 
 	LOG_INF("Configured: prot=%s mode=%s spd1=%d ch1=%d spd2=%d ch2=%d pnum=%d",
 		prot_str, wmode_str, cfg->spd1, cfg->ch1, cfg->spd2, cfg->ch2, cfg->pnum);
-	return 0;
+
+	/* 重启使配置生效 */
+	return lora_restart_to_data_mode(1000);
 
 out:
 	lora_exit_at();
@@ -861,6 +897,161 @@ SignalQuality_t get_lora_signal_level(int32_t rssi, int32_t snr)
 	}
 }
 
+/* ================================================================
+ * 测试统计重置
+ * ================================================================ */
+static void reset_test_stats(void)
+{
+	global_params.test_tx_count = 0;
+	global_params.test_rx_count = 0;
+	global_params.test_rtt_last = 0;
+	global_params.test_rtt_min = UINT32_MAX;
+	global_params.test_rtt_max = 0;
+	global_params.test_rtt_sum = 0;
+	global_params.test_last_rx_idx = 0;
+	global_params.test_gap_lost = 0;
+}
+
+/* ================================================================
+ * LoRa 消息类型处理函数
+ * ================================================================ */
+
+/* RSSI 响应: [0x03][snr_raw 1B][rssi_raw 1B][test_flag 1B] */
+static void handle_rssi_response(const uint8_t *payload, uint16_t payload_len)
+{
+	if (payload_len < 4) {
+		return;
+	}
+
+	int8_t raw_snr = (int8_t)payload[1];
+	int8_t raw_rssi = (int8_t)payload[2];
+	uint8_t test_flag = payload[3];
+
+	/* RSSI 信号等级 */
+	int32_t rssi = ((int32_t)raw_rssi - 241) * 3100 + 437887;
+
+	rssi = rssi / 9700;
+	SignalQuality_t level = get_lora_signal_level(raw_rssi, raw_snr);
+
+	if (global_params.rssi != (uint8_t)level) {
+		global_params.rssi = (uint8_t)level;
+		mod_display_lora((uint8_t)level);
+		LOG_INF("LoRa RSSI: rssi=%d snr=%d, level=%d",
+			 raw_rssi, raw_snr, level);
+	}
+
+	/* 保存原始值用于测试模式显示 */
+	global_params.test_rssi_raw = raw_rssi;
+	global_params.test_snr_raw = raw_snr;
+
+	/* 测试模式切换 */
+	bool was_test = global_params.test_mode;
+
+	global_params.test_mode = (test_flag != 0);
+	if (global_params.test_mode && !was_test) {
+		LOG_INF("Test mode activated");
+		global_params.test_rtt_min = UINT32_MAX;
+		test_mode_from_shell = false;
+		k_event_set(&global_params.event, TEST_EVENT);
+		mod_display_test_all(&global_params);
+	} else if (!global_params.test_mode && was_test) {
+		LOG_INF("Test mode deactivated");
+		reset_test_stats();
+		k_event_clear(&global_params.event, TEST_EVENT);
+		mod_display_normal_rows(&global_params);
+	}
+
+	/* 测试模式下刷新 Row 1 */
+	if (global_params.test_mode) {
+		mod_display_test_rssi(raw_rssi, raw_snr);
+	}
+
+	rssi_fail_count = 0;
+	k_sem_give(&lora_rssi_sem);
+}
+
+/* 扫描仪数据: [0x01][CAN frame ID 2B BE][CAN data NB] */
+static void handle_scanner_data(const uint8_t *payload, uint16_t payload_len)
+{
+	if (payload_len < 3) {
+		return;
+	}
+
+	uint16_t frame_id = sys_get_be16(payload + 1);
+	uint16_t data_len = payload_len - 3;
+
+	if (data_len > sizeof(((struct can_frame *)0)->data)) {
+		LOG_WRN("LoRa RX data too long: %d", data_len);
+		return;
+	}
+
+	struct can_frame frame = {
+		.id = frame_id,
+		.dlc = can_bytes_to_dlc(data_len),
+	};
+
+	memcpy(frame.data, payload + 3, data_len);
+	mod_can_parse_scanner(&frame);
+}
+
+/* 测试帧回传: [0x02][index 2B BE][timestamp 4B BE] */
+static void handle_test_response(const uint8_t *payload, uint16_t payload_len)
+{
+	if (payload_len >= 7) {
+		uint16_t rx_idx = sys_get_be16(payload + 1);
+		uint32_t tx_ts = sys_get_be32(payload + 3);
+		uint32_t rtt = k_uptime_get_32() - tx_ts;
+
+		global_params.test_rx_count++;
+		global_params.test_rtt_last = rtt;
+		if (rtt < global_params.test_rtt_min) {
+			global_params.test_rtt_min = rtt;
+		}
+		if (rtt > global_params.test_rtt_max) {
+			global_params.test_rtt_max = rtt;
+		}
+		global_params.test_rtt_sum += rtt;
+
+		if (global_params.test_rx_count > 1) {
+			uint16_t gap = rx_idx - global_params.test_last_rx_idx;
+
+			if (gap > 1) {
+				global_params.test_gap_lost += gap - 1;
+			}
+		}
+		global_params.test_last_rx_idx = rx_idx;
+
+		uint32_t avg = (uint32_t)(global_params.test_rtt_sum /
+					  global_params.test_rx_count);
+		uint32_t loss_pct = 0;
+
+		if (global_params.test_tx_count > 0) {
+			loss_pct = (global_params.test_tx_count -
+				    global_params.test_rx_count) *
+			   100 / global_params.test_tx_count;
+		}
+		LOG_INF("test: idx=%u rtt=%u avg=%u "
+			"min=%u max=%u "
+			"rx=%u/%u(%u%%) gap_lost=%u",
+			rx_idx, rtt, avg,
+			global_params.test_rtt_min,
+			global_params.test_rtt_max,
+			global_params.test_rx_count,
+			global_params.test_tx_count, loss_pct,
+			global_params.test_gap_lost);
+
+		/* 刷新测试模式显示 */
+		if (global_params.test_mode) {
+			mod_display_test_loss(global_params.test_gap_lost);
+			uint32_t avg = global_params.test_rx_count > 0
+				? (uint32_t)(global_params.test_rtt_sum /
+					  global_params.test_rx_count) : 0;
+			mod_display_test_rtt(global_params.test_rtt_last, avg);
+		}
+	}
+	k_sem_give(&lora_test_sem);
+}
+
 static void lora_msg_process_thread(void)
 {
 	static uint8_t asm_buf[ASM_BUF_SIZE];
@@ -957,143 +1148,14 @@ static void lora_msg_process_thread(void)
 
 					switch (type) {
 					case LORA_DATA_RSSI:
-						if (payload_len >= 4) {
-							int8_t raw_snr = (int8_t)payload[1];
-							int8_t raw_rssi = (int8_t)payload[2];
-							uint8_t test_flag = payload[3];
-							SignalQuality_t level;
-
-							int32_t rssi = ((int32_t)raw_rssi - 241) * 3100 + 437887;
-							rssi = rssi / 9700;
-							level = get_lora_signal_level(raw_rssi, raw_snr);
-
-							if (global_params.rssi != (uint8_t)level) {
-								global_params.rssi = (uint8_t)level;
-								mod_display_lora((uint8_t)level);
-								LOG_INF("LoRa RSSI: rssi=%d snr=%d, level=%d",
-									raw_rssi, raw_snr, level);
-							}
-
-							/* 保存原始值用于测试模式显示 */
-							global_params.test_rssi_raw = raw_rssi;
-							global_params.test_snr_raw = raw_snr;
-
-							bool was_test = global_params.test_mode;
-							global_params.test_mode = (test_flag != 0);
-							if (global_params.test_mode && !was_test) {
-								LOG_INF("Test mode activated");
-								global_params.test_rtt_min = UINT32_MAX;
-								test_mode_from_shell = false;
-								k_event_set(&global_params.event, TEST_EVENT);
-								mod_display_test_all(&global_params);
-							} else if (!global_params.test_mode && was_test) {
-								LOG_INF("Test mode deactivated");
-								global_params.test_tx_count = 0;
-								global_params.test_rx_count = 0;
-								global_params.test_rtt_last = 0;
-								global_params.test_rtt_min = UINT32_MAX;
-								global_params.test_rtt_max = 0;
-								global_params.test_rtt_sum = 0;
-								global_params.test_last_rx_idx = 0;
-								global_params.test_gap_lost = 0;
-								k_event_clear(&global_params.event, TEST_EVENT);
-								mod_display_normal_rows(&global_params);
-							}
-
-							/* 测试模式下刷新 Row 1 */
-							if (global_params.test_mode) {
-								mod_display_test_rssi(raw_rssi, raw_snr);
-							}
-
-							rssi_fail_count = 0;
-							k_sem_give(&lora_rssi_sem);
-						}
+						handle_rssi_response(payload, payload_len);
 						break;
-
-					case LORA_DATA_HANDLER: {
-						/* 网关下发的扫描仪数据:
-						 * [type 1B][CAN frame ID 2B BE][CAN data NB]
-						 */
-						if (payload_len >= 3) {
-							uint16_t frame_id = sys_get_be16(payload + 1);
-							uint16_t data_len2 = payload_len - 3;
-
-							if (data_len2 <=
-							    sizeof(((struct can_frame *)0)->data)) {
-								struct can_frame frame = {
-									.id = frame_id,
-									.dlc = can_bytes_to_dlc(data_len2),
-								};
-								memcpy(frame.data, payload + 3,
-								       data_len2);
-								mod_can_parse_scanner(&frame);
-							} else {
-								LOG_WRN("LoRa RX data too long: %d",
-									data_len2);
-							}
-						}
+					case LORA_DATA_HANDLER:
+						handle_scanner_data(payload, payload_len);
 						break;
-					}
 					case LORA_DATA_TEST:
-						/* 网关回传测试帧:
-						 * [0x02][index 2B BE][timestamp 4B BE]
-						 * RTT = now - timestamp, 丢包通过 index 间隔检测
-						 */
-						if (payload_len >= 7) {
-							uint16_t rx_idx = sys_get_be16(payload + 1);
-							uint32_t tx_ts = sys_get_be32(payload + 3);
-							uint32_t rtt = k_uptime_get_32() - tx_ts;
-
-							global_params.test_rx_count++;
-							global_params.test_rtt_last = rtt;
-							if (rtt < global_params.test_rtt_min) {
-								global_params.test_rtt_min = rtt;
-							}
-							if (rtt > global_params.test_rtt_max) {
-								global_params.test_rtt_max = rtt;
-							}
-							global_params.test_rtt_sum += rtt;
-
-							if (global_params.test_rx_count > 1) {
-								uint16_t gap =
-									rx_idx -
-									global_params.test_last_rx_idx;
-								if (gap > 1) {
-									global_params.test_gap_lost +=
-										gap - 1;
-								}
-							}
-							global_params.test_last_rx_idx = rx_idx;
-
-							uint32_t avg =
-								(uint32_t)(global_params.test_rtt_sum /
-									   global_params.test_rx_count);
-							uint32_t loss_pct = 0;
-							if (global_params.test_tx_count > 0) {
-								loss_pct = (global_params.test_tx_count -
-									    global_params.test_rx_count) *
-									   100 / global_params.test_tx_count;
-							}
-							LOG_INF("test: idx=%u rtt=%u avg=%u "
-								"min=%u max=%u "
-								"rx=%u/%u(%u%%) gap_lost=%u",
-								rx_idx, rtt, avg,
-								global_params.test_rtt_min,
-								global_params.test_rtt_max,
-								global_params.test_rx_count,
-								global_params.test_tx_count, loss_pct,
-								global_params.test_gap_lost);
-
-							/* 刷新测试模式显示 */
-							if (global_params.test_mode) {
-								mod_display_test_loss(global_params.test_tx_count,
-										     global_params.test_rx_count);
-								mod_display_test_rtt(global_params.test_rtt_last);
-							}
-						}
-						k_sem_give(&lora_test_sem);
+						handle_test_response(payload, payload_len);
 						break;
-
 					default:
 						LOG_WRN("Unknown LoRa data type: 0x%02x", type);
 						break;
@@ -1207,78 +1269,35 @@ static void lora_test_tx_thread(void)
 }
 K_THREAD_DEFINE(lora_test_tx, 512, lora_test_tx_thread, NULL, NULL, NULL, 12, 0, 0);
 
-bool lora_is_test_mode(void)
-{
-	return global_params.test_mode;
-}
-
 /* ================================================================
  * 网关 ID 设置 — 独立于通信参数
  * ================================================================ */
 int lora_set_gw_id(uint32_t gwid)
 {
-	int ret = lora_enter_at();
-
-	if (ret) {
-		return ret;
-	}
-
-	char resp[128];
 	char cmd[64];
 
 	snprintf(cmd, sizeof(cmd), "AT+GWID=%08X", gwid);
-	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
-	if (ret) {
-		LOG_ERR("Set GWID failed");
-		lora_exit_at();
-		return ret;
+	int ret = lora_set_at_param(cmd, "GWID");
+
+	if (ret == 0) {
+		global_params.gwid = gwid;
+		LOG_INF("GWID set to %08X", gwid);
 	}
-
-	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
-
-	/* 模块重启后直接进入透传模式, 更新本地缓存 */
-	global_params.gwid = gwid;
-	k_msleep(50);
-	lora_rx_disable_sync();
-	atomic_set(&lora_current_mode, LORA_MODE_DATA);
-	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
-	k_mutex_unlock(&lora_mode_mutex);
-
-	LOG_INF("GWID set to %08X", gwid);
-	return 0;
+	return ret;
 }
 
 int lora_set_node_id(uint32_t nid)
 {
-	int ret = lora_enter_at();
-
-	if (ret) {
-		return ret;
-	}
-
-	char resp[128];
 	char cmd[64];
 
 	snprintf(cmd, sizeof(cmd), "AT+NID=%08X", nid);
-	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
-	if (ret) {
-		LOG_ERR("Set NID failed");
-		lora_exit_at();
-		return ret;
+	int ret = lora_set_at_param(cmd, "NID");
+
+	if (ret == 0) {
+		global_params.nid = nid;
+		LOG_INF("Node ID set to %08X", nid);
 	}
-
-	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
-
-	/* 模块重启后直接进入透传模式, 更新本地缓存 */
-	global_params.nid = nid;
-	k_msleep(50);
-	lora_rx_disable_sync();
-	atomic_set(&lora_current_mode, LORA_MODE_DATA);
-	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
-	k_mutex_unlock(&lora_mode_mutex);
-
-	LOG_INF("Node ID set to %08X", nid);
-	return 0;
+	return ret;
 }
 
 /* ================================================================
@@ -1286,157 +1305,72 @@ int lora_set_node_id(uint32_t nid)
  * ================================================================ */
 int lora_set_ch1(uint16_t ch)
 {
-	int ret = lora_enter_at();
-
-	if (ret) {
-		return ret;
-	}
-
-	char resp[128];
 	char cmd[32];
 
 	snprintf(cmd, sizeof(cmd), "AT+CH1=%d", ch);
-	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
-	if (ret) {
-		LOG_ERR("Set CH1 failed");
-		lora_exit_at();
-		return ret;
+	int ret = lora_set_at_param(cmd, "CH1");
+
+	if (ret == 0) {
+		global_params.ch1 = ch;
+		LOG_INF("CH1 set to %d", ch);
 	}
-
-	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
-	global_params.ch1 = ch;
-	k_msleep(50);
-	lora_rx_disable_sync();
-	atomic_set(&lora_current_mode, LORA_MODE_DATA);
-	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
-	k_mutex_unlock(&lora_mode_mutex);
-
-	LOG_INF("CH1 set to %d", ch);
-	return 0;
+	return ret;
 }
 
 int lora_set_ch2(uint16_t ch)
 {
-	int ret = lora_enter_at();
-
-	if (ret) {
-		return ret;
-	}
-
-	char resp[128];
 	char cmd[32];
 
 	snprintf(cmd, sizeof(cmd), "AT+CH2=%d", ch);
-	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
-	if (ret) {
-		LOG_ERR("Set CH2 failed");
-		lora_exit_at();
-		return ret;
+	int ret = lora_set_at_param(cmd, "CH2");
+
+	if (ret == 0) {
+		global_params.ch2 = ch;
+		LOG_INF("CH2 set to %d", ch);
 	}
-
-	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
-	global_params.ch2 = ch;
-	k_msleep(50);
-	lora_rx_disable_sync();
-	atomic_set(&lora_current_mode, LORA_MODE_DATA);
-	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
-	k_mutex_unlock(&lora_mode_mutex);
-
-	LOG_INF("CH2 set to %d", ch);
-	return 0;
+	return ret;
 }
 
 int lora_set_spd1(uint8_t spd)
 {
-	int ret = lora_enter_at();
-
-	if (ret) {
-		return ret;
-	}
-
-	char resp[128];
 	char cmd[32];
 
 	snprintf(cmd, sizeof(cmd), "AT+SPD1=%d", spd);
-	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
-	if (ret) {
-		LOG_ERR("Set SPD1 failed");
-		lora_exit_at();
-		return ret;
+	int ret = lora_set_at_param(cmd, "SPD1");
+
+	if (ret == 0) {
+		global_params.spd1 = spd;
+		LOG_INF("SPD1 set to %d", spd);
 	}
-
-	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
-	global_params.spd1 = spd;
-	k_msleep(50);
-	lora_rx_disable_sync();
-	atomic_set(&lora_current_mode, LORA_MODE_DATA);
-	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
-	k_mutex_unlock(&lora_mode_mutex);
-
-	LOG_INF("SPD1 set to %d", spd);
-	return 0;
+	return ret;
 }
 
 int lora_set_spd2(uint8_t spd)
 {
-	int ret = lora_enter_at();
-
-	if (ret) {
-		return ret;
-	}
-
-	char resp[128];
 	char cmd[32];
 
 	snprintf(cmd, sizeof(cmd), "AT+SPD2=%d", spd);
-	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
-	if (ret) {
-		LOG_ERR("Set SPD2 failed");
-		lora_exit_at();
-		return ret;
+	int ret = lora_set_at_param(cmd, "SPD2");
+
+	if (ret == 0) {
+		global_params.spd2 = spd;
+		LOG_INF("SPD2 set to %d", spd);
 	}
-
-	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
-	global_params.spd2 = spd;
-	k_msleep(50);
-	lora_rx_disable_sync();
-	atomic_set(&lora_current_mode, LORA_MODE_DATA);
-	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
-	k_mutex_unlock(&lora_mode_mutex);
-
-	LOG_INF("SPD2 set to %d", spd);
-	return 0;
+	return ret;
 }
 
 int lora_set_pnum(uint8_t pnum)
 {
-	int ret = lora_enter_at();
-
-	if (ret) {
-		return ret;
-	}
-
-	char resp[128];
 	char cmd[32];
 
 	snprintf(cmd, sizeof(cmd), "AT+PNUM=%d", pnum);
-	ret = lora_send_at(cmd, resp, sizeof(resp), 2000);
-	if (ret) {
-		LOG_ERR("Set PNUM failed");
-		lora_exit_at();
-		return ret;
+	int ret = lora_set_at_param(cmd, "PNUM");
+
+	if (ret == 0) {
+		global_params.pnum = pnum;
+		LOG_INF("PNUM set to %d", pnum);
 	}
-
-	lora_send_at("AT+Z", resp, sizeof(resp), 2000);
-	global_params.pnum = pnum;
-	k_msleep(50);
-	lora_rx_disable_sync();
-	atomic_set(&lora_current_mode, LORA_MODE_DATA);
-	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
-	k_mutex_unlock(&lora_mode_mutex);
-
-	LOG_INF("PNUM set to %d", pnum);
-	return 0;
+	return ret;
 }
 
 /* ================================================================
@@ -1706,14 +1640,14 @@ static int cmd_nid(const struct shell *ctx, size_t argc, char **argv)
 }
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_gw_cmds,
-			       SHELL_CMD_ARG(mode, NULL,
-					     "Set protocol and mode\n"
-					     "Usage: mode [prot] [mode]\n"
-					     "  prot: node, lg210 (default), lg220\n"
-					     "  mode: trans (default), fp, net",
-					     cmd_gw_mode, 1, 2),
-			       SHELL_CMD_ARG(query, NULL, "Query all params", cmd_gw_query, 1, 0),
-			       SHELL_SUBCMD_SET_END);
+       SHELL_CMD_ARG(mode, NULL,
+        	     "Set protocol and mode\n"
+        	     "Usage: mode [prot] [mode]\n"
+        	     "  prot: node, lg210 (default), lg220\n"
+        	     "  mode: trans (default), fp, net",
+        	     cmd_gw_mode, 1, 2),
+       SHELL_CMD_ARG(query, NULL, "Query all params", cmd_gw_query, 1, 0),
+       SHELL_SUBCMD_SET_END);
 
 static int cmd_test_stats(const struct shell *ctx, size_t argc, char **argv)
 {
@@ -1743,17 +1677,10 @@ static int cmd_test_reset(const struct shell *ctx, size_t argc, char **argv)
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 
-	global_params.test_tx_count = 0;
-	global_params.test_rx_count = 0;
-	global_params.test_rtt_last = 0;
-	global_params.test_rtt_min = UINT32_MAX;
-	global_params.test_rtt_max = 0;
-	global_params.test_rtt_sum = 0;
-	global_params.test_last_rx_idx = 0;
-	global_params.test_gap_lost = 0;
+	reset_test_stats();
 	if (global_params.test_mode) {
-		mod_display_test_loss(0, 0);
-		mod_display_test_rtt(0);
+		mod_display_test_loss(0);
+		mod_display_test_rtt(0, 0);
 	}
 	shell_print(ctx, "Test stats reset");
 	return 0;
@@ -1773,13 +1700,7 @@ static int cmd_test_on(const struct shell *ctx, size_t argc, char **argv)
 	test_mode_from_shell = true;
 	k_event_set(&global_params.event, TEST_EVENT);
 	global_params.test_rtt_min = UINT32_MAX;
-	global_params.test_tx_count = 0;
-	global_params.test_rx_count = 0;
-	global_params.test_rtt_last = 0;
-	global_params.test_rtt_max = 0;
-	global_params.test_rtt_sum = 0;
-	global_params.test_last_rx_idx = 0;
-	global_params.test_gap_lost = 0;
+	reset_test_stats();
 	mod_display_test_all(&global_params);
 	shell_print(ctx, "Test mode activated");
 	return 0;
@@ -1798,14 +1719,7 @@ static int cmd_test_off(const struct shell *ctx, size_t argc, char **argv)
 	global_params.test_mode = false;
 	test_mode_from_shell = false;
 	k_event_clear(&global_params.event, TEST_EVENT);
-	global_params.test_tx_count = 0;
-	global_params.test_rx_count = 0;
-	global_params.test_rtt_last = 0;
-	global_params.test_rtt_min = UINT32_MAX;
-	global_params.test_rtt_max = 0;
-	global_params.test_rtt_sum = 0;
-	global_params.test_last_rx_idx = 0;
-	global_params.test_gap_lost = 0;
+	reset_test_stats();
 	mod_display_normal_rows(&global_params);
 	shell_print(ctx, "Test mode deactivated");
 	return 0;
