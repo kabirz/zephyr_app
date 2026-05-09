@@ -12,6 +12,7 @@ target_sources(app PRIVATE
   src/display.c
   src/firmware.c
   src/font_8x16.c
+  src/font_5x8.c
   src/gpio.c
   src/lora.c
   src/main.c

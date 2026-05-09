@@ -6,11 +6,20 @@
  * 基于 Zephyr display API, 8x16 ASCII 字体 + 独立位图图标
  * global_params 定义在此文件
  *
- * 布局 (4 行 × 16 列):
- *   Row 0 (y=0-15):  连接类型图标(8x16) + 信号图标(16x16) + NID + 电池图标(24x16)
- *   Row 1 (y=16-31): 超欠挖 (OB:) + 激光距离 (Dis:)  ← 扫描仪 CAN/LoRa 数据
- *   Row 2 (y=32-47): X/Y 轴角度
- *   Row 3 (y=48-63): 按键状态
+ * 布局 (SCANNER_USE_8x16 = 0, 5x8 字体):
+ *   Row 0 (y=0-15):   连接类型图标(8x16) + 信号图标(16x16) + NID + 电池图标(24x16)
+ *   (y=16-23):        (空行, 分隔 Row 0 与数据区)
+ *   Row 1 (y=24-31):  超欠挖 (OverBreak)
+ *   Row 2 (y=32-39):  激光距离 (Distance)
+ *   Row 3 (y=40-47):  X 轴坐标 (X axis)
+ *   Row 4 (y=48-55):  Y 轴坐标 (Y axis)
+ *   Row 5 (y=56-63):  Z 轴坐标 (Z axis)
+ *
+ * 布局 (SCANNER_USE_8x16 = 1, 8x16 字体):
+ *   Row 0 (y=0-15):   连接类型图标(8x16) + 信号图标(16x16) + NID + 电池图标(24x16)
+ *   Row 1 (y=16-31):  超欠挖 (OB) | 激光距离 (Dis)     ← 左右各 64px
+ *   Row 2 (y=32-47):  X 轴坐标 (X) | Y 轴坐标 (Y)      ← 左右各 64px
+ *   Row 3 (y=48-63):  Z 轴坐标 (Z)
  */
 
 #include <common.h>
@@ -37,6 +46,15 @@ LOG_MODULE_REGISTER(mod_display, LOG_LEVEL_INF);
 extern const uint8_t font_8x16[FONT_8X16_COUNT][16];
 
 /* ================================================================
+ * 字体定义 (font_5x8.c)
+ * ================================================================ */
+#define FONT_5X8_FIRST 0x20
+#define FONT_5X8_LAST  0x7E
+#define FONT_5X8_COUNT (FONT_5X8_LAST - FONT_5X8_FIRST + 1)
+
+extern const uint8_t font_5x8[FONT_5X8_COUNT][6];
+
+/* ================================================================
  * 显示设备 + 全局状态
  * ================================================================ */
 static const struct device *display_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
@@ -59,7 +77,7 @@ static void display_write_buf(int x, int y, int w, int h, const void *data)
 }
 
 /* 渲染单个 8x16 ASCII 字符 */
-static void display_char(char ch, int x, int y)
+static void display_8x16_char(char ch, int x, int y)
 {
 	if (ch < FONT_8X16_FIRST || ch > FONT_8X16_LAST) {
 		ch = '?';
@@ -68,19 +86,49 @@ static void display_char(char ch, int x, int y)
 }
 
 /* 渲染字符串并用空格填充到指定宽度, 覆盖旧内容 */
-static void display_str_pad(const char *s, int x, int y, int width)
+static void display_8x16_str_pad(const char *s, int x, int y, int width)
 {
 	int end = x + width;
 
 	while (*s && x + 8 <= end && x + 8 <= 128) {
-		display_char(*s, x, y);
+		display_8x16_char(*s, x, y);
 		x += 8;
 		s++;
 	}
 	/* 用空格填充剩余宽度, 清除旧数据 */
 	while (x + 8 <= end && x + 8 <= 128) {
-		display_char(' ', x, y);
+		display_8x16_char(' ', x, y);
 		x += 8;
+	}
+}
+
+/* 渲染单个 5x8 ASCII 字符 */
+static void display_5x8_char(char ch, int x, int y)
+{
+	if (ch < FONT_5X8_FIRST || ch > FONT_5X8_LAST) {
+		ch = '?';
+	}
+	display_write_buf(x, y, 6, 8, font_5x8[ch - FONT_5X8_FIRST]);
+}
+
+/* 渲染字符串并用空格填充到指定宽度, 覆盖旧内容 */
+static void display_5x8_str_pad(const char *s, int x, int y, int width)
+{
+	char empty[6] = {0};
+	int end = x + width;
+
+	while (*s && x + 6 <= end && x + 6 <= 128) {
+		display_5x8_char(*s, x, y);
+		x += 6;
+		s++;
+	}
+	/* 用空格填充剩余宽度, 清除旧数据 */
+	while (x + 6 <= end && x + 6 <= 128) {
+		display_5x8_char(' ', x, y);
+		x += 6;
+	}
+	if (end > 126 && x < 128) {
+		display_write_buf(x, y, 128-x, 8, empty);
 	}
 }
 
@@ -95,7 +143,7 @@ void mod_display_reinit(void)
 void mod_display_clear(void)
 {
 	for (int j = 0; j < capabilities.y_resolution; j += 16) {
-		display_str_pad(" ", 0, j, 128);
+		display_8x16_str_pad(" ", 0, j, 128);
 	}
 }
 
@@ -112,7 +160,7 @@ void mod_display_lora(uint8_t rssi)
 	}
 	display_write_buf(0, 0, LABEL_ICON_W, LABEL_ICON_H, label_lora);
 	display_write_buf(8, 0, SIGNAL_ICON_W, SIGNAL_ICON_H, signal_levels[rssi]);
-	display_char(' ', 24, 0);
+	display_8x16_char(' ', 24, 0);
 	k_mutex_unlock(&display_mutex);
 }
 
@@ -121,9 +169,9 @@ void mod_display_can(void)
 {
 	k_mutex_lock(&display_mutex, K_FOREVER);
 	display_write_buf(0, 0, LABEL_ICON_W, LABEL_ICON_H, label_can);
-	display_char(' ', 8, 0);
-	display_char(' ', 16, 0);
-	display_char(' ', 24, 0);
+	display_8x16_char(' ', 8, 0);
+	display_8x16_char(' ', 16, 0);
+	display_8x16_char(' ', 24, 0);
 	k_mutex_unlock(&display_mutex);
 }
 
@@ -134,8 +182,8 @@ void mod_display_battery(uint32_t power_mv, battery_status_t status)
 	k_mutex_lock(&display_mutex, K_FOREVER);
 
 	snprintf(line, sizeof(line), " %04d ", power_mv);
-	display_str_pad(line, 32, 0, 64);
-	display_char(' ', 96, 0);
+	display_8x16_str_pad(line, 32, 0, 64);
+	display_8x16_char(' ', 96, 0);
 	int idx = power_mv >= 3850   ? 4
 		  : power_mv >= 3750 ? 3
 		  : power_mv >= 3550 ? 3
@@ -152,48 +200,76 @@ void mod_display_battery(uint32_t power_mv, battery_status_t status)
 	k_mutex_unlock(&display_mutex);
 }
 
-/* Row 1: 激光距离 + 超欠挖 (来自扫描仪 CAN 数据) */
+static void int_to_decimal_str(int32_t value, uint8_t valid, char *buffer, size_t len,
+			       const char *prefix)
+{
+	if (!valid) {
+		snprintf(buffer, len, "%s: --------", prefix);
+		return;
+	}
+
+	/* 直接用 %d 格式化，避免 INT32_MIN 取负溢出 */
+	if (value < 0) {
+		int32_t int_part = -(-value / 1000);
+		int32_t dec_part = -value % 1000;
+		snprintf(buffer, len, "%s:%d.%03d m", prefix, int_part, dec_part);
+	} else {
+		snprintf(buffer, len, "%s:%d.%03d m", prefix, value / 1000, value % 1000);
+	}
+}
+
+#define SCANNER_USE_8x16 0
+/* Row 1, 2, 3: 激光距离 + 超欠挖 + 坐标 (来自扫描仪数据) */
 void mod_display_scanner(const scanner_data_t *s)
 {
 	char line[32] = {0};
 
 	k_mutex_lock(&display_mutex, K_FOREVER);
 
-	if (s->overbreak_valid == 1) {
-		snprintf(line, sizeof(line), "OB:%-5ld m", (long)s->overbreak_value);
-	} else {
-		snprintf(line, sizeof(line), "OB: --- ");
-	}
-	display_str_pad(line, 0, 16, 64);
+/* Row 1 */
+#if SCANNER_USE_8x16
+	int_to_decimal_str(s->overbreak_value, s->overbreak_valid, line, sizeof(line), "OB");
+	display_8x16_str_pad(line, 0, 16, 64);
+#else
+	int_to_decimal_str(s->overbreak_value, s->overbreak_valid, line, sizeof(line), "OverBreak");
+	display_5x8_str_pad(" ", 0, 16, 128);
+	display_5x8_str_pad(line, 0, 24, 128);
+#endif
 
-	if (s->laser_valid == 1) {
-		snprintf(line, sizeof(line), "Dis:%-5ld m", (long)s->laser_distance);
-	} else {
-		snprintf(line, sizeof(line), "Dis: ---");
-	}
-	display_str_pad(line, 64, 16, 128);
+#if SCANNER_USE_8x16
+	int_to_decimal_str(s->laser_distance, s->laser_valid, line, sizeof(line), "Dis");
+	display_8x16_str_pad(line, 64, 16, 128);
+#else
+	int_to_decimal_str(s->laser_distance, s->laser_valid, line, sizeof(line), "Distance");
+	display_5x8_str_pad(line, 0, 32, 128);
+#endif
 
-	k_mutex_unlock(&display_mutex);
-}
+/* Row 2 */
+#if SCANNER_USE_8x16
+	int_to_decimal_str(s->coord_x, s->coord_xy_valid, line, sizeof(line), "X");
+	display_8x16_str_pad(line, 0, 32, 64);
+#else
+	int_to_decimal_str(s->coord_x, s->coord_xy_valid, line, sizeof(line), "X axis");
+	display_5x8_str_pad(line, 0, 40, 128);
+#endif
 
-/* Row 2: X/Y 角度 (1° 精度, 整数格式) */
-void mod_display_handler_xy(int x, int y)
-{
-	char line[32];
+#if SCANNER_USE_8x16
+	int_to_decimal_str(s->coord_y, s->coord_xy_valid, line, sizeof(line), "Y");
+	display_8x16_str_pad(line, 64, 32, 128);
+#else
+	int_to_decimal_str(s->coord_y, s->coord_xy_valid, line, sizeof(line), "Y axis");
+	display_5x8_str_pad(line, 0, 48, 128);
+#endif
 
-	k_mutex_lock(&display_mutex, K_FOREVER);
-	snprintf(line, sizeof(line), "X:%+d ", x);
-	display_str_pad(line, 0, 32, 64);
-	snprintf(line, sizeof(line), "Y:%+d ", y);
-	display_str_pad(line, 64, 32, 64);
-	k_mutex_unlock(&display_mutex);
-}
+/* Row 3 */
+#if SCANNER_USE_8x16
+	int_to_decimal_str(s->coord_z, s->coord_z_valid, line, sizeof(line), "Z");
+	display_8x16_str_pad(line, 0, 48, 128);
+#else
+	int_to_decimal_str(s->coord_z, s->coord_z_valid, line, sizeof(line), "Z axis");
+	display_5x8_str_pad(line, 0, 56, 128);
+#endif
 
-/* Row 3: 按键状态 cleaning */
-void mod_display_handler_button(uint8_t h_button)
-{
-	k_mutex_lock(&display_mutex, K_FOREVER);
-	display_str_pad("", 0, 48, 128);
 	k_mutex_unlock(&display_mutex);
 }
 
@@ -208,7 +284,7 @@ void mod_display_test_rssi(int8_t rssi_raw, int8_t snr_raw)
 
 	k_mutex_lock(&display_mutex, K_FOREVER);
 	snprintf(line, sizeof(line), "R:%-4d S:%-3d", (int)rssi_raw, (int)snr_raw);
-	display_str_pad(line, 0, 16, 128);
+	display_8x16_str_pad(line, 0, 16, 128);
 	k_mutex_unlock(&display_mutex);
 }
 
@@ -219,7 +295,7 @@ void mod_display_test_loss(uint32_t loss_count)
 
 	k_mutex_lock(&display_mutex, K_FOREVER);
 	snprintf(line, sizeof(line), "LOST:%-5u", (unsigned)loss_count);
-	display_str_pad(line, 0, 32, 128);
+	display_8x16_str_pad(line, 0, 32, 128);
 	k_mutex_unlock(&display_mutex);
 }
 
@@ -230,7 +306,7 @@ void mod_display_test_rtt(uint32_t rtt_ms, uint32_t avg_ms)
 
 	k_mutex_lock(&display_mutex, K_FOREVER);
 	snprintf(line, sizeof(line), "R:%-4u A:%-4u", (unsigned)rtt_ms, (unsigned)avg_ms);
-	display_str_pad(line, 0, 48, 128);
+	display_8x16_str_pad(line, 0, 48, 128);
 	k_mutex_unlock(&display_mutex);
 }
 
@@ -249,8 +325,6 @@ void mod_display_test_all(const gloval_params_t *params)
 void mod_display_normal_rows(const gloval_params_t *params)
 {
 	mod_display_scanner(&params->scanner);
-	mod_display_handler_xy(params->x_degree, params->y_degree);
-	mod_display_handler_button(params->h_button);
 }
 
 /* 全屏刷新 */

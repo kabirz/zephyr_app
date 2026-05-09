@@ -112,7 +112,6 @@ void adc_read_thread(void)
 
 		if (x_degree != global_params.x_degree || y_degree != global_params.y_degree) {
 			last_activity_time = k_uptime_get_32();
-			mod_display_handler_xy(x_degree, y_degree);
 			global_params.x_degree = x_degree;
 			global_params.y_degree = y_degree;
 			if (global_params.connect_type == CAN_TYPE) {
