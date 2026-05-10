@@ -335,7 +335,7 @@ void mod_can_process_thread(void)
 	}
 }
 
-K_THREAD_DEFINE(mod_can, 2048, mod_can_process_thread, NULL, NULL, NULL, 11, 0, 0);
+K_THREAD_DEFINE(thread_can_rx, 2048, mod_can_process_thread, NULL, NULL, NULL, 8, 0, 0);
 
 static void can_heart_thread(void)
 {
@@ -379,7 +379,7 @@ static void can_heart_thread(void)
 	}
 }
 
-K_THREAD_DEFINE(can_heart, 1024, can_heart_thread, NULL, NULL, NULL, 11, 0, 0);
+K_THREAD_DEFINE(thread_can_heart, 1024, can_heart_thread, NULL, NULL, NULL, 11, 0, 0);
 
 /* ================================================================
  * 手柄状态帧发送 — 0x1E3, 大端序, 8 字节

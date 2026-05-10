@@ -163,4 +163,4 @@ void adc_read_thread(void)
 	}
 }
 
-K_THREAD_DEFINE(adc_thread_id, 1024, adc_read_thread, NULL, NULL, NULL, 7, 0, 0);
+K_THREAD_DEFINE(thread_adc, 1024, adc_read_thread, NULL, NULL, NULL, 7, 0, 0);

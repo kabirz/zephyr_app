@@ -965,12 +965,11 @@ static void handle_rssi_response(const uint8_t *payload, uint16_t payload_len)
 	global_params.test_mode = (test_flag != 0);
 	if (global_params.test_mode && !was_test) {
 		LOG_INF("Test mode activated");
-		global_params.test_rtt_min = UINT32_MAX;
+		reset_test_stats();
 		k_event_set(&global_params.event, TEST_EVENT);
 		mod_display_test_all(&global_params);
 	} else if (!global_params.test_mode && was_test) {
 		LOG_INF("Test mode deactivated");
-		reset_test_stats();
 		k_event_clear(&global_params.event, TEST_EVENT);
 		mod_display_normal_rows(&global_params);
 	}
@@ -1179,7 +1178,7 @@ static void lora_msg_process_thread(void)
 		}
 	}
 }
-K_THREAD_DEFINE(lora_msg, 1024, lora_msg_process_thread, NULL, NULL, NULL, 12, 0, 0);
+K_THREAD_DEFINE(thread_lora_rx, 2048, lora_msg_process_thread, NULL, NULL, NULL, 8, 0, 0);
 
 /* ================================================================
  * LoRa RSSI 轮询线程 — 仅 connect_type == LORA_TYPE 时运行
@@ -1238,7 +1237,7 @@ static void lora_rssi_thread(void)
 		}
 	}
 }
-K_THREAD_DEFINE(lora_heart, 1024, lora_rssi_thread, NULL, NULL, NULL, 12, 0, 0);
+K_THREAD_DEFINE(thread_lora_heart, 1024, lora_rssi_thread, NULL, NULL, NULL, 11, 0, 0);
 
 static void lora_test_tx_thread(void)
 {
@@ -1248,12 +1247,8 @@ static void lora_test_tx_thread(void)
 	frame[0] = LORA_DATA_TEST;
 
 	while (true) {
-		if (!global_params.test_mode) {
-			k_msleep(200);
-			continue;
-		}
-		last_activity_time = k_uptime_get_32();
 		k_event_wait(&global_params.event, TEST_EVENT, false, K_FOREVER);
+		last_activity_time = k_uptime_get_32();
 
 		uint32_t t1 = k_uptime_get_32();
 		sys_put_be16(test_index, &frame[1]);
@@ -1276,7 +1271,7 @@ static void lora_test_tx_thread(void)
 		}
 	}
 }
-K_THREAD_DEFINE(lora_test_tx, 512, lora_test_tx_thread, NULL, NULL, NULL, 12, 0, 0);
+K_THREAD_DEFINE(thread_lora_test, 1024, lora_test_tx_thread, NULL, NULL, NULL, 10, 0, 0);
 
 /* ================================================================
  * 网关 ID 设置 — 独立于通信参数
@@ -1700,7 +1695,6 @@ void lora_enter_test_mode(void)
 	if (global_params.test_mode) return;
 	global_params.test_mode = true;
 	k_event_set(&global_params.event, TEST_EVENT);
-	global_params.test_rtt_min = UINT32_MAX;
 	reset_test_stats();
 	mod_display_test_all(&global_params);
 	LOG_INF("Test mode activated");
