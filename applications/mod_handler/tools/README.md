@@ -15,6 +15,7 @@
 - 非阻塞连接网关，实时接收解析 LoRa 统一帧格式数据
 - 数据帧类型分发: HANDLER (遥测) / TEST / RSSI / ACK
 - 遥测数据实时显示 (X/Y 角度 + 按键状态)
+- 自动回复扫描仪合并帧 (20 字节 payload, 单帧发送所有扫描仪数据)
 - 自动 ACK (可开关) / 手动发送数据帧 / ACK / RSSI 查询
 - 收发统计 (RX/TX/ERR)
 
@@ -204,10 +205,24 @@ CRC 覆盖: NID + Length + Data (CRC 前所有字节)
 
 | 偏移 | 长度 | 字段 | 说明 |
 |------|------|------|------|
-| 0-1 | 2 | coord_x | int16_t BE, 单位 0.1° |
-| 2-3 | 2 | coord_y | int16_t BE, 单位 0.1° |
+| 0-1 | 2 | coord_x | int16_t BE, 单位 1° |
+| 2-3 | 2 | coord_y | int16_t BE, 单位 1° |
 | 4 | 1 | btn flags | bit0: btnHandler(反转), 按下=0, 松开=1 |
 | 5-7 | 3 | reserved | 固定 0xFF |
+
+### 扫描仪合并帧 (Data 20 字节, 类型 0x01)
+
+收到遥测后自动回复的扫描仪数据已合并为单帧 (20 字节 payload)，减少 LoRa 半双工空口占用。
+
+| 偏移 | 长度 | 字段 | 说明 |
+|------|------|------|------|
+| 0 | 1 | type | 0x01 (HANDLER) |
+| 1 | 1 | flags | bit0=overbreak_valid, bit1=laser_valid, bit2=coord_z_valid, bit3=coord_xy_valid |
+| 2-3 | 2 | overbreak | int16_t BE |
+| 4-7 | 4 | laser | uint32_t BE |
+| 8-11 | 4 | coord_x | int32_t BE |
+| 12-15 | 4 | coord_y | int32_t BE |
+| 16-19 | 4 | coord_z | int32_t BE |
 
 ## UDP 配置协议
 

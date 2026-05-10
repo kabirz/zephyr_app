@@ -73,8 +73,8 @@ main() + SYS_INIT
 - **LoRa 双模式驱动**: `lora.c` 基于 UART async API + DMA 实现。数据模式使用 DMA 双缓冲 + `rx_timeout=20ms` 判定帧边界；AT 模式通过 `+++` → `a` → `+OK` 握手进入，支持同步指令收发。`lora_mode_mutex` 保护 AT 模式切换，`lora_tx_mutex` 保护多线程 TX 竞争。
 - **LoRa 统一帧格式**: 数据模式完整帧 = `[0xAA][0x55][NID 4B BE][Length 2B BE][Data NB][CRC16-CCITT 2B BE][\r\n]`。帧头 0xAA 0x55，帧尾 \r\n，CRC 覆盖 NID+Length+Data。`lora_data_send()` 自动组帧（含帧头帧尾），接收线程通过 0xAA 0x55 + \r\n 边界检测提取统一帧后调用 `parse_lora_frame()` 解析。AT 模式使用纯文本，不使用帧头帧尾。启动消息 "LoRa Start!\r\n" 无帧头，特殊处理。常量定义在 `lora.h`: `LORA_FRAME_OVERHEAD=8`, `LORA_FRAME_HEADER_SIZE=6`。
 - **LoRa 数据类型**: Data 首字节为类型标识 — `LORA_DATA_HANDLER(0x01)` 遥测、`LORA_DATA_TEST(0x02)` 测试、`LORA_DATA_RSSI(0x03)` RSSI 请求/响应。空载荷 (Length=0) 为心跳 ACK。RSSI 响应 Data = `[0x03][rssi 1B]`。
-- **LoRa 遥测协议**: Data 9 字节 (`[0x01][X 2B BE][Y 2B BE][btn][0xFF 3B]`)，事件驱动发送。角度或按键变化时，若 `connect_type != CAN_TYPE` 则通过 LoRa 发送。
-- **LoRa 接收数据**: 网关下发的扫描仪数据与 CAN 帧格式一致，Data 字段 = `[Type 1B][CAN frame ID 2B BE][CAN data NB]`，复用 `mod_can_parse_scanner()` 解析，自动触发显示刷新。空载荷 (Length=0) 为心跳 ACK，通过 `lora_ack_sem` 通知心跳线程。
+- **LoRa 遥测协议**: Data 9 字节 (`[0x01][X 2B BE][Y 2B BE][btn][0xFF 3B]`)，事件驱动发送。角度或按键变化时，若 `connect_type != CAN_TYPE` 则通过 LoRa 发送。发送后通过 `lora_data_sem` 阻塞等待上位机响应或 500ms 超时，实现半双工节流。
+- **LoRa 接收数据 (合并帧)**: 网关下发的扫描仪数据使用合并帧格式，Data 字段 = `[0x01][flags 1B][overbreak 2B BE][laser 4B BE][coord_x 4B BE][coord_y 4B BE][coord_z 4B BE]` = 20 字节。flags: bit0=overbreak_valid, bit1=laser_valid, bit2=coord_z_valid, bit3=coord_xy_valid。`handle_scanner_data()` 按 payload_len >= 20 识别合并帧，直接解析写入 `scanner_data_t`；旧格式 (< 20 字节, `[CAN frame ID 2B BE][CAN data NB]`) 仍兼容，复用 `mod_can_parse_scanner()` 解析。收到数据后 `k_sem_give(&lora_data_sem)` 释放遥测发送许可。
 - **LoRa 链路检测**: 应用层心跳，仅 `connect_type == LORA_TYPE` 时由 `lora_heartbeat_thread` 维护。周期发遥测帧，ACK 超时，连续 3 次失败 → `lora_connected = false`。收到合法帧 (NID 匹配 + CRC 正确) → `lora_connected = true`。`lora_is_connected()` 供外部查询。ACK 通过 `lora_ack_sem` (k_sem) 在接收线程和心跳线程间通知。
 - **LoRa init/deinit 生命周期**: `lora_init()` = 上电 + GPIO 硬件复位 + 2s 等待启动 + 停止旧 DMA + 重新启动 DMA 双缓冲接收。`lora_deinit()` = 停止 DMA + 断电。CAN/LoRa 切换、系统休眠/唤醒时调用，避免 UART 悬空导致 DMA 状态损坏。
 - **CAN 手柄状态协议**: 帧 ID 0x1E3 (`HANDLER_STATE`)，8 字节 payload (X/Y int16 BE + 按键反转 + 0xFF 保留)，由心跳线程在心跳成功时随周期发送，同时在角度/按键变化时由 ADC/按键模块即时发送。所有多字节数据使用大端序 (网络字节序)，按键 btnHandler 反转 (按下=0, 松开=1)。
@@ -86,7 +86,7 @@ main() + SYS_INIT
 - **ADC 数据流**: 500ms 周期采集 X/Y 角度，变化时即时显示 + CAN/LoRa 发送。电压每 10 个周期 (5s) 采集一次，变化时即时显示。
 - **按键事件流**: GPIO ISR 检测按键下降沿 → `k_work_reschedule(&work, K_MSEC(10))` → work handler 中读取 GPIO 电平确认 → 执行业务逻辑 (显示+发送/休眠/切换)。ISR 中不做显示/发送操作。
 - **连接类型**: `connect_type` 字段区分 `CAN_TYPE (1)` 和 `LORA_TYPE (2)`，默认 CAN。通过 link_switch (PA10) 手动切换，切换时即时刷新 OLED Row 0。
-- **Shell 调试**: `link can/lora` (tab 补全切换 CAN/LoRa) + `lora send/at/exit` 基础命令 (at 支持直接输入 `AT+` 前缀) + `lora rssi` 发送 RSSI 请求 + `lora gw config [prot] [mode] [spd] [ch]` 通信参数配置 + `lora gw query` 通信参数查询 + `lora nid [hex]` 查询/设置节点 ID + `lora gwid [hex]` 查询/设置网关 ID。
+- **Shell 调试**: `link can/lora` (tab 补全切换 CAN/LoRa) + `lora send/at/exit` 基础命令 (at 支持直接输入 `AT+` 前缀) + `lora rssi` 发送 RSSI 请求 + `lora test on/off` 手动进入/退出测试模式 (shell 设置时跳过 RSSI 轮询, `test_mode_from_shell` 区分 shell 与上位机设置的测试模式) + `lora gw config [prot] [mode] [spd] [ch]` 通信参数配置 + `lora gw query` 通信参数查询 + `lora nid [hex]` 查询/设置节点 ID + `lora gwid [hex]` 查询/设置网关 ID。
 
 ---
 
@@ -230,9 +230,21 @@ CRC 覆盖: NID + Length + Data (CRC 前所有字节)
 | 4 | 1 | btn flags | bit0: btnHandler(反转), 按下=0, 松开=1 |
 | 5-7 | 3 | reserved | 固定 0xFF |
 
-### LoRa 扫描仪数据 (网关→手柄)
+### LoRa 扫描仪数据 (网关→手柄, 合并帧)
 
-Data 字段 = `[CAN frame ID 2B BE][CAN data bytes]`，与 CAN 帧数据一致，复用 `mod_can_parse_scanner()` 解析。
+合并帧 payload 20 字节，一次传输所有扫描仪数据:
+
+| 偏移 | 长度 | 字段 | 说明 |
+|------|------|------|------|
+| 0 | 1 | type | 0x01 (LORA_DATA_HANDLER) |
+| 1 | 1 | flags | bit0=overbreak_valid, bit1=laser_valid, bit2=coord_z_valid, bit3=coord_xy_valid |
+| 2 | 2 | overbreak | int16_t BE |
+| 4 | 4 | laser | uint32_t BE |
+| 8 | 4 | coord_x | int32_t BE |
+| 12 | 4 | coord_y | int32_t BE |
+| 16 | 4 | coord_z | int32_t BE |
+
+旧格式 (`[CAN frame ID 2B BE][CAN data bytes]`, payload < 20 字节) 仍兼容，复用 `mod_can_parse_scanner()` 解析。
 
 ### LoRa 链路检测
 
@@ -263,6 +275,10 @@ lora send <data>                           -- 透传模式发送
 lora at <cmd>                              -- 发送 AT 指令 (自动进入 AT 模式, 支持直接输入 AT+ 前缀)
 lora exit                                  -- 退出 AT 模式
 lora rssi                                  -- 发送 RSSI 信号强度请求
+lora test on                               -- 进入测试模式 (shell 手动, 跳过 RSSI 轮询)
+lora test off                              -- 退出测试模式
+lora test stats                            -- 显示测试统计
+lora test reset                            -- 重置测试统计
 lora gw config [prot] [mode] [spd] [ch]   -- 配置通信参数
   prot: node, lg210 (default), lg220
   mode: trans (default), fp, net
@@ -356,6 +372,9 @@ VERSION                  -- 版本号 (0.1.2-release)
 - CAN 帧使用大端序 (网络字节序): 发送用 `sys_put_be16`/`sys_put_be32`，接收用 `sys_get_be16`/`sys_get_be32`
 - CAN/LoRa 切换通过 `global_params.connect_type` 控制: link_switch 按键 ISR→k_work→`canlora_switch()` 关闭对方电源 + 重新初始化
 - 扫描仪数据通过 `global_params.scanner` (scanner_data_t) 存储，CAN 接收线程或 LoRa 接收线程写入并即时触发显示刷新
+- LoRa 半双工节流: `lora_send_telemetry()` 发送成功后 `k_sem_take(&lora_data_sem, K_MSEC(500))` 阻塞等待，接收线程在 `handle_scanner_data()` 中 `k_sem_give(&lora_data_sem)` 释放。超时 500ms 后自动继续发送
+- LoRa 帧接收使用 `ring_buf` 环形缓冲区 (`lora_rx_rb`) 替代线性 `asm_buf` + `memmove`，`lora_msg_process_thread` 通过 `ring_buf_peek` + `ring_buf_get` 实现 0xAA 0x55 帧头检测和帧提取
+- Shell 测试模式: `lora test on/off` 通过 `test_mode_from_shell` 标志区分 shell 手动设置和上位机 RSSI 响应设置的测试模式。RSSI 轮询线程 (`lora_rssi_thread`) 仅在 `test_mode_from_shell` 时跳过，上位机设置的不跳过
 - CAN 远程配参 (0x105/0x106) 使用 `k_work` 异步处理: CAN 接收线程解析参数后 `k_work_submit()`，工作队列执行 `lora_gw_configure()` / `lora_gw_query()` 完成后发送响应帧
 - CAN 0x105 SET 帧格式: data[1] 高 4 位 = prot, 低 4 位 = mode, data[2]=SPD, data[3]=CH (不含 GWID)。NID/GWID 独立命令: QUERY_NID(0x03)/SET_NID(0x04), QUERY_GWID(0x05)/SET_GWID(0x06)。NID/GWID 数据使用 BE (sys_put_be32/sys_get_be32)。SET_NID/SET_GWID 需 AT 模式写模块并重启, 通过 k_work 异步执行
 - `lora_cfg_work`、`pending_lora_cfg`、`pending_nid`、`pending_gwid`、`lora_cfg_cmd` 为 `can.c` 内部 static 变量，由 CAN 接收线程写入、系统工作队列读取，单生产者单消费者无需锁

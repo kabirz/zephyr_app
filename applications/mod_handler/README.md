@@ -11,7 +11,7 @@
 - **CAN/LoRa 手动切换** — 通过 link_switch 按键 (PA10) 手动切换，切换时关闭对方电源并重新初始化，启动默认 CAN
 - **CAN 手柄状态上报** — 帧 ID 0x1E3，8 字节 payload (X/Y 角度 BE + 按键反转 + 保留)，心跳成功时周期发送，角度/按键变化时即时发送
 - **CAN 扫描仪数据接收** — 帧 ID 0x263/0x363/0x463，接收超欠挖、激光测距、X/Y/Z 坐标，即时显示
-- **LoRa 遥测** — 统一帧格式 (NID+Length+Data+CRC16)，角度/按键变化时即时发送 (仅 CAN 断开时)
+- **LoRa 遥测** — 统一帧格式 (NID+Length+Data+CRC16)，角度/按键变化时即时发送 (仅 CAN 断开时)，半双工节流 (发送后等待上位机响应或 500ms 超时)
 - **LoRa 链路检测** — 应用层心跳，周期发送遥测帧，连续 3 次 ACK 超时判定断连
 - **LoRa 网关管理** — 支持 FP/TRANS/NET 三种工作模式，NODE/LG210/LG220 三种协议，Shell 一键配置或 CAN 远程配置
 - **CAN 远程配参** — Host 通过 CAN 帧 0x105/0x106 远程设置/查询 LoRa 通信参数 (prot+mode+spd+ch)、节点 ID (NID)、网关 ID (GWID)，所有多字节字段使用大端序
