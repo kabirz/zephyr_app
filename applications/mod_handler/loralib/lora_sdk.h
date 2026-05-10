@@ -38,6 +38,95 @@ enum lora_sdk_conn_state {
 };
 
 /* ----------------------------------------------------------------
+ * Scanner data (merged frame, 20-byte payload)
+ *
+ * Merged frame payload layout (Data field of unified frame):
+ *   [0]    type       0x01 (LORA_DATA_HANDLER)
+ *   [1]    flags      validity bitmask
+ *   [2-3]  overbreak  int16_t BE
+ *   [4-7]  laser      uint32_t BE
+ *   [8-11] coord_x    int32_t BE
+ *   [12-15]coord_y    int32_t BE
+ *   [16-19]coord_z    int32_t BE
+ * ---------------------------------------------------------------- */
+
+#define LORA_SCANNER_F_OVERBREAK  0x01
+#define LORA_SCANNER_F_LASER      0x02
+#define LORA_SCANNER_F_COORD_Z    0x04
+#define LORA_SCANNER_F_COORD_XY   0x08
+
+#define LORA_SCANNER_FRAME_SIZE   20
+
+typedef struct {
+    uint8_t  flags;
+    int16_t  overbreak;
+    uint32_t laser;
+    int32_t  coord_x;
+    int32_t  coord_y;
+    int32_t  coord_z;
+} lora_scanner_data_t;
+
+/* Byte-order helpers (static inline, no external dependency) */
+static inline void lora_put_be16(uint8_t *buf, uint16_t val)
+{
+    buf[0] = (uint8_t)(val >> 8);
+    buf[1] = (uint8_t)(val);
+}
+
+static inline void lora_put_be32(uint8_t *buf, uint32_t val)
+{
+    buf[0] = (uint8_t)(val >> 24);
+    buf[1] = (uint8_t)(val >> 16);
+    buf[2] = (uint8_t)(val >> 8);
+    buf[3] = (uint8_t)(val);
+}
+
+static inline uint16_t lora_get_be16(const uint8_t *buf)
+{
+    return (uint16_t)buf[0] << 8 | buf[1];
+}
+
+static inline uint32_t lora_get_be32(const uint8_t *buf)
+{
+    return (uint32_t)buf[0] << 24 | (uint32_t)buf[1] << 16 |
+           (uint32_t)buf[2] << 8  | (uint32_t)buf[3];
+}
+
+/* Parse merged scanner frame payload into struct.
+ * 'payload' points to the Data field (including type byte).
+ * 'len' is the Data field length.
+ * Returns 0 on success, -1 if payload too short or wrong type. */
+static inline int lora_scanner_parse(const uint8_t *payload, uint16_t len,
+                                     lora_scanner_data_t *out)
+{
+    if (len < LORA_SCANNER_FRAME_SIZE || payload[0] != 0x01) return -1;
+    out->flags     = payload[1];
+    out->overbreak = (int16_t)lora_get_be16(payload + 2);
+    out->laser     = lora_get_be32(payload + 4);
+    out->coord_x   = (int32_t)lora_get_be32(payload + 8);
+    out->coord_y   = (int32_t)lora_get_be32(payload + 12);
+    out->coord_z   = (int32_t)lora_get_be32(payload + 16);
+    return 0;
+}
+
+/* Pack scanner struct into merged frame payload buffer.
+ * 'buf' must be at least LORA_SCANNER_FRAME_SIZE bytes.
+ * Returns number of bytes written (20), or -1 if buffer too small. */
+static inline int lora_scanner_pack(uint8_t *buf, size_t size,
+                                    const lora_scanner_data_t *s)
+{
+    if (size < LORA_SCANNER_FRAME_SIZE) return -1;
+    buf[0] = 0x01; /* LORA_DATA_HANDLER */
+    buf[1] = s->flags;
+    lora_put_be16(buf + 2, (uint16_t)s->overbreak);
+    lora_put_be32(buf + 4, s->laser);
+    lora_put_be32(buf + 8, (uint32_t)s->coord_x);
+    lora_put_be32(buf + 12, (uint32_t)s->coord_y);
+    lora_put_be32(buf + 16, (uint32_t)s->coord_z);
+    return LORA_SCANNER_FRAME_SIZE;
+}
+
+/* ----------------------------------------------------------------
  * SDK callback set — protocol events only
  *
  * All callbacks fire from background threads.  Callbacks MUST NOT

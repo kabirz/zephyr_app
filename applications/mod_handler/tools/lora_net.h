@@ -43,6 +43,25 @@ enum lora_data_type {
 };
 
 /* ----------------------------------------------------------------
+ * 扫描仪合并帧数据 (20 字节 payload)
+ * ---------------------------------------------------------------- */
+#define LORA_SCANNER_F_OVERBREAK  0x01
+#define LORA_SCANNER_F_LASER      0x02
+#define LORA_SCANNER_F_COORD_Z    0x04
+#define LORA_SCANNER_F_COORD_XY   0x08
+
+#define LORA_SCANNER_FRAME_SIZE   20
+
+typedef struct {
+    uint8_t  flags;
+    int16_t  overbreak;
+    uint32_t laser;
+    int32_t  coord_x;
+    int32_t  coord_y;
+    int32_t  coord_z;
+} scanner_data_t;
+
+/* ----------------------------------------------------------------
  * 回调结构体 — UI 层填写并传入 net_init()
  * ---------------------------------------------------------------- */
 typedef struct {
@@ -197,5 +216,21 @@ void     put_be32(uint8_t *buf, uint32_t val);
 void     put_be16(uint8_t *buf, uint16_t val);
 uint32_t get_be32(const uint8_t *buf);
 uint16_t get_be16(const uint8_t *buf);
+
+/* Pack scanner struct into merged frame payload (20 bytes).
+ * Returns 20 on success, -1 if buffer too small. */
+static inline int scanner_pack(uint8_t *buf, size_t size,
+                               const scanner_data_t *s)
+{
+    if (size < LORA_SCANNER_FRAME_SIZE) return -1;
+    buf[0]  = LORA_DATA_HANDLER;
+    buf[1]  = s->flags;
+    put_be16(buf + 2, (uint16_t)s->overbreak);
+    put_be32(buf + 4, s->laser);
+    put_be32(buf + 8, (uint32_t)s->coord_x);
+    put_be32(buf + 12, (uint32_t)s->coord_y);
+    put_be32(buf + 16, (uint32_t)s->coord_z);
+    return LORA_SCANNER_FRAME_SIZE;
+}
 
 #endif /* LORA_NET_H */

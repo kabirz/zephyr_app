@@ -195,28 +195,18 @@ static int parse_frame(net_ctx_t *ctx, const uint8_t *data, int len)
 
             /* 合并发送扫描仪数据 (单帧) */
             {
-                uint8_t scan[20];
-                scan[0] = LORA_DATA_HANDLER;
-
-                /* flags: bit0=overbreak_valid, bit1=laser_valid, bit2=coord_z_valid, bit3=coord_xy_valid */
-                scan[1] = 0x0F;
-
-                /* overbreak (int16 BE) */
-                put_be16(scan + 2, (uint16_t)(rand() % 200 - 100));
-
-                /* laser (uint32 BE) */
-                put_be32(scan + 4, (uint32_t)(rand() % 50000 + 1000));
-
-                /* coord_x (int32 BE) */
-                put_be32(scan + 8, (uint32_t)(rand() % 10000 - 5000));
-
-                /* coord_y (int32 BE) */
-                put_be32(scan + 12, (uint32_t)(rand() % 10000 - 5000));
-
-                /* coord_z (int32 BE) */
-                put_be32(scan + 16, (uint32_t)(rand() % 5000));
-
-                net_send_data_frame(ctx, nid, scan, sizeof(scan));
+                scanner_data_t scan = {
+                    .flags = LORA_SCANNER_F_OVERBREAK | LORA_SCANNER_F_LASER |
+                             LORA_SCANNER_F_COORD_Z  | LORA_SCANNER_F_COORD_XY,
+                    .overbreak = (int16_t)(rand() % 200 - 100),
+                    .laser     = (uint32_t)(rand() % 50000 + 1000),
+                    .coord_x   = (int32_t)(rand() % 10000 - 5000),
+                    .coord_y   = (int32_t)(rand() % 10000 - 5000),
+                    .coord_z   = (int32_t)(rand() % 5000),
+                };
+                uint8_t buf[LORA_SCANNER_FRAME_SIZE];
+                scanner_pack(buf, sizeof(buf), &scan);
+                net_send_data_frame(ctx, nid, buf, sizeof(buf));
             }
         } else {
             /* 非标准遥测格式: 记录原始数据 */
