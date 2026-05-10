@@ -93,12 +93,12 @@ static void lora_cfg_work_handler(struct k_work *work)
 		};
 		int ret = lora_configure(&cfg);
 
-		resp.data[0] = (ret == 0) ? LORA_CFG_OK : LORA_CFG_FAIL;
+		resp.data[0] = LORA_CMD_SET_MODE;
 		resp.data[1] = (uint8_t)((cfg.prot << 4) | (cfg.mode & 0x0F));
 		LOG_INF("LoRa SET_MODE: ret=%d prot=%d mode=%d", ret, cfg.prot, cfg.mode);
 		mod_can_send(&resp);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY_MODE) {
-		resp.data[0] = LORA_CFG_OK;
+		resp.data[0] = LORA_CMD_QUERY_MODE;
 		resp.data[1] = (uint8_t)((global_params.prot << 4)
 				   | (global_params.mode & 0x0F));
 		LOG_INF("LoRa QUERY_MODE: prot=%d mode=%d", global_params.prot, global_params.mode);
@@ -109,14 +109,14 @@ static void lora_cfg_work_handler(struct k_work *work)
 		if (ret == 0) {
 			ret = lora_set_ch1(pending_ch);
 		}
-		resp.data[0] = (ret == 0) ? LORA_CFG_OK : LORA_CFG_FAIL;
+		resp.data[0] = LORA_CMD_SET_CH1;
 		resp.data[1] = global_params.spd1;
 		sys_put_be16(global_params.ch1, &resp.data[2]);
 		LOG_INF("LoRa SET_CH1: ret=%d spd1=%d ch1=%d", ret, global_params.spd1,
 			global_params.ch1);
 		mod_can_send(&resp);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY_CH1) {
-		resp.data[0] = LORA_CFG_OK;
+		resp.data[0] = LORA_CMD_QUERY_CH1;
 		resp.data[1] = global_params.spd1;
 		sys_put_be16(global_params.ch1, &resp.data[2]);
 		LOG_INF("LoRa QUERY_CH1: spd1=%d ch1=%d", global_params.spd1, global_params.ch1);
@@ -127,14 +127,14 @@ static void lora_cfg_work_handler(struct k_work *work)
 		if (ret == 0) {
 			ret = lora_set_ch2(pending_ch);
 		}
-		resp.data[0] = (ret == 0) ? LORA_CFG_OK : LORA_CFG_FAIL;
+		resp.data[0] = LORA_CMD_SET_CH2;
 		resp.data[1] = global_params.spd2;
 		sys_put_be16(global_params.ch2, &resp.data[2]);
 		LOG_INF("LoRa SET_CH2: ret=%d spd2=%d ch2=%d", ret, global_params.spd2,
 			global_params.ch2);
 		mod_can_send(&resp);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY_CH2) {
-		resp.data[0] = LORA_CFG_OK;
+		resp.data[0] = LORA_CMD_QUERY_CH2;
 		resp.data[1] = global_params.spd2;
 		sys_put_be16(global_params.ch2, &resp.data[2]);
 		LOG_INF("LoRa QUERY_CH2: spd2=%d ch2=%d", global_params.spd2, global_params.ch2);
@@ -142,24 +142,24 @@ static void lora_cfg_work_handler(struct k_work *work)
 	} else if (lora_cfg_cmd == LORA_CMD_SET_PNUM) {
 		int ret = lora_set_pnum(pending_pnum);
 
-		resp.data[0] = (ret == 0) ? LORA_CFG_OK : LORA_CFG_FAIL;
+		resp.data[0] = LORA_CMD_SET_PNUM;
 		resp.data[1] = global_params.pnum;
 		LOG_INF("LoRa SET_PNUM: ret=%d pnum=%d", ret, global_params.pnum);
 		mod_can_send(&resp);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY_PNUM) {
-		resp.data[0] = LORA_CFG_OK;
+		resp.data[0] = LORA_CMD_QUERY_PNUM;
 		resp.data[1] = global_params.pnum;
 		LOG_INF("LoRa QUERY_PNUM: pnum=%d", global_params.pnum);
 		mod_can_send(&resp);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY_NID) {
-		resp.data[0] = LORA_CFG_OK;
+		resp.data[0] = LORA_CMD_QUERY_NID;
 		sys_put_be32(global_params.nid, &resp.data[4]);
 		LOG_INF("LoRa NID QUERY: nid=0x%08x", global_params.nid);
 		mod_can_send(&resp);
 	} else if (lora_cfg_cmd == LORA_CMD_SET_NID) {
 		int ret = lora_set_node_id(pending_nid);
 
-		resp.data[0] = (ret == 0) ? LORA_CFG_OK : LORA_CFG_FAIL;
+		resp.data[0] = LORA_CMD_SET_NID;
 		if (ret == 0) {
 			sys_put_be32(pending_nid, &resp.data[4]);
 			LOG_INF("LoRa NID SET: nid=0x%08x", pending_nid);
@@ -168,14 +168,14 @@ static void lora_cfg_work_handler(struct k_work *work)
 		}
 		mod_can_send(&resp);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY_GWID) {
-		resp.data[0] = LORA_CFG_OK;
+		resp.data[0] = LORA_CMD_QUERY_GWID;
 		sys_put_be32(global_params.gwid, &resp.data[4]);
 		LOG_INF("LoRa GWID QUERY: gwid=0x%08x", global_params.gwid);
 		mod_can_send(&resp);
 	} else if (lora_cfg_cmd == LORA_CMD_SET_GWID) {
 		int ret = lora_set_gw_id(pending_gwid);
 
-		resp.data[0] = (ret == 0) ? LORA_CFG_OK : LORA_CFG_FAIL;
+		resp.data[0] = LORA_CMD_SET_GWID;
 		if (ret == 0) {
 			sys_put_be32(pending_gwid, &resp.data[4]);
 			LOG_INF("LoRa GWID SET: gwid=0x%08x", pending_gwid);
@@ -223,8 +223,21 @@ static void can_lora_config_handler(struct can_frame *frame)
 		} else {
 			lora_exit_test_mode();
 		}
-		resp.data[0] = LORA_CFG_OK;
+		resp.data[0] = LORA_CMD_SET_TEST;
 		resp.data[1] = global_params.test_mode ? 1 : 0;
+		mod_can_send(&resp);
+	} else if (lora_cfg_cmd == LORA_CMD_SET_POWER) {
+		struct can_frame resp = {
+			.id = LORA_CONFIG_TX,
+			.dlc = can_bytes_to_dlc(2),
+		};
+		if (frame->data[1]) {
+			lora_init();
+		} else {
+			lora_deinit();
+		}
+		resp.data[0] = LORA_CMD_SET_POWER;
+		resp.data[1] = frame->data[1];
 		mod_can_send(&resp);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY_NID) {
 		k_work_submit(&lora_cfg_work);

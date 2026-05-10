@@ -178,11 +178,9 @@ void mod_display_can(void)
 /* Row 0 左侧2(8*16 24x16): 电池电量和图标 */
 void mod_display_battery(uint32_t power_mv, battery_status_t status)
 {
-	char line[32] = {0};
 	k_mutex_lock(&display_mutex, K_FOREVER);
 
-	snprintf(line, sizeof(line), " %04d ", power_mv);
-	display_8x16_str_pad(line, 32, 0, 64);
+	display_8x16_str_pad(" ", 32, 0, 64);
 	display_8x16_char(' ', 96, 0);
 	int idx = power_mv >= 3850   ? 4
 		  : power_mv >= 3750 ? 3
@@ -212,9 +210,9 @@ static void int_to_decimal_str(int32_t value, uint8_t valid, char *buffer, size_
 	if (value < 0) {
 		int32_t int_part = -(-value / 1000);
 		int32_t dec_part = -value % 1000;
-		snprintf(buffer, len, "%s:%d.%03d m", prefix, int_part, dec_part);
+		snprintf(buffer, len, "%s%d.%03d m", prefix, int_part, dec_part);
 	} else {
-		snprintf(buffer, len, "%s:%d.%03d m", prefix, value / 1000, value % 1000);
+		snprintf(buffer, len, "%s%d.%03d m", prefix, value / 1000, value % 1000);
 	}
 }
 
@@ -228,45 +226,45 @@ void mod_display_scanner(const scanner_data_t *s)
 
 /* Row 1 */
 #if SCANNER_USE_8x16
-	int_to_decimal_str(s->overbreak_value, s->overbreak_valid, line, sizeof(line), "OB");
+	int_to_decimal_str(s->overbreak_value, s->overbreak_valid, line, sizeof(line), "OB:");
 	display_8x16_str_pad(line, 0, 16, 64);
 #else
-	int_to_decimal_str(s->overbreak_value, s->overbreak_valid, line, sizeof(line), "OverBreak");
+	int_to_decimal_str(s->overbreak_value, s->overbreak_valid, line, sizeof(line), "OverBreak: ");
 	display_5x8_str_pad(" ", 0, 16, 128);
 	display_5x8_str_pad(line, 0, 24, 128);
 #endif
 
 #if SCANNER_USE_8x16
-	int_to_decimal_str(s->laser_distance, s->laser_valid, line, sizeof(line), "Dis");
+	int_to_decimal_str(s->laser_distance, s->laser_valid, line, sizeof(line), "Dis:");
 	display_8x16_str_pad(line, 64, 16, 128);
 #else
-	int_to_decimal_str(s->laser_distance, s->laser_valid, line, sizeof(line), "Distance");
+	int_to_decimal_str(s->laser_distance, s->laser_valid, line, sizeof(line), "Distance:  ");
 	display_5x8_str_pad(line, 0, 32, 128);
 #endif
 
 /* Row 2 */
 #if SCANNER_USE_8x16
-	int_to_decimal_str(s->coord_x, s->coord_xy_valid, line, sizeof(line), "X");
+	int_to_decimal_str(s->coord_x, s->coord_xy_valid, line, sizeof(line), "X:");
 	display_8x16_str_pad(line, 0, 32, 64);
 #else
-	int_to_decimal_str(s->coord_x, s->coord_xy_valid, line, sizeof(line), "X axis");
+	int_to_decimal_str(s->coord_x, s->coord_xy_valid, line, sizeof(line), "X axis:    ");
 	display_5x8_str_pad(line, 0, 40, 128);
 #endif
 
 #if SCANNER_USE_8x16
-	int_to_decimal_str(s->coord_y, s->coord_xy_valid, line, sizeof(line), "Y");
+	int_to_decimal_str(s->coord_y, s->coord_xy_valid, line, sizeof(line), "Y:");
 	display_8x16_str_pad(line, 64, 32, 128);
 #else
-	int_to_decimal_str(s->coord_y, s->coord_xy_valid, line, sizeof(line), "Y axis");
+	int_to_decimal_str(s->coord_y, s->coord_xy_valid, line, sizeof(line), "Y axis:    ");
 	display_5x8_str_pad(line, 0, 48, 128);
 #endif
 
 /* Row 3 */
 #if SCANNER_USE_8x16
-	int_to_decimal_str(s->coord_z, s->coord_z_valid, line, sizeof(line), "Z");
+	int_to_decimal_str(s->coord_z, s->coord_z_valid, line, sizeof(line), "Z:");
 	display_8x16_str_pad(line, 0, 48, 128);
 #else
-	int_to_decimal_str(s->coord_z, s->coord_z_valid, line, sizeof(line), "Z axis");
+	int_to_decimal_str(s->coord_z, s->coord_z_valid, line, sizeof(line), "Z axis:    ");
 	display_5x8_str_pad(line, 0, 56, 128);
 #endif
 

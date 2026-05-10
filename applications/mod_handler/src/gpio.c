@@ -21,7 +21,7 @@ LOG_MODULE_REGISTER(power_gpio, LOG_LEVEL_INF);
 static const struct gpio_dt_spec charge_full = GPIO_DT_SPEC_GET(USER_NODE, chargefull_gpios);
 static const struct gpio_dt_spec charging = GPIO_DT_SPEC_GET(USER_NODE, charging_gpios);
 static const struct gpio_dt_spec power_button = GPIO_DT_SPEC_GET(USER_NODE, power_gpios);
-static const struct gpio_dt_spec handle_button = GPIO_DT_SPEC_GET(USER_NODE, handlebt_gpios);
+static const struct gpio_dt_spec handler_button = GPIO_DT_SPEC_GET(USER_NODE, handlebt_gpios);
 static const struct gpio_dt_spec link_switch = GPIO_DT_SPEC_GET(USER_NODE, linksw_gpios);
 
 static const struct gpio_dt_spec can_power_gpio = GPIO_DT_SPEC_GET(USER_NODE, canpower_gpios);
@@ -42,19 +42,18 @@ static void btn_display_work_handler(struct k_work *work)
 	if (global_params.sleeping) {
 		return;
 	}
-	if (gpio_pin_get_dt(&link_switch)) {
+	if (gpio_pin_get_dt(&handler_button)) {
 		return;
 	}
-	if (gpio_pin_get_dt(&handle_button) != global_params.h_button) {
-		global_params.h_button = !global_params.h_button;
-		last_activity_time = k_uptime_get_32();
-		// mod_display_handler_button(global_params.h_button);
+	global_params.h_button = !global_params.h_button;
+	LOG_INF("handler button: %d", global_params.h_button);
+	last_activity_time = k_uptime_get_32();
+	// mod_display_handler_button(global_params.h_button);
 
-		if (global_params.connect_type == CAN_TYPE) {
-			mod_can_send_handler_state(&global_params);
-		} else {
-			lora_send_telemetry(&global_params);
-		}
+	if (global_params.connect_type == CAN_TYPE) {
+		mod_can_send_handler_state(&global_params);
+	} else {
+		lora_send_telemetry(&global_params);
 	}
 }
 
@@ -86,7 +85,7 @@ static void linksw_work_handler(struct k_work *work)
 
 int handler_get_btn(void)
 {
-	return gpio_pin_get_dt(&handle_button);
+	return gpio_pin_get_dt(&handler_button);
 }
 
 bool lora_get_link_status(void)
@@ -174,7 +173,7 @@ void gpio_irq(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
 	if (pins & BIT(power_button.pin)) {
 		k_work_reschedule(&sleep_work, K_MSEC(10));
-	} else if (pins & BIT(handle_button.pin)) {
+	} else if (pins & BIT(handler_button.pin)) {
 		if (global_params.sleeping) {
 			return;
 		}
@@ -249,7 +248,7 @@ int gpio_init(void)
 		return -ENODEV;
 	}
 
-	if (!gpio_is_ready_dt(&handle_button)) {
+	if (!gpio_is_ready_dt(&handler_button)) {
 		LOG_ERR("handle button GPIO device not ready");
 		return -ENODEV;
 	}
@@ -277,7 +276,7 @@ int gpio_init(void)
 		return ret;
 	}
 
-	ret = gpio_pin_configure_dt(&handle_button, GPIO_INPUT);
+	ret = gpio_pin_configure_dt(&handler_button, GPIO_INPUT);
 	if (ret < 0) {
 		LOG_ERR("Failed to configure handle button pin: %d", ret);
 		return ret;
@@ -301,13 +300,13 @@ int gpio_init(void)
 		return ret;
 	}
 
-	ret = gpio_pin_interrupt_configure_dt(&handle_button, GPIO_INT_EDGE_FALLING);
+	ret = gpio_pin_interrupt_configure_dt(&handler_button, GPIO_INT_EDGE_FALLING);
 	if (ret < 0) {
 		LOG_ERR("Failed to configure power button interrupt: %d", ret);
 		return ret;
 	}
 	gpio_init_callback(&power_button_cb_data, gpio_irq,
-				   BIT(power_button.pin) | BIT(handle_button.pin));
+				   BIT(power_button.pin) | BIT(handler_button.pin));
 	gpio_add_callback(power_button.port, &power_button_cb_data);
 
 	ret = gpio_pin_interrupt_configure_dt(&link_switch, GPIO_INT_EDGE_FALLING);

@@ -269,11 +269,14 @@ class SH1106FontGenerator:
         name: str = "font_5x8",
         start: int = 0x20,
         end: int = 0x7E,
+        stride: int = 0,
     ) -> str:
         """
         生成 C 语言二维数组，格式对齐 font_8x16.c 风格。
         取模方式: 纵向8点上高位 (MSB=top)，SH1106 原生格式。
+        stride: 数组每行字节数，0 表示等于 width（无填充）。
         """
+        stride = stride if stride > 0 else self.width
         char_count = end - start + 1
         name_upper = name.upper()
 
@@ -284,7 +287,7 @@ class SH1106FontGenerator:
             " *",
             f" * {self.width}x{self.height} ASCII 字体位图",
             " * 取模方式: 纵向8点上高位, 从左到右",
-            f" * 每字符 {self.width} 字节",
+            f" * 每字符 {stride} 字节",
             " * 适用于 SH1106/SSD1306",
             " */",
             "",
@@ -293,18 +296,19 @@ class SH1106FontGenerator:
             "/*",
             f" * 涵盖可打印 ASCII: 0x{start:02X} ('{chr(start) if 0x21 <= start <= 0x7E else ' '}')"
             f" ~ 0x{end:02X} ('{chr(end) if 0x21 <= end <= 0x7E else ' '}')",
-            f" * 共 {char_count} 字符, 每字符 {self.width} 字节",
+            f" * 共 {char_count} 字符, 每字符 {stride} 字节",
             " */",
             f"#define {name_upper}_FIRST 0x{start:02X}",
             f"#define {name_upper}_COUNT {char_count}",
             "",
-            f"const uint8_t {name}[{name_upper}_COUNT][{self.width}] = {{",
+            f"const uint8_t {name}[{name_upper}_COUNT][{stride}] = {{",
         ]
 
         for i, code in enumerate(range(start, end + 1)):
             bitmap = self._get_bitmap(code)
-            msb_bitmap = [self._reverse_bits(b) for b in bitmap]
-            hex_str = ",".join(f"0x{b:02X}" for b in msb_bitmap)
+            # Pad with 0x00 to reach stride
+            padded = bitmap + [0x00] * (stride - len(bitmap))
+            hex_str = ",".join(f"0x{b:02X}" for b in padded)
             char_repr = chr(code) if 0x20 <= code <= 0x7E else " "
             comma = "," if i < char_count - 1 else ""
             lines.append(f"\t{{{hex_str}}}{comma}/*\"{char_repr}\",{i}*/")
@@ -472,6 +476,10 @@ def main():
     parser.add_argument("--name", type=str, default="font_5x8", help="数组名称 (默认: font_5x8)")
     parser.add_argument("--output", type=str, default=None, help="输出文件路径 (默认: stdout)")
     parser.add_argument(
+        "--stride", type=int, default=0,
+        help="数组每行字节数 (默认: width+1, 含末尾空列)",
+    )
+    parser.add_argument(
         "--format", choices=["c", "python"], default="c",
         help="输出格式 (默认: c)",
     )
@@ -547,7 +555,8 @@ def main():
         sys.exit(1)
 
     if args.format == "c":
-        output = gen.generate_c_array(args.name, args.start, args.end)
+        stride = args.stride if args.stride > 0 else args.width + 1
+        output = gen.generate_c_array(args.name, args.start, args.end, stride)
     else:
         output = gen.generate_python_dict(args.name, args.start, args.end)
 
