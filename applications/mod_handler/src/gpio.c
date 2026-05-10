@@ -219,7 +219,7 @@ static int power_init(void)
 	}
 
 	global_params.can_heart_time = CAN_HEART_TIME;
-	global_params.connect_type = LORA_TYPE;
+	global_params.connect_type = CAN_TYPE;
 	k_event_init(&global_params.event);
 	k_event_set(&global_params.event, CAN_EVENT);
 

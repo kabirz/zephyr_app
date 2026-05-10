@@ -46,6 +46,7 @@ enum lora_mode {
 
 static atomic_t lora_current_mode = ATOMIC_INIT(LORA_MODE_DATA);
 static K_MUTEX_DEFINE(lora_mode_mutex);
+static K_MUTEX_DEFINE(lora_data_mutex);
 static K_MUTEX_DEFINE(lora_tx_mutex); /* 保护 lora_data_send 多线程 TX 竞争 */
 
 /* ================================================================
@@ -287,11 +288,6 @@ bool lora_data_send(const uint8_t *data, size_t len)
 }
 
 /* ================================================================
- * 测试模式 — 由 RSSI 响应中的 test_flag 控制
- * ================================================================ */
-static bool test_mode_from_shell;
-
-/* ================================================================
  * 遥测数据帧打包发送 — Data: [0x01][X 2B BE][Y 2B BE][btn][0xFF 3B]
  * ================================================================ */
 bool lora_send_telemetry(const gloval_params_t *params)
@@ -311,10 +307,12 @@ bool lora_send_telemetry(const gloval_params_t *params)
 	frame[8] = 0xFF;
 
 	k_sem_reset(&lora_data_sem);
+	k_mutex_lock(&lora_data_mutex, K_FOREVER);
 	bool ok = lora_data_send(frame, sizeof(frame));
 	if (ok) {
 		k_sem_take(&lora_data_sem, K_MSEC(LORA_TELEM_TIMEOUT_MS));
 	}
+	k_mutex_unlock(&lora_data_mutex);
 	return ok;
 }
 
@@ -968,7 +966,6 @@ static void handle_rssi_response(const uint8_t *payload, uint16_t payload_len)
 	if (global_params.test_mode && !was_test) {
 		LOG_INF("Test mode activated");
 		global_params.test_rtt_min = UINT32_MAX;
-		test_mode_from_shell = false;
 		k_event_set(&global_params.event, TEST_EVENT);
 		mod_display_test_all(&global_params);
 	} else if (!global_params.test_mode && was_test) {
@@ -1200,7 +1197,7 @@ static void lora_rssi_thread(void)
 		k_event_wait(&global_params.event, LORA_EVENT, false, K_FOREVER);
 
 		/* AT 模式或 shell 手动测试模式: 跳过 RSSI 轮询 */
-		if (atomic_get(&lora_current_mode) == LORA_MODE_AT || test_mode_from_shell) {
+		if (atomic_get(&lora_current_mode) == LORA_MODE_AT) {
 			k_sleep(K_MSEC(LORA_RSSI_PERIOD_MS));
 			continue;
 		}
@@ -1208,6 +1205,7 @@ static void lora_rssi_thread(void)
 		uint32_t t1 = k_uptime_get_32();
 		k_sem_reset(&lora_rssi_sem);
 
+		k_mutex_lock(&lora_data_mutex, K_FOREVER);
 		bool sent = lora_send_rssi_request();
 
 		if (sent) {
@@ -1226,6 +1224,7 @@ static void lora_rssi_thread(void)
 			LOG_WRN("LoRa RSSI send failed (%d/%d)", rssi_fail_count,
 				LORA_RSSI_FAIL_MAX);
 		}
+		k_mutex_unlock(&lora_data_mutex);
 
 		if (rssi_fail_count >= LORA_RSSI_FAIL_MAX) {
 			global_params.rssi = 0;
@@ -1261,6 +1260,7 @@ static void lora_test_tx_thread(void)
 		sys_put_be32(t1, &frame[3]);
 
 		k_sem_reset(&lora_test_sem);
+		k_mutex_lock(&lora_data_mutex, K_FOREVER);
 		bool ok = lora_data_send(frame, sizeof(frame));
 		if (ok) {
 			test_index++;
@@ -1269,6 +1269,7 @@ static void lora_test_tx_thread(void)
 		if (k_sem_take(&lora_test_sem, K_MSEC(2000)) != 0) {
 			LOG_WRN("test mode response timeout");
 		}
+		k_mutex_unlock(&lora_data_mutex);
 		uint32_t diff = k_uptime_get_32() - t1;
 		if (diff < 200) {
 			k_sleep(K_MSEC(200 - diff));
@@ -1694,6 +1695,27 @@ static int cmd_test_reset(const struct shell *ctx, size_t argc, char **argv)
 	return 0;
 }
 
+void lora_enter_test_mode(void)
+{
+	if (global_params.test_mode) return;
+	global_params.test_mode = true;
+	k_event_set(&global_params.event, TEST_EVENT);
+	global_params.test_rtt_min = UINT32_MAX;
+	reset_test_stats();
+	mod_display_test_all(&global_params);
+	LOG_INF("Test mode activated");
+}
+
+void lora_exit_test_mode(void)
+{
+	if (!global_params.test_mode) return;
+	global_params.test_mode = false;
+	k_event_clear(&global_params.event, TEST_EVENT);
+	reset_test_stats();
+	mod_display_normal_rows(&global_params);
+	LOG_INF("Test mode deactivated");
+}
+
 static int cmd_test_on(const struct shell *ctx, size_t argc, char **argv)
 {
 	ARG_UNUSED(argc);
@@ -1703,13 +1725,7 @@ static int cmd_test_on(const struct shell *ctx, size_t argc, char **argv)
 		shell_print(ctx, "Already in test mode");
 		return 0;
 	}
-
-	global_params.test_mode = true;
-	test_mode_from_shell = true;
-	k_event_set(&global_params.event, TEST_EVENT);
-	global_params.test_rtt_min = UINT32_MAX;
-	reset_test_stats();
-	mod_display_test_all(&global_params);
+	lora_enter_test_mode();
 	shell_print(ctx, "Test mode activated");
 	return 0;
 }
@@ -1723,13 +1739,26 @@ static int cmd_test_off(const struct shell *ctx, size_t argc, char **argv)
 		shell_print(ctx, "Not in test mode");
 		return 0;
 	}
-
-	global_params.test_mode = false;
-	test_mode_from_shell = false;
-	k_event_clear(&global_params.event, TEST_EVENT);
-	reset_test_stats();
-	mod_display_normal_rows(&global_params);
+	lora_exit_test_mode();
 	shell_print(ctx, "Test mode deactivated");
+	return 0;
+}
+
+static int cmd_sleep(const struct shell *ctx, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	if (global_params.test_mode) {
+		shell_error(ctx, "can't sleep in test mode");
+		return 0;
+	}
+	if (global_params.sleeping) {
+		shell_warn(ctx, "Already in sleep mode");
+	} else {
+		system_sleep();
+	}
+
 	return 0;
 }
 
@@ -1750,6 +1779,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 	SHELL_CMD_ARG(ch1, NULL, "Get/set CH1 [spd] [ch]", cmd_ch1, 1, 2),
 	SHELL_CMD_ARG(ch2, NULL, "Get/set CH2 [spd] [ch]", cmd_ch2, 1, 2),
 	SHELL_CMD_ARG(pnum, NULL, "Get/set channel select [0/1/2]", cmd_pnum, 1, 1),
+	SHELL_CMD_ARG(sleep, NULL, "system sleep", cmd_sleep, 1, 0),
 	SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(lora, &sub_lora_cmds, "LoRa WH-L101-L commands", NULL);

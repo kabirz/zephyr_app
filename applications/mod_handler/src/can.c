@@ -213,6 +213,19 @@ static void can_lora_config_handler(struct can_frame *frame)
 		k_work_submit(&lora_cfg_work);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY_PNUM) {
 		k_work_submit(&lora_cfg_work);
+	} else if (lora_cfg_cmd == LORA_CMD_SET_TEST) {
+		struct can_frame resp = {
+			.id = LORA_CONFIG_TX,
+			.dlc = can_bytes_to_dlc(2),
+		};
+		if (frame->data[1]) {
+			lora_enter_test_mode();
+		} else {
+			lora_exit_test_mode();
+		}
+		resp.data[0] = LORA_CFG_OK;
+		resp.data[1] = global_params.test_mode ? 1 : 0;
+		mod_can_send(&resp);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY_NID) {
 		k_work_submit(&lora_cfg_work);
 	} else if (lora_cfg_cmd == LORA_CMD_SET_NID) {

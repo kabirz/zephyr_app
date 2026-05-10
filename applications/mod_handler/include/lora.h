@@ -238,4 +238,7 @@ int lora_set_spd2(uint8_t spd);
  */
 int lora_set_pnum(uint8_t pnum);
 
+void lora_enter_test_mode(void);
+void lora_exit_test_mode(void);
+
 #endif /* __LORA_H__ */

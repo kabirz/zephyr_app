@@ -57,6 +57,7 @@ enum lora_config_cmd {
 	LORA_CMD_SET_GWID   = 0x0A, /* 设置网关 ID */
 	LORA_CMD_QUERY_PNUM = 0x0B, /* 查询通道选择 */
 	LORA_CMD_SET_PNUM   = 0x0C, /* 设置通道选择 */
+	LORA_CMD_SET_TEST   = 0x0D, /* 进入/退出测试模式 */
 };
 
 /* LoRa 配置结果 */

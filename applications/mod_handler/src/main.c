@@ -21,7 +21,6 @@ LOG_MODULE_REGISTER(main_app, LOG_LEVEL_INF);
 #define ACTIVITY_TIMEOUT_MS (10 * 60 * 1000) /* 10 minutes */
 
 volatile uint32_t last_activity_time;
-extern void system_sleep(void);
 
 int main(void)
 {

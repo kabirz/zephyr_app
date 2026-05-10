@@ -12,4 +12,5 @@ void dis_power_enable(bool up);
 void handler_power_enable(bool up);
 int handler_get_btn(void);
 bool lora_get_link_status(void);
+void system_sleep(void);
 #endif
