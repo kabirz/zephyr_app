@@ -7,19 +7,25 @@
  * global_params 定义在此文件
  *
  * 布局 (SCANNER_USE_8x16 = 0, 5x8 字体):
- *   Row 0 (y=0-15):   连接类型图标(8x16) + 信号图标(16x16) + NID + 电池图标(24x16)
- *   (y=16-23):        (空行, 分隔 Row 0 与数据区)
- *   Row 1 (y=24-31):  超欠挖 (OverBreak)
- *   Row 2 (y=32-39):  激光距离 (Distance)
- *   Row 3 (y=40-47):  X 轴坐标 (X axis)
- *   Row 4 (y=48-55):  Y 轴坐标 (Y axis)
- *   Row 5 (y=56-63):  Z 轴坐标 (Z axis)
+ *   Row 0 (y=0-15):   [8x16] 连接类型图标(8px) + 信号图标(16px) + 电池图标(24px)
+ *   (y=16-23):        (空行)
+ *   Row 1 (y=24-31):  [5x8]  超欠挖 "OverBreak: {value}"
+ *   Row 2 (y=32-39):  [5x8]  激光距离 "Distance:  {value}"
+ *   Row 3 (y=40-47):  [5x8]  X 轴坐标 "X axis:    {value}"
+ *   Row 4 (y=48-55):  [5x8]  Y 轴坐标 "Y axis:    {value}"
+ *   Row 5 (y=56-63):  [5x8]  Z 轴坐标 "Z axis:    {value}"
  *
  * 布局 (SCANNER_USE_8x16 = 1, 8x16 字体):
- *   Row 0 (y=0-15):   连接类型图标(8x16) + 信号图标(16x16) + NID + 电池图标(24x16)
- *   Row 1 (y=16-31):  超欠挖 (OB) | 激光距离 (Dis)     ← 左右各 64px
- *   Row 2 (y=32-47):  X 轴坐标 (X) | Y 轴坐标 (Y)      ← 左右各 64px
- *   Row 3 (y=48-63):  Z 轴坐标 (Z)
+ *   Row 0 (y=0-15):   [8x16] 连接类型图标(8px) + 信号图标(16px) + 电池图标(24px)
+ *   Row 1 (y=16-31):  [8x16] 超欠挖 "OB:" | 激光距离 "Dis:"    ← 左右各 64px
+ *   Row 2 (y=32-47):  [8x16] X 轴 "X:" | Y 轴 "Y:"             ← 左右各 64px
+ *   Row 3 (y=48-63):  [8x16] Z 轴 "Z:"
+ *
+ * 测试模式布局 (8x16 字体):
+ *   Row 0 (y=0-15):   [8x16] 同上
+ *   Row 1 (y=16-31):  [8x16] "R:{rssi} S:{snr}"
+ *   Row 2 (y=32-47):  [8x16] "LOST:{count}"
+ *   Row 3 (y=48-63):  [8x16] "R:{rtt} A:{avg}"
  */
 
 #include <common.h>
@@ -151,7 +157,7 @@ void mod_display_clear(void)
  * 业务显示函数
  * ================================================================ */
 
-/* Row 0 左侧1(8x16, 16x16): LORA 信号 0/1/2/3/4 */
+/* Row 0 左侧(8x16, 16x16): LORA 信号 0/1/2/3/4 */
 void mod_display_lora(uint8_t rssi)
 {
 	k_mutex_lock(&display_mutex, K_FOREVER);
@@ -164,7 +170,7 @@ void mod_display_lora(uint8_t rssi)
 	k_mutex_unlock(&display_mutex);
 }
 
-/* Row 0 左侧1(8x16): 连接 CAN */
+/* Row 0 左侧(8x16): 连接 CAN */
 void mod_display_can(void)
 {
 	k_mutex_lock(&display_mutex, K_FOREVER);
@@ -175,22 +181,20 @@ void mod_display_can(void)
 	k_mutex_unlock(&display_mutex);
 }
 
-/* Row 0 左侧2(8*16 24x16): 电池电量和图标 */
+/* Row 0 右侧(24x16 16x16): 电池电量和图标 */
 void mod_display_battery(uint32_t power_mv, battery_status_t status)
 {
 	k_mutex_lock(&display_mutex, K_FOREVER);
 
-	display_8x16_str_pad(" ", 32, 0, 64);
-	display_8x16_char(' ', 96, 0);
+	display_8x16_str_pad(" ", 32, 0, 128);
 	int idx = power_mv >= 3850   ? 4
 		  : power_mv >= 3750 ? 3
 		  : power_mv >= 3550 ? 3
 		  : power_mv >= 3400 ? 1
 				     : 0;
-	if (status == BATTERY_STATUS_FULL) {
-		display_write_buf(104, 0, BATTERY_ICON_W, BATTERY_ICON_H, battery_full);
-	} else if (status == BATTERY_STATUS_CHARGING) {
-		display_write_buf(104, 0, BATTERY_ICON_W, BATTERY_ICON_H, battery_charging[idx]);
+	if (status == BATTERY_STATUS_CHARGING) {
+		display_write_buf(88, 0, BATTERY_ICON_W, BATTERY_ICON_H, battery_levels[idx]);
+		display_write_buf(112, 0, BATTERY_ICON_W, BATTERY_ICON_H, icon_charging);
 	} else {
 		display_write_buf(104, 0, BATTERY_ICON_W, BATTERY_ICON_H, battery_levels[idx]);
 	}
