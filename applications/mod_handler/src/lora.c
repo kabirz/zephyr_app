@@ -70,6 +70,12 @@ static K_SEM_DEFINE(tx_done_sem, 0, 1);
 static K_SEM_DEFINE(rx_disabled_sem, 0, 1);
 
 /* ================================================================
+ * LORA 等待数据回复
+ * ================================================================ */
+static K_SEM_DEFINE(lora_data_sem, 0, 1);
+#define LORA_TELEM_TIMEOUT_MS 500
+
+/* ================================================================
  * 数据模式消息队列
  * ================================================================ */
 struct lora_data_msg {
@@ -304,7 +310,12 @@ bool lora_send_telemetry(const gloval_params_t *params)
 	frame[7] = 0xFF;
 	frame[8] = 0xFF;
 
-	return lora_data_send(frame, sizeof(frame));
+	k_sem_reset(&lora_data_sem);
+	bool ok = lora_data_send(frame, sizeof(frame));
+	if (ok) {
+		k_sem_take(&lora_data_sem, K_MSEC(LORA_TELEM_TIMEOUT_MS));
+	}
+	return ok;
 }
 
 /* ================================================================
@@ -976,28 +987,33 @@ static void handle_rssi_response(const uint8_t *payload, uint16_t payload_len)
 	k_sem_give(&lora_rssi_sem);
 }
 
-/* 扫描仪数据: [0x01][CAN frame ID 2B BE][CAN data NB] */
+/* 扫描仪数据 */
 static void handle_scanner_data(const uint8_t *payload, uint16_t payload_len)
 {
-	if (payload_len < 3) {
+	/* 合并帧: [0x01][flags 1B][ob 2B][laser 4B][cx 4B][cy 4B][cz 4B] = 20B */
+	if (payload_len >= 20) {
+		scanner_data_t *s = &global_params.scanner;
+		uint8_t flags = payload[1];
+
+		s->overbreak_valid = (flags & 0x01) ? 1 : 0;
+		s->laser_valid     = (flags & 0x02) ? 1 : 0;
+		s->coord_z_valid   = (flags & 0x04) ? 1 : 0;
+		s->coord_xy_valid  = (flags & 0x08) ? 1 : 0;
+		s->overbreak_value = (int16_t)sys_get_be16(&payload[2]);
+		s->laser_distance  = (int32_t)sys_get_be32(&payload[4]);
+		s->coord_x         = (int32_t)sys_get_be32(&payload[8]);
+		s->coord_y         = (int32_t)sys_get_be32(&payload[12]);
+		s->coord_z         = (int32_t)sys_get_be32(&payload[16]);
+
+		mod_display_scanner(s);
+		LOG_DBG("Merged scanner: ob=%d laser=%d cx=%d cy=%d cz=%d",
+			s->overbreak_value, s->laser_distance,
+			s->coord_x, s->coord_y, s->coord_z);
+		return;
+	} else {
+		LOG_ERR("LoRa RX data too short: %d", payload_len);
 		return;
 	}
-
-	uint16_t frame_id = sys_get_be16(payload + 1);
-	uint16_t data_len = payload_len - 3;
-
-	if (data_len > sizeof(((struct can_frame *)0)->data)) {
-		LOG_WRN("LoRa RX data too long: %d", data_len);
-		return;
-	}
-
-	struct can_frame frame = {
-		.id = frame_id,
-		.dlc = can_bytes_to_dlc(data_len),
-	};
-
-	memcpy(frame.data, payload + 3, data_len);
-	mod_can_parse_scanner(&frame);
 }
 
 /* 测试帧回传: [0x02][index 2B BE][timestamp 4B BE] */
@@ -1143,6 +1159,8 @@ static void lora_msg_process_thread(void)
 						handle_rssi_response(payload, payload_len);
 						break;
 					case LORA_DATA_HANDLER:
+						/* 收到上位机数据, 清除遥测等待标志 */
+						k_sem_give(&lora_data_sem);
 						handle_scanner_data(payload, payload_len);
 						break;
 					case LORA_DATA_TEST:

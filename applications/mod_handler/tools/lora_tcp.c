@@ -193,33 +193,30 @@ static int parse_frame(net_ctx_t *ctx, const uint8_t *data, int len)
                                       (const uint8_t *)detail, (uint16_t)strlen(detail));
             ctx->cb.update_telemetry(ctx->user_data);
 
-            /* 自动回复随机扫描仪数据 */
+            /* 合并发送扫描仪数据 (单帧) */
             {
-                uint8_t scan[11]; /* [type 1B][CAN_ID 2B][data 8B] */
+                uint8_t scan[20];
                 scan[0] = LORA_DATA_HANDLER;
 
-                /* 0x263: OVERBREAK_LASER */
-                put_be16(scan + 1, 0x0263);
-                scan[3] = 0x03; /* overbreak_valid=1, laser_valid=1 */
-                scan[4] = 0x00;
-                put_be16(scan + 5, (uint16_t)(rand() % 200 - 100));
-                put_be32(scan + 7, (uint32_t)(rand() % 50000 + 1000));
-                net_send_data_frame(ctx, nid, scan, 11);
+                /* flags: bit0=overbreak_valid, bit1=laser_valid, bit2=coord_z_valid, bit3=coord_xy_valid */
+                scan[1] = 0x0F;
 
-                /* 0x363: COORD_XY */
-                put_be16(scan + 1, 0x0363);
-                put_be32(scan + 3, (uint32_t)(rand() % 10000 - 5000));
-                put_be32(scan + 7, (uint32_t)(rand() % 10000 - 5000));
-                net_send_data_frame(ctx, nid, scan, 11);
+                /* overbreak (int16 BE) */
+                put_be16(scan + 2, (uint16_t)(rand() % 200 - 100));
 
-                /* 0x463: COORD_Z */
-                put_be16(scan + 1, 0x0463);
-                put_be32(scan + 3, (uint32_t)(rand() % 5000));
-                scan[7] = 0x01; /* coord_z_valid=1 */
-                scan[8] = 0xFF;
-                scan[9] = 0xFF;
-                scan[10] = 0xFF;
-                net_send_data_frame(ctx, nid, scan, 11);
+                /* laser (uint32 BE) */
+                put_be32(scan + 4, (uint32_t)(rand() % 50000 + 1000));
+
+                /* coord_x (int32 BE) */
+                put_be32(scan + 8, (uint32_t)(rand() % 10000 - 5000));
+
+                /* coord_y (int32 BE) */
+                put_be32(scan + 12, (uint32_t)(rand() % 10000 - 5000));
+
+                /* coord_z (int32 BE) */
+                put_be32(scan + 16, (uint32_t)(rand() % 5000));
+
+                net_send_data_frame(ctx, nid, scan, sizeof(scan));
             }
         } else {
             /* 非标准遥测格式: 记录原始数据 */
