@@ -53,7 +53,11 @@ enum lora_data_type {
 #define LORA_SCANNER_FRAME_SIZE   20
 
 typedef struct {
-    uint8_t  flags;
+    uint8_t overbreak_valid : 1;
+    uint8_t laser_valid     : 1;
+    uint8_t coord_z_valid   : 1;
+    uint8_t coord_xy_valid  : 1;
+    uint8_t reserved        : 4;
     int16_t  overbreak;
     uint32_t laser;
     int32_t  coord_x;
@@ -224,7 +228,8 @@ static inline int scanner_pack(uint8_t *buf, size_t size,
 {
     if (size < LORA_SCANNER_FRAME_SIZE) return -1;
     buf[0]  = LORA_DATA_HANDLER;
-    buf[1]  = s->flags;
+    buf[1]  = (s->overbreak_valid << 0) | (s->laser_valid << 1) |
+              (s->coord_z_valid << 2)   | (s->coord_xy_valid << 3);
     put_be16(buf + 2, (uint16_t)s->overbreak);
     put_be32(buf + 4, s->laser);
     put_be32(buf + 8, (uint32_t)s->coord_x);

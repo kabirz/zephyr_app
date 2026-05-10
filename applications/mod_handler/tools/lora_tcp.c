@@ -196,8 +196,10 @@ static int parse_frame(net_ctx_t *ctx, const uint8_t *data, int len)
             /* 合并发送扫描仪数据 (单帧) */
             {
                 scanner_data_t scan = {
-                    .flags = LORA_SCANNER_F_OVERBREAK | LORA_SCANNER_F_LASER |
-                             LORA_SCANNER_F_COORD_Z  | LORA_SCANNER_F_COORD_XY,
+                    .overbreak_valid = 1,
+                    .laser_valid     = 1,
+                    .coord_z_valid   = 1,
+                    .coord_xy_valid  = 1,
                     .overbreak = (int16_t)(rand() % 200 - 100),
                     .laser     = (uint32_t)(rand() % 50000 + 1000),
                     .coord_x   = (int32_t)(rand() % 10000 - 5000),

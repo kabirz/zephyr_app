@@ -58,7 +58,11 @@ enum lora_sdk_conn_state {
 #define LORA_SCANNER_FRAME_SIZE   20
 
 typedef struct {
-    uint8_t  flags;
+    uint8_t overbreak_valid : 1;
+    uint8_t laser_valid     : 1;
+    uint8_t coord_z_valid   : 1;
+    uint8_t coord_xy_valid  : 1;
+    uint8_t reserved        : 4;
     int16_t  overbreak;
     uint32_t laser;
     int32_t  coord_x;
@@ -100,7 +104,11 @@ static inline int lora_scanner_parse(const uint8_t *payload, uint16_t len,
                                      lora_scanner_data_t *out)
 {
     if (len < LORA_SCANNER_FRAME_SIZE || payload[0] != 0x01) return -1;
-    out->flags     = payload[1];
+    uint8_t flags = payload[1];
+    out->overbreak_valid = (flags >> 0) & 1;
+    out->laser_valid     = (flags >> 1) & 1;
+    out->coord_z_valid   = (flags >> 2) & 1;
+    out->coord_xy_valid  = (flags >> 3) & 1;
     out->overbreak = (int16_t)lora_get_be16(payload + 2);
     out->laser     = lora_get_be32(payload + 4);
     out->coord_x   = (int32_t)lora_get_be32(payload + 8);
@@ -117,7 +125,8 @@ static inline int lora_scanner_pack(uint8_t *buf, size_t size,
 {
     if (size < LORA_SCANNER_FRAME_SIZE) return -1;
     buf[0] = 0x01; /* LORA_DATA_HANDLER */
-    buf[1] = s->flags;
+    buf[1] = (s->overbreak_valid << 0) | (s->laser_valid << 1) |
+             (s->coord_z_valid << 2)   | (s->coord_xy_valid << 3);
     lora_put_be16(buf + 2, (uint16_t)s->overbreak);
     lora_put_be32(buf + 4, s->laser);
     lora_put_be32(buf + 8, (uint32_t)s->coord_x);
