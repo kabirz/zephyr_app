@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * ADC 操纵杆角度采集 + 电源电压采样
- * 基于 Zephyr ADC API, 500ms 周期采集 X/Y 角度, 5s 周期采集电压
+ * 基于 Zephyr ADC API, 500ms 周期采集 X/Y 角度, 2s 周期采集电压
  */
 
 #include <zephyr/kernel.h>
@@ -24,6 +24,7 @@ LOG_MODULE_REGISTER(adc_reader, LOG_LEVEL_INF);
 
 static const struct adc_dt_spec adc_channels[] = {
 	DT_FOREACH_PROP_ELEM(DT_PATH(zephyr_user), io_channels, DT_SPEC_AND_COMMA)};
+
 
 static int adc_init_channels(void)
 {
@@ -53,21 +54,13 @@ void adc_read_thread(void)
 	int ret;
 	uint16_t buf;
 	struct adc_sequence sequence = {.buffer = &buf, .buffer_size = sizeof(buf)};
-	int32_t val_mv, power_mv = 0;
-	uint32_t lora_send_count = 0;
+	int32_t val_mv;
 	int x_degree = 0, y_degree = 0;
-
-#define POWER_SAMPLE_COUNT 10
-	int32_t power_samples[POWER_SAMPLE_COUNT];
-	int power_sample_idx = 0;
+	uint32_t sleep_ms = global_params.connect_type == CAN_TYPE ? CAN_SLEEP_MS : LORA_SLEEP_MS;
+	bool need_send = false;
+	uint32_t adc_count = 0;
 
 	LOG_INF("ADC read thread started");
-
-	ret = adc_init_channels();
-	if (ret < 0) {
-		LOG_ERR("ADC initialization failed");
-		return;
-	}
 
 	while (true) {
 		if (global_params.sleeping) {
@@ -76,7 +69,8 @@ void adc_read_thread(void)
 		}
 
 		uint32_t t1 = k_uptime_get_32();
-		for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++) {
+
+		for (size_t i = 0U; i < ARRAY_SIZE(adc_channels) - 1; i++) {
 			(void)adc_sequence_init_dt(&adc_channels[i], &sequence);
 			ret = adc_read_dt(&adc_channels[i], &sequence);
 			if (ret < 0) {
@@ -91,22 +85,11 @@ void adc_read_thread(void)
 			} else {
 				LOG_DBG("val[%d]: %d mv", i, val_mv);
 			}
-			switch (i) {
-			case 0:
-				// X: 500~4500mV → -20~+20 (1° 单位)
+			// 500~4500mV → -20~+20 (1° 单位)
+			if (i == 0) {
 				x_degree = (CLAMP(val_mv * 10 / 6, 500, 4500) - 500) * 40 / 4000 - 20;
-				break;
-			case 1:
-				// Y: 500~4500mV → -20~+20 (1° 单位)
+			} else {
 				y_degree = (CLAMP(val_mv * 10 / 6, 500, 4500) - 500) * 40 / 4000 - 20;
-				break;
-			case 2:
-				// Power VCC: 存入采样缓冲区
-				power_samples[power_sample_idx] = val_mv * 2;
-				power_sample_idx++;
-				break;
-			default:
-				break;
 			}
 		}
 
@@ -114,22 +97,62 @@ void adc_read_thread(void)
 			last_activity_time = k_uptime_get_32();
 			global_params.x_degree = x_degree;
 			global_params.y_degree = y_degree;
+			need_send = true;
+		}
+		if (need_send || adc_count >= 10) {
 			if (global_params.connect_type == CAN_TYPE) {
 				mod_can_send_handler_state(&global_params);
 			} else {
 				if (!global_params.test_mode) {
 					lora_send_telemetry(&global_params);
-					lora_send_count = 0;
 				}
 			}
-		} else if (lora_send_count < 10) {
-			if (global_params.connect_type == LORA_TYPE && !global_params.test_mode) {
-				lora_send_telemetry(&global_params);
-				lora_send_count += 1;
+			adc_count = 0;
+			need_send = false;
+		} else {
+			adc_count += 1;
+		}
+		uint32_t diff = k_uptime_get_32() - t1;
+		if (diff < sleep_ms) {
+			k_sleep(K_MSEC(sleep_ms - diff));
+		}
+	}
+}
+K_THREAD_DEFINE(thread_adc, 1024, adc_read_thread, NULL, NULL, NULL, 7, 0, 0);
+
+void adc_power_thread(void)
+{
+	int ret;
+	uint16_t buf;
+	struct adc_sequence sequence = {.buffer = &buf, .buffer_size = sizeof(buf)};
+	int32_t val_mv, power_mv = 0;
+	static const struct adc_dt_spec *adc_voltage_channel = &adc_channels[ARRAY_SIZE(adc_channels) - 1];
+	#define POWER_SAMPLE_COUNT 10
+	static int32_t power_samples[POWER_SAMPLE_COUNT];
+	static int power_sample_idx = 0;
+
+
+	LOG_INF("ADC power thread started");
+	(void)adc_sequence_init_dt(adc_voltage_channel, &sequence);
+
+	while (true) {
+		if (global_params.sleeping) {
+			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
+			continue;
+		}
+
+		ret = adc_read_dt(adc_voltage_channel, &sequence);
+		if (ret < 0) {
+			LOG_ERR("Could not read power channel (%d)", ret);
+		} else {
+			val_mv = (int32_t)buf;
+			ret = adc_raw_to_millivolts_dt(adc_voltage_channel, &val_mv);
+			if (ret == 0) {
+				power_samples[power_sample_idx] = val_mv * 2;
+				power_sample_idx++;
 			}
 		}
 
-		/* 每 10 次采样 (2s) 去极值取平均更新电池电量 */
 		if (power_sample_idx >= POWER_SAMPLE_COUNT) {
 			int32_t min_v = power_samples[0];
 			int32_t max_v = power_samples[0];
@@ -155,12 +178,16 @@ void adc_read_thread(void)
 			}
 		}
 
-		uint32_t sleep_ms = global_params.connect_type == CAN_TYPE ? CAN_SLEEP_MS : LORA_SLEEP_MS;
-		uint32_t diff = k_uptime_get_32() - t1;
-		if (diff < sleep_ms) {
-			k_sleep(K_MSEC(sleep_ms - diff));
-		}
+		k_sleep(K_MSEC(200));
 	}
 }
 
-K_THREAD_DEFINE(thread_adc, 1024, adc_read_thread, NULL, NULL, NULL, 7, 0, 0);
+K_THREAD_DEFINE(thread_adc_power, 1024, adc_power_thread, NULL, NULL, NULL, 8, 0, 0);
+
+static int mod_adc_init(void)
+{
+	adc_init_channels();
+	return 0;
+}
+
+SYS_INIT(mod_adc_init, POST_KERNEL, 1);
