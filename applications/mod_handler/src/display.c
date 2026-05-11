@@ -194,7 +194,7 @@ void mod_display_battery(uint32_t power_mv, battery_status_t status)
 				     : 0;
 	if (status == BATTERY_STATUS_CHARGING) {
 		display_write_buf(88, 0, BATTERY_ICON_W, BATTERY_ICON_H, battery_levels[idx]);
-		display_write_buf(112, 0, BATTERY_ICON_W, BATTERY_ICON_H, icon_charging);
+		display_write_buf(112, 0, CHARGING_ICON_W, CHARGING_ICON_H, icon_charging);
 	} else {
 		display_write_buf(104, 0, BATTERY_ICON_W, BATTERY_ICON_H, battery_levels[idx]);
 	}

@@ -134,6 +134,10 @@ const uint8_t battery_levels[5][48] = {
     }
 };
 
+#define CHARGING_ICON_W  16
+#define CHARGING_ICON_H  16
+#define CHARGING_ICON_PAGES  2
+#define CHARGING_ICON_SIZE  (32)
 // icon_charging
 // ................
 // ................
