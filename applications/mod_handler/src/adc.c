@@ -26,7 +26,7 @@ static const struct adc_dt_spec adc_channels[] = {
 	DT_FOREACH_PROP_ELEM(DT_PATH(zephyr_user), io_channels, DT_SPEC_AND_COMMA)};
 
 
-static int adc_init_channels(void)
+int adc_init_channels(void)
 {
 	int ret;
 
@@ -183,11 +183,3 @@ void adc_power_thread(void)
 }
 
 K_THREAD_DEFINE(thread_adc_power, 1024, adc_power_thread, NULL, NULL, NULL, 8, 0, 0);
-
-static int mod_adc_init(void)
-{
-	adc_init_channels();
-	return 0;
-}
-
-SYS_INIT(mod_adc_init, POST_KERNEL, 1);

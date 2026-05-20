@@ -290,7 +290,7 @@ bool lora_data_send(const uint8_t *data, size_t len)
 /* ================================================================
  * 遥测数据帧打包发送 — Data: [0x01][X 2B BE][Y 2B BE][btn][0xFF 3B]
  * ================================================================ */
-bool lora_send_telemetry(const gloval_params_t *params)
+bool lora_send_telemetry(const global_params_t *params)
 {
 	if (global_params.test_mode) {
 		return false;
@@ -364,6 +364,7 @@ int lora_enter_at(void)
 
 	/* 以 AT 超时重启 RX */
 	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_AT_RX_TIMEOUT);
+	k_msleep(10);
 
 	/* Step 1: 发送 +++ */
 	ret = lora_async_tx((const uint8_t *)"+++", 3);
@@ -1761,6 +1762,25 @@ static int cmd_sleep(const struct shell *ctx, size_t argc, char **argv)
 	return 0;
 }
 
+static int cmd_log(const struct shell *ctx, size_t argc, char **argv)
+{
+	uint8_t log = (uint8_t)strtol(argv[1], NULL, 10);
+	global_params.log = !!log;
+	return 0;
+}
+
+static int cmd_display(const struct shell *ctx, size_t argc, char **argv)
+{
+	if (strncmp(argv[1], "on", 2) == 0) {
+		dis_power_enable(true);
+	} else if (strncmp(argv[1], "off", 3) == 0) {
+		dis_power_enable(false);
+	} else {
+		shell_warn(ctx, "Usage: display on/off");
+	}
+	return 0;
+}
+
 SHELL_STATIC_SUBCMD_SET_CREATE(
 	sub_lora_test_cmds,
 	SHELL_CMD_ARG(stats, NULL, "Show test statistics", cmd_test_stats, 1, 0),
@@ -1779,6 +1799,8 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 	SHELL_CMD_ARG(ch2, NULL, "Get/set CH2 [spd] [ch]", cmd_ch2, 1, 2),
 	SHELL_CMD_ARG(pnum, NULL, "Get/set channel select [0/1/2]", cmd_pnum, 1, 1),
 	SHELL_CMD_ARG(sleep, NULL, "system sleep", cmd_sleep, 1, 0),
+	SHELL_CMD_ARG(log, NULL, "enable log", cmd_log, 2, 0),
+	SHELL_CMD_ARG(display, NULL, "display on/off", cmd_display, 2, 0),
 	SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(lora, &sub_lora_cmds, "LoRa WH-L101-L commands", NULL);

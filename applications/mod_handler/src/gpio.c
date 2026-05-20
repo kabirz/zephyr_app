@@ -42,13 +42,9 @@ static void btn_display_work_handler(struct k_work *work)
 	if (global_params.sleeping) {
 		return;
 	}
-	if (gpio_pin_get_dt(&handler_button)) {
-		return;
-	}
-	global_params.h_button = !global_params.h_button;
+	global_params.h_button = gpio_pin_get_dt(&handler_button);
 	LOG_INF("handler button: %d", global_params.h_button);
 	last_activity_time = k_uptime_get_32();
-	// mod_display_handler_button(global_params.h_button);
 
 	if (global_params.connect_type == CAN_TYPE) {
 		mod_can_send_handler_state(&global_params);
@@ -219,6 +215,7 @@ static int power_init(void)
 
 	global_params.can_heart_time = CAN_HEART_TIME;
 	global_params.connect_type = CAN_TYPE;
+	global_params.log = false;
 	k_event_init(&global_params.event);
 	k_event_set(&global_params.event, CAN_EVENT);
 

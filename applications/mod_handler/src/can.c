@@ -389,7 +389,7 @@ K_THREAD_DEFINE(thread_can_heart, 1024, can_heart_thread, NULL, NULL, NULL, 11, 
  * Data[4]:   btn flags (bit0: btnHandler 反转, bit1: btnBox)
  * Data[5-7]: reserved (0xFF)
  * ================================================================ */
-int mod_can_send_handler_state(const gloval_params_t *params)
+int mod_can_send_handler_state(const global_params_t *params)
 {
 	if (atomic_get(&heart_send_success) == 0) {
 		return -1;
@@ -399,6 +399,9 @@ int mod_can_send_handler_state(const gloval_params_t *params)
 		.dlc = can_bytes_to_dlc(8),
 	};
 
+	if (params->log) {
+		LOG_INF("x: %d, y: %d, button: %d", params->x_degree, params->y_degree, params->h_button);
+	}
 	/* 大端序写入角度 */
 	sys_put_be16((uint16_t)params->x_degree, &frame.data[0]);
 	sys_put_be16((uint16_t)params->y_degree, &frame.data[2]);

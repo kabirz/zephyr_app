@@ -21,6 +21,7 @@ LOG_MODULE_REGISTER(main_app, LOG_LEVEL_INF);
 #define ACTIVITY_TIMEOUT_MS (10 * 60 * 1000) /* 10 minutes */
 
 volatile uint32_t last_activity_time;
+extern int adc_init_channels(void);
 
 int main(void)
 {
@@ -31,6 +32,7 @@ int main(void)
 	LOG_INF("version: %s", APP_VERSION_STRING);
 
 	last_activity_time = k_uptime_get_32();
+	adc_init_channels();
 	gpio_init();
 	canlora_switch(global_params.connect_type);
 

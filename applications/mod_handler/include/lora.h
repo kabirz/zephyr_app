@@ -32,7 +32,7 @@ enum lora_data_type {
  * @param params 全局参数
  * @return true 发送成功, false 模块繁忙或模式不匹配
  */
-bool lora_send_telemetry(const gloval_params_t *params);
+bool lora_send_telemetry(const global_params_t *params);
 
 /**
  * @brief 发送 RSSI 信号强度请求帧

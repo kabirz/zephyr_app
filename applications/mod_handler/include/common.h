@@ -66,9 +66,10 @@ typedef struct {
 	uint64_t test_rtt_sum;     /* RTT 累加和 (ms), 用于算平均 */
 	uint16_t test_last_rx_idx; /* 上次收包序号 (丢包检测) */
 	uint32_t test_gap_lost;    /* index 间隔检测到的丢包数 */
-} gloval_params_t;
+	bool log;
+} global_params_t;
 
-extern gloval_params_t global_params;
+extern global_params_t global_params;
 extern volatile uint32_t last_activity_time;
 
 #endif

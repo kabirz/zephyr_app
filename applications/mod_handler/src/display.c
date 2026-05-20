@@ -160,6 +160,9 @@ void mod_display_clear(void)
 /* Row 0 左侧(8x16, 16x16): LORA 信号 0/1/2/3/4 */
 void mod_display_lora(uint8_t rssi)
 {
+	if (global_params.connect_type != LORA_TYPE) {
+		return;
+	}
 	k_mutex_lock(&display_mutex, K_FOREVER);
 	if (rssi > 4) {
 		rssi = 4;
@@ -173,6 +176,9 @@ void mod_display_lora(uint8_t rssi)
 /* Row 0 左侧(8x16): 连接 CAN */
 void mod_display_can(void)
 {
+	if (global_params.connect_type != CAN_TYPE) {
+		return;
+	}
 	k_mutex_lock(&display_mutex, K_FOREVER);
 	display_write_buf(0, 0, LABEL_ICON_W, LABEL_ICON_H, label_can);
 	display_8x16_char(' ', 8, 0);
@@ -313,7 +319,7 @@ void mod_display_test_rtt(uint32_t rtt_ms, uint32_t avg_ms)
 }
 
 /* 测试模式 Row 1-3 全刷新 */
-void mod_display_test_all(const gloval_params_t *params)
+void mod_display_test_all(const global_params_t *params)
 {
 	uint32_t avg = params->test_rx_count > 0
 		? (uint32_t)(params->test_rtt_sum / params->test_rx_count) : 0;
@@ -324,13 +330,13 @@ void mod_display_test_all(const gloval_params_t *params)
 }
 
 /* 恢复正常模式 Row 1-3 */
-void mod_display_normal_rows(const gloval_params_t *params)
+void mod_display_normal_rows(const global_params_t *params)
 {
 	mod_display_scanner(&params->scanner);
 }
 
 /* 全屏刷新 */
-void mod_display_all(const gloval_params_t *params)
+void mod_display_all(const global_params_t *params)
 {
 	if (params->connect_type == CAN_TYPE) {
 		mod_display_can();
@@ -348,7 +354,7 @@ void mod_display_all(const gloval_params_t *params)
 /* ================================================================
  * 初始化
  * ================================================================ */
-gloval_params_t global_params;
+global_params_t global_params;
 
 int mod_display_init(void)
 {

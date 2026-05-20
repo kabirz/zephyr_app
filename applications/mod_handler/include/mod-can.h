@@ -87,7 +87,7 @@ int mod_can_send(struct can_frame *frame);
  * @param params 全局参数
  * @return 0 成功, 负数失败
  */
-int mod_can_send_handler_state(const gloval_params_t *params);
+int mod_can_send_handler_state(const global_params_t *params);
 
 /**
  * @brief 解析扫描仪 CAN 数据 (0x263/0x363/0x463)
