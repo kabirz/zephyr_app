@@ -29,7 +29,7 @@ main() + SYS_INIT
   |     +-- 心跳发送 (mod_can_thread, priority 11)
   |     +-- 手柄状态上报: 心跳成功时发送 0x1E3 帧 (X/Y BE + 按键反转 + 0xFF)
   |     +-- 扫描仪数据接收: 0x263/0x363/0x463 (即时解析+显示)
-  |     +-- LoRa 远程配参: 0x105/0x106 (k_work 异步, 不阻塞 CAN 线程)
+  |     +-- LoRa 远程配参: 0x105/0x106 (专用工作队列异步, 不阻塞 CAN 线程)
   |     +-- 心跳失败 3 次 → 停止心跳循环
   |
   +-- LoRa UART (WH-L101-L, UART async + DMA, lora_msg_process_thread, priority 12)
@@ -328,6 +328,7 @@ VERSION                  -- 版本号 (0.1.2-release)
 | `lora_msg` | `lora_msg_process_thread` | 1024 | 12 | LoRa 串口消息处理 + 统一帧解析 + 扫描仪数据分发 |
 | `lora_heart` | `lora_heartbeat_thread` | 1024 | 12 | LoRa 心跳 (仅 LORA_TYPE 时运行, 周期遥测 + ACK 检测) |
 | `adc_thread_id` | `adc_read_thread` | 1024 | 7 | ADC 周期采集 (500ms 角度, 5s 电压, 变化时即时发送) |
+| `lora_cfg_workq` | `k_work_queue` | 2048 | 8 | CAN LoRa 远程配参专用工作队列 (避免与 STM32 UART 驱动 RX 超时 k_work_delayable 死锁) |
 
 注意: 原电池监测线程已合并到 gpio.c，按键事件通过 ISR + k_work_delayable 处理，不再需要独立线程。
 
@@ -375,9 +376,9 @@ VERSION                  -- 版本号 (0.1.2-release)
 - LoRa 半双工节流: `lora_send_telemetry()` 发送成功后 `k_sem_take(&lora_data_sem, K_MSEC(500))` 阻塞等待，接收线程在 `handle_scanner_data()` 中 `k_sem_give(&lora_data_sem)` 释放。超时 500ms 后自动继续发送
 - LoRa 帧接收使用 `ring_buf` 环形缓冲区 (`lora_rx_rb`) 替代线性 `asm_buf` + `memmove`，`lora_msg_process_thread` 通过 `ring_buf_peek` + `ring_buf_get` 实现 0xAA 0x55 帧头检测和帧提取
 - Shell 测试模式: `lora test on/off` 通过 `test_mode_from_shell` 标志区分 shell 手动设置和上位机 RSSI 响应设置的测试模式。RSSI 轮询线程 (`lora_rssi_thread`) 仅在 `test_mode_from_shell` 时跳过，上位机设置的不跳过
-- CAN 远程配参 (0x105/0x106) 使用 `k_work` 异步处理: CAN 接收线程解析参数后 `k_work_submit()`，工作队列执行 `lora_gw_configure()` / `lora_gw_query()` 完成后发送响应帧
+- CAN 远程配参 (0x105/0x106) 使用专用工作队列 (`lora_cfg_workq`, 优先级 8, 栈 2048) 异步处理: CAN 接收线程解析参数后 `k_work_submit_to_queue()`，工作队列执行 `lora_gw_configure()` / `lora_gw_query()` 完成后发送响应帧。不使用系统工作队列是因为 STM32 UART async 驱动的 RX 超时通过 `k_work_delayable` 提交到系统工作队列，若配参也占用系统工作队列会死锁
 - CAN 0x105 SET 帧格式: data[1] 高 4 位 = prot, 低 4 位 = mode, data[2]=SPD, data[3]=CH (不含 GWID)。NID/GWID 独立命令: QUERY_NID(0x03)/SET_NID(0x04), QUERY_GWID(0x05)/SET_GWID(0x06)。NID/GWID 数据使用 BE (sys_put_be32/sys_get_be32)。SET_NID/SET_GWID 需 AT 模式写模块并重启, 通过 k_work 异步执行
-- `lora_cfg_work`、`pending_lora_cfg`、`pending_nid`、`pending_gwid`、`lora_cfg_cmd` 为 `can.c` 内部 static 变量，由 CAN 接收线程写入、系统工作队列读取，单生产者单消费者无需锁
+- `lora_cfg_work`、`pending_lora_cfg`、`pending_nid`、`pending_gwid`、`lora_cfg_cmd` 为 `can.c` 内部 static 变量，由 CAN 接收线程写入、专用工作队列 `lora_cfg_workq` 读取，单生产者单消费者无需锁
 - `btn_display_work`、`sleep_work`、`linksw_work` 为 `gpio.c` 内部 static 变量，ISR 中 `k_work_reschedule`/`k_work_submit`，工作队列线程执行
 - 按键防抖: `btn_display_work` 和 `sleep_work` 使用 `k_work_delayable`，ISR 中 reschedule，work handler 中 `gpio_pin_get_dt()` 确认。操纵手柄按键使用边沿检测 (`!= global_params.h_button`)，电源键使用低电平确认 (`== 0`)
 - 电源控制函数定义在 `gpio.c`，声明在 `mod-gpio.h`: `can_power_enable()`, `lora_power_enable()`, `dis_power_enable()`, `handler_power_enable()`, `handler_get_btn()`
