@@ -65,6 +65,8 @@ static void mod_cantx_callback(const struct device *dev, int error, void *user_d
  *   AT 操作涉及模块重启 (10s+), 提交到系统工作队列
  * ================================================================ */
 static struct k_work lora_cfg_work;
+static struct k_work_q lora_cfg_workq;
+static K_THREAD_STACK_DEFINE(lora_cfg_stack, 2048);
 static uint8_t pending_prot;
 static uint8_t pending_mode;
 static uint8_t pending_spd;
@@ -193,26 +195,26 @@ static void can_lora_config_handler(struct can_frame *frame)
 	if (lora_cfg_cmd == LORA_CMD_SET_MODE) {
 		pending_prot = frame->data[1] >> 4;
 		pending_mode = frame->data[1] & 0x0F;
-		k_work_submit(&lora_cfg_work);
+		k_work_submit_to_queue(&lora_cfg_workq, &lora_cfg_work);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY_MODE) {
-		k_work_submit(&lora_cfg_work);
+		k_work_submit_to_queue(&lora_cfg_workq, &lora_cfg_work);
 	} else if (lora_cfg_cmd == LORA_CMD_SET_CH1) {
 		pending_spd = frame->data[1];
 		pending_ch = sys_get_be16(&frame->data[2]);
-		k_work_submit(&lora_cfg_work);
+		k_work_submit_to_queue(&lora_cfg_workq, &lora_cfg_work);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY_CH1) {
-		k_work_submit(&lora_cfg_work);
+		k_work_submit_to_queue(&lora_cfg_workq, &lora_cfg_work);
 	} else if (lora_cfg_cmd == LORA_CMD_SET_CH2) {
 		pending_spd = frame->data[1];
 		pending_ch = sys_get_be16(&frame->data[2]);
-		k_work_submit(&lora_cfg_work);
+		k_work_submit_to_queue(&lora_cfg_workq, &lora_cfg_work);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY_CH2) {
-		k_work_submit(&lora_cfg_work);
+		k_work_submit_to_queue(&lora_cfg_workq, &lora_cfg_work);
 	} else if (lora_cfg_cmd == LORA_CMD_SET_PNUM) {
 		pending_pnum = frame->data[1];
-		k_work_submit(&lora_cfg_work);
+		k_work_submit_to_queue(&lora_cfg_workq, &lora_cfg_work);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY_PNUM) {
-		k_work_submit(&lora_cfg_work);
+		k_work_submit_to_queue(&lora_cfg_workq, &lora_cfg_work);
 	} else if (lora_cfg_cmd == LORA_CMD_SET_TEST) {
 		struct can_frame resp = {
 			.id = LORA_CONFIG_TX,
@@ -240,15 +242,15 @@ static void can_lora_config_handler(struct can_frame *frame)
 		resp.data[1] = frame->data[1];
 		mod_can_send(&resp);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY_NID) {
-		k_work_submit(&lora_cfg_work);
+		k_work_submit_to_queue(&lora_cfg_workq, &lora_cfg_work);
 	} else if (lora_cfg_cmd == LORA_CMD_SET_NID) {
 		pending_nid = sys_get_be32(&frame->data[4]);
-		k_work_submit(&lora_cfg_work);
+		k_work_submit_to_queue(&lora_cfg_workq, &lora_cfg_work);
 	} else if (lora_cfg_cmd == LORA_CMD_QUERY_GWID) {
-		k_work_submit(&lora_cfg_work);
+		k_work_submit_to_queue(&lora_cfg_workq, &lora_cfg_work);
 	} else if (lora_cfg_cmd == LORA_CMD_SET_GWID) {
 		pending_gwid = sys_get_be32(&frame->data[4]);
-		k_work_submit(&lora_cfg_work);
+		k_work_submit_to_queue(&lora_cfg_workq, &lora_cfg_work);
 	} else {
 		LOG_ERR("Unknown LoRa config cmd: 0x%02x", lora_cfg_cmd);
 	}
@@ -313,6 +315,8 @@ int mod_can_init(void)
 	filter.id = COORD_Z;
 	can_add_rx_filter_msgq(can_dev, &mod_can_msgq, &filter);
 
+	k_work_queue_start(&lora_cfg_workq, lora_cfg_stack,
+				K_THREAD_STACK_SIZEOF(lora_cfg_stack), 8, NULL);
 	k_work_init(&lora_cfg_work, lora_cfg_work_handler);
 end:
 	return err;
