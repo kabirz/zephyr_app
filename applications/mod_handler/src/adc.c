@@ -49,16 +49,37 @@ int adc_init_channels(void)
 	return ret;
 }
 
+/* 去除两个极值后求平均值 */
+static int32_t trim_avg(int32_t *samples, int count)
+{
+	int32_t min_v = samples[0];
+	int32_t max_v = samples[0];
+	int32_t sum = 0;
+
+	for (int i = 0; i < count; i++) {
+		if (samples[i] < min_v) {
+			min_v = samples[i];
+		}
+		if (samples[i] > max_v) {
+			max_v = samples[i];
+		}
+		sum += samples[i];
+	}
+	return (sum - min_v - max_v) / (count - 2);
+}
+
 void adc_read_thread(void)
 {
 	int ret;
 	uint16_t buf;
 	struct adc_sequence sequence = {.buffer = &buf, .buffer_size = sizeof(buf)};
 	int32_t val_mv;
-	int x_degree = 0, y_degree = 0;
 	uint32_t sleep_ms = global_params.connect_type == CAN_TYPE ? CAN_SLEEP_MS : LORA_SLEEP_MS;
-	bool need_send = false;
-	uint32_t adc_count = 0;
+
+	#define XY_SAMPLE_COUNT 10
+	static int32_t x_samples[XY_SAMPLE_COUNT];
+	static int32_t y_samples[XY_SAMPLE_COUNT];
+	static int xy_sample_idx = 0;
 
 	LOG_INF("ADC read thread started");
 
@@ -67,50 +88,55 @@ void adc_read_thread(void)
 			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
 			continue;
 		}
-
 		uint32_t t1 = k_uptime_get_32();
 
-		for (size_t i = 0U; i < ARRAY_SIZE(adc_channels) - 1; i++) {
-			(void)adc_sequence_init_dt(&adc_channels[i], &sequence);
-			ret = adc_read_dt(&adc_channels[i], &sequence);
-			if (ret < 0) {
-				LOG_ERR("Could not read (%d)", ret);
-				continue;
-			}
-			val_mv = (int32_t)buf;
+		/* 连续快速采集 10 次 X/Y */
+		for (xy_sample_idx = 0; xy_sample_idx < XY_SAMPLE_COUNT; xy_sample_idx++) {
+			for (size_t i = 0U; i < ARRAY_SIZE(adc_channels) - 1; i++) {
+				(void)adc_sequence_init_dt(&adc_channels[i], &sequence);
+				ret = adc_read_dt(&adc_channels[i], &sequence);
+				if (ret < 0) {
+					LOG_ERR("Could not read (%d)", ret);
+					continue;
+				}
+				val_mv = (int32_t)buf;
 
-			ret = adc_raw_to_millivolts_dt(&adc_channels[i], &val_mv);
-			if (ret < 0) {
-				LOG_ERR(" (value in mV not available)");
-			} else {
-				LOG_DBG("val[%d]: %d mv", i, val_mv);
+				ret = adc_raw_to_millivolts_dt(&adc_channels[i], &val_mv);
+				if (ret < 0) {
+					LOG_ERR(" (value in mV not available)");
+				} else {
+					LOG_DBG("val[%d]: %d mv", i, val_mv);
+				}
+				/* 500~4500mV → -200~+200 (0.1° 单位, ×10) */
+				if (i == 0) {
+					x_samples[xy_sample_idx] =
+						(CLAMP(val_mv * 10 / 6, 500, 4500) - 500) * 400 / 4000 - 200;
+				} else {
+					y_samples[xy_sample_idx] =
+						(CLAMP(val_mv * 10 / 6, 500, 4500) - 500) * 400 / 4000 - 200;
+				}
 			}
-			// 500~4500mV → -20~+20 (1° 单位)
-			if (i == 0) {
-				x_degree = (CLAMP(val_mv * 10 / 6, 500, 4500) - 500) * 40 / 4000 - 20;
-			} else {
-				y_degree = (CLAMP(val_mv * 10 / 6, 500, 4500) - 500) * 40 / 4000 - 20;
-			}
+			k_busy_wait(500);
 		}
 
-		if (x_degree != global_params.x_degree || y_degree != global_params.y_degree) {
+		/* 0.1° 平均值四舍五入到 1° */
+		int x_degree = (trim_avg(x_samples, XY_SAMPLE_COUNT) + 5) / 10;
+		int y_degree = (trim_avg(y_samples, XY_SAMPLE_COUNT) + 5) / 10;
+
+		if (x_degree != global_params.x_degree ||
+		    y_degree != global_params.y_degree) {
 			last_activity_time = k_uptime_get_32();
 			global_params.x_degree = x_degree;
 			global_params.y_degree = y_degree;
-			need_send = true;
 		}
-		if (need_send || adc_count >= 10) {
-			if (global_params.connect_type == CAN_TYPE) {
-				mod_can_send_handler_state(&global_params);
-			} else {
-				if (!global_params.test_mode) {
-					lora_send_telemetry(&global_params);
-				}
-			}
-			adc_count = 0;
-			need_send = false;
+
+		/* 上报 */
+		if (global_params.connect_type == CAN_TYPE) {
+			mod_can_send_handler_state(&global_params);
 		} else {
-			adc_count += 1;
+			if (!global_params.test_mode) {
+				lora_send_telemetry(&global_params);
+			}
 		}
 		uint32_t diff = k_uptime_get_32() - t1;
 		if (diff < sleep_ms) {
@@ -154,19 +180,7 @@ void adc_power_thread(void)
 		}
 
 		if (power_sample_idx >= POWER_SAMPLE_COUNT) {
-			int32_t min_v = power_samples[0];
-			int32_t max_v = power_samples[0];
-			int32_t sum = 0;
-			for (int j = 0; j < POWER_SAMPLE_COUNT; j++) {
-				if (power_samples[j] < min_v) {
-					min_v = power_samples[j];
-				}
-				if (power_samples[j] > max_v) {
-					max_v = power_samples[j];
-				}
-				sum += power_samples[j];
-			}
-			power_mv = (sum - min_v - max_v) / (POWER_SAMPLE_COUNT - 2);
+			power_mv = trim_avg(power_samples, POWER_SAMPLE_COUNT);
 			power_sample_idx = 0;
 
 			battery_status_t battery_status = read_battery_status();
