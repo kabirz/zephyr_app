@@ -34,7 +34,7 @@ typedef struct {
 	int x_degree;
 	int y_degree;
 	uint8_t h_button;
-	uint8_t power_mv;
+	uint32_t power_mv;
 #define CAN_TYPE  1
 #define LORA_TYPE 2
 	uint8_t connect_type;

@@ -223,6 +223,12 @@ bool lora_data_send(const uint8_t *data, size_t len)
 	uint8_t tx_data[128];
 	int offset = 0;
 
+	/* 检查帧长度: 头(2) + NID(4) + LEN(2) + Data + CRC(2) + 尾(2) = 12 + len */
+	if (len + 12 > sizeof(tx_data)) {
+		LOG_ERR("Frame too large: %zu + 12 > %zu", len, sizeof(tx_data));
+		return false;
+	}
+
 	if (atomic_get(&lora_current_mode) != LORA_MODE_DATA) {
 		LOG_WRN("Not in data mode");
 		return false;
@@ -316,6 +322,7 @@ bool lora_send_telemetry(const global_params_t *params)
 				break;
 			}
 			if (global_params.sleeping) {
+				ok = false;
 				break;
 			}
 		}
@@ -474,7 +481,7 @@ int lora_exit_at(void)
 {
 	char resp[128];
 	/* 发送退出指令, 等待 +OK */
-	lora_send_at("AT+ENTM\r\n", resp, sizeof(resp), 2000);
+	lora_send_at("AT+ENTM", resp, sizeof(resp), 2000);
 
 	/* 停止 AT 模式 RX */
 	lora_rx_disable_sync();
@@ -1225,7 +1232,7 @@ static void lora_rssi_thread(void)
 					break;
 				}
 				if (global_params.sleeping) {
-					break;
+					goto SLEEP_EXIT;
 				}
 			}
 			if (rssi_ok) {
@@ -1255,6 +1262,10 @@ static void lora_rssi_thread(void)
 		if (diff < LORA_RSSI_PERIOD_MS) {
 			k_sleep(K_MSEC(LORA_RSSI_PERIOD_MS - diff));
 		}
+		continue;
+
+SLEEP_EXIT:
+		k_mutex_unlock(&lora_data_mutex);
 	}
 }
 K_THREAD_DEFINE(thread_lora_heart, 1024, lora_rssi_thread, NULL, NULL, NULL, 11, 0, 0);
@@ -1468,6 +1479,7 @@ static int cmd_at(const struct shell *ctx, size_t argc, char **argv)
 		/* 切换回数据模式 */
 		atomic_set(&lora_current_mode, LORA_MODE_DATA);
 		uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
+		k_mutex_unlock(&lora_mode_mutex);
 		return 0;
 	} else {
 		return lora_exit_at();

@@ -116,7 +116,7 @@ void system_sleep(void)
 	if (global_params.connect_type == CAN_TYPE) {
 		can_power_enable(false);
 	} else {
-		lora_power_enable(false);
+		lora_deinit();
 	}
 	dis_power_enable(false);
 	handler_power_enable(false);
