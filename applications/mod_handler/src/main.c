@@ -42,7 +42,8 @@ int main(void)
 			continue;
 		}
 
-		if ((k_uptime_get_32() - last_activity_time) > ACTIVITY_TIMEOUT_MS) {
+		if (!global_params.test_mode &&
+		    (k_uptime_get_32() - last_activity_time) > ACTIVITY_TIMEOUT_MS) {
 			system_sleep();
 			LOG_INF("system entering sleep (inactivity timeout)");
 			continue;

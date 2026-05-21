@@ -1271,8 +1271,7 @@ static void lora_test_tx_thread(void)
 			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
 			continue;
 		}
-		k_event_wait(&global_params.event, LORA_EVENT, false, K_FOREVER);
-		k_event_wait(&global_params.event, TEST_EVENT, false, K_FOREVER);
+		k_event_wait_all(&global_params.event, LORA_EVENT | TEST_EVENT, false, K_FOREVER);
 		last_activity_time = k_uptime_get_32();
 
 		uint32_t t1 = k_uptime_get_32();
