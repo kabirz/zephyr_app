@@ -310,7 +310,15 @@ bool lora_send_telemetry(const global_params_t *params)
 	k_mutex_lock(&lora_data_mutex, K_FOREVER);
 	bool ok = lora_data_send(frame, sizeof(frame));
 	if (ok) {
-		k_sem_take(&lora_data_sem, K_MSEC(LORA_TELEM_TIMEOUT_MS));
+		/* 分段等待, 每 100ms 检查 sleep, 避免休眠时长时间持锁 */
+		for (int i = 0; i < LORA_TELEM_TIMEOUT_MS / 100; i++) {
+			if (k_sem_take(&lora_data_sem, K_MSEC(100)) == 0) {
+				break;
+			}
+			if (global_params.sleeping) {
+				break;
+			}
+		}
 	}
 	k_mutex_unlock(&lora_data_mutex);
 	return ok;
@@ -1209,7 +1217,18 @@ static void lora_rssi_thread(void)
 		bool sent = lora_send_rssi_request();
 
 		if (sent) {
-			if (k_sem_take(&lora_rssi_sem, K_MSEC(LORA_RSSI_TIMEOUT_MS)) == 0) {
+			/* 分段等待, 每 100ms 检查 sleep, 避免休眠时长时间持锁 */
+			bool rssi_ok = false;
+			for (int i = 0; i < LORA_RSSI_TIMEOUT_MS / 100; i++) {
+				if (k_sem_take(&lora_rssi_sem, K_MSEC(100)) == 0) {
+					rssi_ok = true;
+					break;
+				}
+				if (global_params.sleeping) {
+					break;
+				}
+			}
+			if (rssi_ok) {
 				if (rssi_fail_count > 0) {
 					LOG_INF("LoRa link restored");
 				}
