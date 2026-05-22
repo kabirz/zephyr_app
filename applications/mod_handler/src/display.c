@@ -15,11 +15,16 @@
  *   Row 4 (y=48-55):  [5x8]  Y 轴坐标 "Y axis:    {value}"
  *   Row 5 (y=56-63):  [5x8]  Z 轴坐标 "Z axis:    {value}"
  *
- * 布局 (SCANNER_USE_8x16 = 1, 8x16 字体):
+ * 布局 (SCANNER_USE_8x16 = 1, SHOW_XYZ = 1, 8x16 字体):
  *   Row 0 (y=0-15):   [8x16] 连接类型图标(8px) + 信号图标(16px) + 电池图标(24px)
  *   Row 1 (y=16-31):  [8x16] 超欠挖 "OB:" | 激光距离 "Dis:"    ← 左右各 64px
  *   Row 2 (y=32-47):  [8x16] X 轴 "X:" | Y 轴 "Y:"             ← 左右各 64px
  *   Row 3 (y=48-63):  [8x16] Z 轴 "Z:"
+ *
+ * 布局 (SCANNER_USE_8x16 = 1, SHOW_XYZ = 0, 8x16 字体):
+ *   Row 0 (y=0-15):   [8x16] ASCII文字("LoRa "/"CAN") + 信号图标(16px) + 电池图标(24px)
+ *   Row 1 (y=24-31):  [8x16] 超欠挖 "OB:"
+ *   Row 2 (y=40-47):  [8x16] 激光距离 "Dis:"
  *
  * 测试模式布局 (8x16 字体):
  *   Row 0 (y=0-15):   [8x16] 同上
@@ -156,8 +161,9 @@ void mod_display_clear(void)
 /* ================================================================
  * 业务显示函数
  * ================================================================ */
-
-/* Row 0 左侧(8x16, 16x16): LORA 信号 0/1/2/3/4 */
+#define ROW0_ASCII 1
+/* ASCII(64): Row 0 左侧(40x16, 16x16): LORA 信号 0/1/2/3/4 */
+/* ICON(64):  Row 0 左侧(8x16, 16x16): LORA 信号 0/1/2/3/4 */
 void mod_display_lora(uint8_t rssi)
 {
 	if (global_params.connect_type != LORA_TYPE) {
@@ -167,23 +173,32 @@ void mod_display_lora(uint8_t rssi)
 	if (rssi > 4) {
 		rssi = 4;
 	}
+#if ROW0_ASCII
+	display_8x16_str_pad("LoRa ", 0, 0, 40);
+	display_write_buf(40, 0, SIGNAL_ICON_W, SIGNAL_ICON_H, signal_levels[rssi]);
+	display_8x16_str_pad(" ", 56, 0, 64);
+#else
 	display_write_buf(0, 0, LABEL_ICON_W, LABEL_ICON_H, label_lora);
 	display_write_buf(8, 0, SIGNAL_ICON_W, SIGNAL_ICON_H, signal_levels[rssi]);
-	display_8x16_char(' ', 24, 0);
+	display_8x16_str_pad(" ", 24, 0, 64);
+#endif
 	k_mutex_unlock(&display_mutex);
 }
 
-/* Row 0 左侧(8x16): 连接 CAN */
+/* ASCII(64): Row 0 左侧(24x16): 连接 CAN */
+/* ICON(64):  Row 0 左侧(8x16):  连接 CAN */
 void mod_display_can(void)
 {
 	if (global_params.connect_type != CAN_TYPE) {
 		return;
 	}
 	k_mutex_lock(&display_mutex, K_FOREVER);
+#if ROW0_ASCII
+	display_8x16_str_pad("CAN", 0, 0, 64);
+#else
 	display_write_buf(0, 0, LABEL_ICON_W, LABEL_ICON_H, label_can);
-	display_8x16_char(' ', 8, 0);
-	display_8x16_char(' ', 16, 0);
-	display_8x16_char(' ', 24, 0);
+	display_8x16_str_pad(" ", 8, 0, 64);
+#endif
 	k_mutex_unlock(&display_mutex);
 }
 
@@ -192,7 +207,7 @@ void mod_display_battery(uint32_t power_mv, battery_status_t status)
 {
 	k_mutex_lock(&display_mutex, K_FOREVER);
 
-	display_8x16_str_pad(" ", 32, 0, 128);
+	display_8x16_str_pad(" ", 64, 0, 128);
 	int idx = power_mv >= 3850   ? 4
 		  : power_mv >= 3750 ? 3
 		  : power_mv >= 3550 ? 3
@@ -226,7 +241,8 @@ static void int_to_decimal_str(int32_t value, uint8_t valid, char *buffer, size_
 	}
 }
 
-#define SCANNER_USE_8x16 0
+#define SCANNER_USE_8x16 1
+#define SHOW_XYZ         0
 /* Row 1, 2, 3: 激光距离 + 超欠挖 + 坐标 (来自扫描仪数据) */
 void mod_display_scanner(const scanner_data_t *s)
 {
@@ -237,7 +253,8 @@ void mod_display_scanner(const scanner_data_t *s)
 /* Row 1 */
 #if SCANNER_USE_8x16
 	int_to_decimal_str(s->overbreak_value, s->overbreak_valid, line, sizeof(line), "OB:");
-	display_8x16_str_pad(line, 0, 16, 64);
+	display_5x8_str_pad(" ", 0, 16, 128);
+	display_8x16_str_pad(line, 0, 24, 128);
 #else
 	int_to_decimal_str(s->overbreak_value, s->overbreak_valid, line, sizeof(line), "OverBreak: ");
 	display_5x8_str_pad(" ", 0, 16, 128);
@@ -246,13 +263,14 @@ void mod_display_scanner(const scanner_data_t *s)
 
 #if SCANNER_USE_8x16
 	int_to_decimal_str(s->laser_distance, s->laser_valid, line, sizeof(line), "Dis:");
-	display_8x16_str_pad(line, 64, 16, 128);
+	display_8x16_str_pad(line, 0, 40, 128);
 #else
 	int_to_decimal_str(s->laser_distance, s->laser_valid, line, sizeof(line), "Distance:  ");
 	display_5x8_str_pad(line, 0, 32, 128);
 #endif
 
 /* Row 2 */
+#if SHOW_XYZ
 #if SCANNER_USE_8x16
 	int_to_decimal_str(s->coord_x, s->coord_xy_valid, line, sizeof(line), "X:");
 	display_8x16_str_pad(line, 0, 32, 64);
@@ -276,6 +294,14 @@ void mod_display_scanner(const scanner_data_t *s)
 #else
 	int_to_decimal_str(s->coord_z, s->coord_z_valid, line, sizeof(line), "Z axis:    ");
 	display_5x8_str_pad(line, 0, 56, 128);
+#endif
+#else
+#if SCANNER_USE_8x16
+	display_5x8_str_pad(" ", 0, 56, 128);
+#else
+	display_5x8_str_pad(line, 0, 40, 128);
+	display_8x16_str_pad(line, 0, 48, 128);
+#endif
 #endif
 
 	k_mutex_unlock(&display_mutex);
