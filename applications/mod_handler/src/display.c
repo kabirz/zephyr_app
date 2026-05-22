@@ -176,11 +176,11 @@ void mod_display_lora(uint8_t rssi)
 #if ROW0_ASCII
 	display_8x16_str_pad("LoRa ", 0, 0, 40);
 	display_write_buf(40, 0, SIGNAL_ICON_W, SIGNAL_ICON_H, signal_levels[rssi]);
-	display_8x16_str_pad(" ", 56, 0, 64);
+	display_8x16_char(' ', 56, 0);
 #else
 	display_write_buf(0, 0, LABEL_ICON_W, LABEL_ICON_H, label_lora);
 	display_write_buf(8, 0, SIGNAL_ICON_W, SIGNAL_ICON_H, signal_levels[rssi]);
-	display_8x16_str_pad(" ", 24, 0, 64);
+	display_8x16_str_pad(" ", 24, 0, 40);
 #endif
 	k_mutex_unlock(&display_mutex);
 }
@@ -207,16 +207,17 @@ void mod_display_battery(uint32_t power_mv, battery_status_t status)
 {
 	k_mutex_lock(&display_mutex, K_FOREVER);
 
-	display_8x16_str_pad(" ", 64, 0, 128);
 	int idx = power_mv >= 3850   ? 4
 		  : power_mv >= 3750 ? 3
 		  : power_mv >= 3550 ? 3
 		  : power_mv >= 3400 ? 1
 				     : 0;
 	if (status == BATTERY_STATUS_CHARGING) {
+		display_8x16_str_pad(" ", 64, 0, 24);
 		display_write_buf(88, 0, BATTERY_ICON_W, BATTERY_ICON_H, battery_levels[idx]);
 		display_write_buf(112, 0, CHARGING_ICON_W, CHARGING_ICON_H, icon_charging);
 	} else {
+		display_8x16_str_pad(" ", 64, 0, 40);
 		display_write_buf(104, 0, BATTERY_ICON_W, BATTERY_ICON_H, battery_levels[idx]);
 	}
 
@@ -281,7 +282,7 @@ void mod_display_scanner(const scanner_data_t *s)
 
 #if SCANNER_USE_8x16
 	int_to_decimal_str(s->coord_y, s->coord_xy_valid, line, sizeof(line), "Y:");
-	display_8x16_str_pad(line, 64, 32, 128);
+	display_8x16_str_pad(line, 64, 32, 64);
 #else
 	int_to_decimal_str(s->coord_y, s->coord_xy_valid, line, sizeof(line), "Y axis:    ");
 	display_5x8_str_pad(line, 0, 48, 128);

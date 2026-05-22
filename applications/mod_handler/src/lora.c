@@ -108,7 +108,7 @@ static K_SEM_DEFINE(lora_rssi_sem, 0, 1);
 static K_SEM_DEFINE(lora_test_sem, 0, 1);
 
 #define LORA_RSSI_PERIOD_MS  4000 /* RSSI 轮询周期 */
-#define LORA_RSSI_TIMEOUT_MS 1500 /* RSSI 响应等待超时 */
+#define LORA_RSSI_TIMEOUT_MS 2000 /* RSSI 响应等待超时 */
 #define LORA_RSSI_FAIL_MAX   3    /* 连续失败判定断连 */
 
 /* ================================================================
@@ -982,7 +982,7 @@ static void handle_rssi_response(const uint8_t *payload, uint16_t payload_len)
 	if (global_params.test_mode && !was_test) {
 		LOG_INF("Test mode activated");
 		reset_test_stats();
-		k_event_set(&global_params.event, TEST_EVENT);
+		k_event_post(&global_params.event, TEST_EVENT);
 		mod_display_test_all(&global_params);
 	} else if (!global_params.test_mode && was_test) {
 		LOG_INF("Test mode deactivated");
@@ -1730,7 +1730,7 @@ void lora_enter_test_mode(void)
 {
 	if (global_params.test_mode) return;
 	global_params.test_mode = true;
-	k_event_set(&global_params.event, TEST_EVENT);
+	k_event_post(&global_params.event, TEST_EVENT);
 	reset_test_stats();
 	mod_display_test_all(&global_params);
 	LOG_INF("Test mode activated");

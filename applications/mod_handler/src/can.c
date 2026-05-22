@@ -334,7 +334,9 @@ void mod_can_process_thread(void)
 	while (true) {
 		if (k_msgq_get(&mod_can_msgq, &frame, K_FOREVER) == 0) {
 			mod_canrx_msg_handler(&frame);
-			k_event_set(&global_params.event, CAN_RX_EVENT);
+			if (!k_event_test(&global_params.event, CAN_RX_EVENT)) {
+				k_event_post(&global_params.event, CAN_RX_EVENT);
+			}
 		}
 	}
 }

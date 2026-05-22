@@ -59,13 +59,13 @@ void canlora_switch(uint8_t type)
 		k_event_clear(&global_params.event, LORA_EVENT);
 		lora_deinit();
 		can_power_enable(true);
-		k_event_set(&global_params.event, CAN_EVENT | CAN_RX_EVENT);
+		k_event_post(&global_params.event, CAN_EVENT | CAN_RX_EVENT);
 		mod_display_can();
 	} else {
 		k_event_clear(&global_params.event, CAN_EVENT | CAN_RX_EVENT);
 		can_power_enable(false);
 		lora_init();
-		k_event_set(&global_params.event, LORA_EVENT);
+		k_event_post(&global_params.event, LORA_EVENT);
 		mod_display_lora(global_params.rssi);
 	}
 	LOG_INF("Link switch: %s", global_params.connect_type == CAN_TYPE ? "CAN" : "LoRa");
@@ -136,7 +136,7 @@ static void system_wake(void)
 	mod_display_all(&global_params);
 	global_params.sleeping = false;
 	last_activity_time = k_uptime_get_32();
-	k_event_set(&global_params.event, WAKE_EVENT);
+	k_event_post(&global_params.event, WAKE_EVENT);
 	LOG_INF("system woke up");
 }
 
@@ -217,7 +217,7 @@ static int power_init(void)
 	global_params.connect_type = CAN_TYPE;
 	global_params.log = false;
 	k_event_init(&global_params.event);
-	k_event_set(&global_params.event, CAN_EVENT);
+	k_event_post(&global_params.event, CAN_EVENT);
 
 	dis_power_enable(true);
 	can_power_enable(true);
@@ -297,7 +297,7 @@ int gpio_init(void)
 		return ret;
 	}
 
-	ret = gpio_pin_interrupt_configure_dt(&handler_button, GPIO_INT_EDGE_FALLING);
+	ret = gpio_pin_interrupt_configure_dt(&handler_button, GPIO_INT_EDGE_BOTH);
 	if (ret < 0) {
 		LOG_ERR("Failed to configure power button interrupt: %d", ret);
 		return ret;
@@ -317,6 +317,7 @@ int gpio_init(void)
 	k_work_init_delayable(&btn_display_work, btn_display_work_handler);
 	k_work_init_delayable(&linksw_work, linksw_work_handler);
 	k_work_init_delayable(&sleep_work, sleep_work_handler);
+	global_params.h_button = gpio_pin_get_dt(&handler_button);
 
 	LOG_INF("GPIO initialized successfully");
 	LOG_INF("  PB12 (Charge Full): %s", gpio_pin_get_dt(&charge_full) ? "HIGH" : "LOW");
