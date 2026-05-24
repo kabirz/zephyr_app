@@ -157,8 +157,9 @@ static void lora_uart_cb(const struct device *dev, struct uart_event *evt, void 
 
 	case UART_RX_BUF_REQUEST:
 		/* 双缓冲: 提供下一个缓冲区, 实现无缝切换 */
-		uart_rx_buf_rsp(dev, rx_next_buf, LORA_BUF_SIZE);
-		rx_next_buf = (rx_next_buf == rx_buf_a) ? rx_buf_b : rx_buf_a;
+		if (uart_rx_buf_rsp(dev, rx_next_buf, LORA_BUF_SIZE) == 0) {
+			rx_next_buf = (rx_next_buf == rx_buf_a) ? rx_buf_b : rx_buf_a;
+		}
 		break;
 
 	case UART_RX_BUF_RELEASED:
@@ -315,8 +316,9 @@ bool lora_send_telemetry(const global_params_t *params)
 	k_sem_reset(&lora_data_sem);
 	k_mutex_lock(&lora_data_mutex, K_FOREVER);
 	bool ok = lora_data_send(frame, sizeof(frame));
+	k_mutex_unlock(&lora_data_mutex);
 	if (ok) {
-		/* 分段等待, 每 100ms 检查 sleep, 避免休眠时长时间持锁 */
+		/* 发送后释放 mutex, 等待 ACK 期间不阻塞其他发送 */
 		for (int i = 0; i < LORA_TELEM_TIMEOUT_MS / 100; i++) {
 			if (k_sem_take(&lora_data_sem, K_MSEC(100)) == 0) {
 				break;
@@ -327,7 +329,6 @@ bool lora_send_telemetry(const global_params_t *params)
 			}
 		}
 	}
-	k_mutex_unlock(&lora_data_mutex);
 	return ok;
 }
 
@@ -429,10 +430,12 @@ int lora_send_at(const char *cmd, char *resp, size_t resp_size, uint32_t timeout
 		return -EPERM;
 	}
 
-	/* 清空响应缓冲 */
+	/* 清空响应缓冲 — 关中断防止 UART 回调并发写入 */
+	int irq_key = irq_lock();
 	at_resp_len = 0;
 	at_resp_buf[0] = '\0';
 	k_sem_reset(&at_resp_sem);
+	irq_unlock(irq_key);
 
 	/* 发送 AT 指令 (自动追加 \r\n) */
 	char tmp[128];
@@ -1099,7 +1102,9 @@ static void lora_msg_process_thread(void)
 		/* 写入环形缓冲区 */
 		uint32_t written = ring_buf_put(&lora_rx_rb, msg.data, msg.len);
 		if (written != msg.len) {
-			LOG_WRN("ring_buf overflow, dropped %u bytes", msg.len - written);
+			LOG_WRN("ring_buf overflow, dropped %u bytes, clearing buffer", msg.len - written);
+			ring_buf_reset(&lora_rx_rb);
+			continue;
 		}
 
 		/* 循环提取完整帧 */
@@ -1164,6 +1169,12 @@ static void lora_msg_process_thread(void)
 
 				if (parse_lora_frame(peek_buf + 2, content_len, &payload,
 						     &payload_len)) {
+					/* 空载荷帧 = 心跳 ACK */
+					if (payload_len == 0) {
+						k_sem_give(&lora_data_sem);
+						ring_buf_get(&lora_rx_rb, NULL, total_len);
+						continue;
+					}
 					uint8_t type = payload[0];
 
 					switch (type) {
@@ -1430,6 +1441,10 @@ static int cmd_send(const struct shell *ctx, size_t argc, char **argv)
 	uint8_t tx_data[64];
 	tx_data[0] = LORA_DATA_TEST;
 	size_t len = strlen(argv[1]);
+	if (len > sizeof(tx_data) - 1) {
+		shell_error(ctx, "Data too long (max %zu bytes)", sizeof(tx_data) - 1);
+		return -EINVAL;
+	}
 	memcpy(tx_data + 1, argv[1], len);
 
 	if (!lora_data_send(tx_data, len + 1)) {
@@ -1836,6 +1851,8 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 SHELL_CMD_REGISTER(lora, &sub_lora_cmds, "LoRa WH-L101-L commands", NULL);
 #endif /* CONFIG_SHELL */
 
+static bool lora_rx_active;
+
 void lora_init(void)
 {
 	/* 上电 + 硬件复位 */
@@ -1854,7 +1871,10 @@ void lora_init(void)
 		LOG_WRN("LoRa module boot timeout");
 	}
 
-	lora_rx_disable_sync();
+	if (lora_rx_active) {
+		lora_rx_disable_sync();
+	}
+	lora_rx_active = true;
 	rx_next_buf = rx_buf_b;
 	atomic_set(&lora_current_mode, LORA_MODE_DATA);
 	uart_rx_enable(uart_dev, rx_buf_a, LORA_BUF_SIZE, LORA_DATA_RX_TIMEOUT);
@@ -1862,7 +1882,10 @@ void lora_init(void)
 
 void lora_deinit(void)
 {
-	lora_rx_disable_sync();
+	if (lora_rx_active) {
+		lora_rx_disable_sync();
+		lora_rx_active = false;
+	}
 	lora_power_enable(false);
 }
 /* ================================================================

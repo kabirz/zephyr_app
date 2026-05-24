@@ -145,17 +145,21 @@ static void display_5x8_str_pad(const char *s, int x, int y, int width)
 
 void mod_display_reinit(void)
 {
+	k_mutex_lock(&display_mutex, K_FOREVER);
 	if (display_dev->ops.init) {
 		display_dev->ops.init(display_dev);
 	}
+	k_mutex_unlock(&display_mutex);
 }
 
 /* 用空格填充到行尾, 覆盖旧内容 */
 void mod_display_clear(void)
 {
+	k_mutex_lock(&display_mutex, K_FOREVER);
 	for (int j = 0; j < capabilities.y_resolution; j += 16) {
 		display_8x16_str_pad(" ", 0, j, 128);
 	}
+	k_mutex_unlock(&display_mutex);
 }
 
 /* ================================================================
@@ -209,7 +213,7 @@ void mod_display_battery(uint32_t power_mv, battery_status_t status)
 
 	int idx = power_mv >= 3850   ? 4
 		  : power_mv >= 3750 ? 3
-		  : power_mv >= 3550 ? 3
+		  : power_mv >= 3550 ? 2
 		  : power_mv >= 3400 ? 1
 				     : 0;
 	if (status == BATTERY_STATUS_CHARGING) {

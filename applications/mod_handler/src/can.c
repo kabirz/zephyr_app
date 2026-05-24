@@ -279,6 +279,7 @@ int mod_can_init(void)
 		if (check_can_device_ready()) {
 			break;
 		}
+		k_msleep(10);
 	}
 	if (can_check_time >= 10) {
 		LOG_ERR("can device is not ready");

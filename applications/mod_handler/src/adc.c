@@ -40,7 +40,7 @@ int adc_init_channels(void)
 		if (ret < 0) {
 			LOG_ERR("Could not setup channel #%d (%d)", adc_channels[i].channel_id,
 				ret);
-			return 0;
+			return ret;
 		}
 	}
 
@@ -116,7 +116,7 @@ void adc_read_thread(void)
 						(CLAMP(val_mv * 10 / 6, 500, 4500) - 500) * 400 / 4000 - 200;
 				}
 			}
-			k_busy_wait(500);
+			k_usleep(500);
 		}
 
 		/* 0.1° 平均值四舍五入到 1° */
