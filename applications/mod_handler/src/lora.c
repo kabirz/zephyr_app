@@ -308,7 +308,7 @@ bool lora_send_telemetry(const global_params_t *params)
 	frame[0] = LORA_DATA_HANDLER;
 	sys_put_be16((uint16_t)params->x_degree, &frame[1]);
 	sys_put_be16((uint16_t)params->y_degree, &frame[3]);
-	frame[5] = params->h_button ? 0x00 : 0x01;
+	frame[5] = params->h_button;
 	frame[6] = 0xFF;
 	frame[7] = 0xFF;
 	frame[8] = 0xFF;
