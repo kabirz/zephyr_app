@@ -15,6 +15,7 @@
 #include <mod-can.h>
 #include <lora.h>
 #include <mod-gpio.h>
+#include <persist.h>
 
 LOG_MODULE_REGISTER(power_gpio, LOG_LEVEL_INF);
 #define USER_NODE DT_PATH(zephyr_user)
@@ -69,6 +70,7 @@ void canlora_switch(uint8_t type)
 		mod_display_lora(global_params.rssi);
 	}
 	LOG_INF("Link switch: %s", global_params.connect_type == CAN_TYPE ? "CAN" : "LoRa");
+	persist_save_connect_type();
 }
 
 static void linksw_work_handler(struct k_work *work)

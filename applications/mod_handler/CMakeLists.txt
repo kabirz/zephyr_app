@@ -16,5 +16,6 @@ target_sources(app PRIVATE
   src/gpio.c
   src/lora.c
   src/main.c
+  src/persist.c
 )
 

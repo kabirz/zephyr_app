@@ -15,6 +15,7 @@
 #include <display.h>
 #include <mod-gpio.h>
 #include <lora.h>
+#include <zephyr/settings/settings.h>
 
 LOG_MODULE_REGISTER(main_app, LOG_LEVEL_INF);
 
@@ -34,6 +35,9 @@ int main(void)
 	last_activity_time = k_uptime_get_32();
 	adc_init_channels();
 	gpio_init();
+
+	settings_load();
+
 	canlora_switch(global_params.connect_type);
 
 	while (1) {

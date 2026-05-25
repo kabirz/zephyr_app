@@ -3,6 +3,7 @@
 / {
 	chosen {
 		zephyr,canbus = &can1;
+		zephyr,settings-partition = &cfg_partition;
 	};
 
 	zephyr,user {
