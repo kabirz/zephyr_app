@@ -1,0 +1,46 @@
+/*
+ * Copyright (c) 2024 Kabirz
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * ZephyrLink - CMSIS-DAP Debug Probe Overlay for STM32F103RCT6 Mini Board
+ *
+ * Adds:
+ *   - SWD bit-bang GPIO (zephyr,swdp-gpio)
+ *   - CDC ACM UART instance
+ *   - UART bridge (CDC ACM <-> USART2)
+ */
+
+/ {
+	/* SWD bit-bang GPIO for CMSIS-DAP debug port */
+	dp0 {
+		compatible = "zephyr,swdp-gpio";
+		status = "okay";
+
+		clk-gpios = <&gpioa 14 GPIO_ACTIVE_HIGH>;
+		dio-gpios = <&gpioa 13 GPIO_PULL_UP>;
+		dout-gpios = <&gpioa 13 GPIO_ACTIVE_HIGH>;
+		dnoe-gpios = <&gpioa 13 GPIO_ACTIVE_HIGH>;
+		noe-gpios = <&gpioa 13 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&gpiob 0 GPIO_ACTIVE_LOW>;
+		port-write-cycles = <2>;
+	};
+
+	/* UART bridge: CDC ACM <-> USART2 (PA2/PA3) */
+	uart-bridge0 {
+		compatible = "zephyr,uart-bridge";
+		peers = <&cdc_acm_uart0 &usart2>;
+	};
+};
+
+/* CDC ACM UART instance (child of USB controller) */
+&zephyr_udc0 {
+	cdc_acm_uart0: cdc_acm_uart0 {
+		compatible = "zephyr,cdc-acm-uart";
+	};
+};
+
+/* Enable USART2 for UART bridge (PA2/PA3 already configured in base DTS) */
+&usart2 {
+	status = "okay";
+};
