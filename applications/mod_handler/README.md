@@ -47,8 +47,20 @@ west build -b lora_f103rct6 . --sysbuild --pristine
 
 ## 烧录
 
+sysbuild 构建包含 mcuboot + app，在 build 根目录执行 west flash 会按 flash_order 依次烧录全部镜像。默认使用 pyocd：
+
 ```shell
+# 烧录全部 (mcuboot + app)，pyocd (默认)
 west flash
+
+# openocd
+west flash --runner openocd
+
+# probe-rs
+west flash --runner probe-rs
+
+# 只烧录 application (不含 mcuboot)
+west flash --domain mod_handler
 ```
 
 ## 系统架构
