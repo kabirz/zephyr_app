@@ -1695,14 +1695,14 @@ static int cmd_nid(const struct shell *ctx, size_t argc, char **argv)
 }
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_lora_gw_cmds,
-       SHELL_CMD_ARG(mode, NULL,
-        	     "Set protocol and mode\n"
-        	     "Usage: mode [prot] [mode]\n"
-        	     "  prot: node, lg210 (default), lg220\n"
-        	     "  mode: trans (default), fp, net",
-        	     cmd_gw_mode, 1, 2),
-       SHELL_CMD_ARG(query, NULL, "Query all params", cmd_gw_query, 1, 0),
-       SHELL_SUBCMD_SET_END);
+	SHELL_CMD_ARG(mode, NULL,
+		     "Set protocol and mode\n"
+		     "Usage: mode [prot] [mode]\n"
+		     "  prot: node, lg210 (default), lg220\n"
+		     "  mode: trans (default), fp, net",
+		     cmd_gw_mode, 1, 2),
+	SHELL_CMD_ARG(query, NULL, "Query all params", cmd_gw_query, 1, 0),
+	SHELL_SUBCMD_SET_END);
 
 static int cmd_test_stats(const struct shell *ctx, size_t argc, char **argv)
 {

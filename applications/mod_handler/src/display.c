@@ -165,7 +165,11 @@ void mod_display_clear(void)
 /* ================================================================
  * 业务显示函数
  * ================================================================ */
+#if IS_ENABLED(CONFIG_MOD_HANDLER_ROW0_ASCII)
 #define ROW0_ASCII 1
+#else
+#define ROW0_ASCII 0
+#endif
 /* ASCII(64): Row 0 左侧(40x16, 16x16): LORA 信号 0/1/2/3/4 */
 /* ICON(64):  Row 0 左侧(8x16, 16x16): LORA 信号 0/1/2/3/4 */
 void mod_display_lora(uint8_t rssi)
@@ -232,7 +236,7 @@ static void int_to_decimal_str(int32_t value, uint8_t valid, char *buffer, size_
 			       const char *prefix)
 {
 	if (!valid) {
-		snprintf(buffer, len, "%s: --------", prefix);
+		snprintf(buffer, len, "%s --------", prefix);
 		return;
 	}
 
@@ -246,8 +250,16 @@ static void int_to_decimal_str(int32_t value, uint8_t valid, char *buffer, size_
 	}
 }
 
+#if IS_ENABLED(CONFIG_MOD_HANDLER_SCANNER_8X16)
 #define SCANNER_USE_8x16 1
-#define SHOW_XYZ         0
+#else
+#define SCANNER_USE_8x16 0
+#endif
+#if IS_ENABLED(CONFIG_MOD_HANDLER_SHOW_XYZ)
+#define SHOW_XYZ 1
+#else
+#define SHOW_XYZ 0
+#endif
 /* Row 1, 2, 3: 激光距离 + 超欠挖 + 坐标 (来自扫描仪数据) */
 void mod_display_scanner(const scanner_data_t *s)
 {

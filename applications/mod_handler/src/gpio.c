@@ -115,6 +115,10 @@ void system_sleep(void)
 {
 	k_event_clear(&global_params.event, WAKE_EVENT);
 	global_params.sleeping = true;
+
+	/* 等待各线程检测到 sleeping 标志并停止外设活动, 避免断电时 DMA 中断 */
+	k_msleep(100);
+
 	if (global_params.connect_type == CAN_TYPE) {
 		can_power_enable(false);
 	} else {

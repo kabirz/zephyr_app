@@ -5,3 +5,4 @@ out*
 *.raw
 __pycache__
 *.log
+applications/mod_handler/.config
