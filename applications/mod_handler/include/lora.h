@@ -126,15 +126,15 @@ struct lora_config {
 };
 
 /**
- * @brief 配置 LoRa 通信参数
+ * @brief 设置网关协议和工作模式
  *
- * 进入 AT 模式, 依次设置 LORAPROT/WMODE/SPD1/CH1/SPD2/CH2/PNUM, 保存并重启模块.
- * 重启完成后自动恢复数据模式.
+ * 进入 AT 模式, 写入 LORAPROT + WMODE, 重启模块生效.
  *
- * @param cfg 参数 (NULL 则仅设置 mode+prot 默认值)
- * @return 0 成功, -EBUSY 模块繁忙, -ETIMEDOUT 指令超时
+ * @param prot 网关协议 (NODE/LG210/LG220)
+ * @param mode 工作模式 (TRANS/FP/NET)
+ * @return 0 成功, 负数失败
  */
-int lora_configure(const struct lora_config *cfg);
+int lora_set_gw_mode(enum lora_gw_prot prot, enum lora_gw_mode mode);
 
 /**
  * @brief 查询当前通信参数

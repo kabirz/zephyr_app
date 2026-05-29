@@ -596,30 +596,21 @@ static int parse_at_hex(const char *resp)
 }
 
 /* ================================================================
- * LG210 网关配置 — LORAPROT + SPD + CH + 保存 + 重启
+ * 网关协议/模式设置 — 只写 LORAPROT + WMODE, 重启生效
  * ================================================================ */
-int lora_configure(const struct lora_config *cfg)
+int lora_set_gw_mode(enum lora_gw_prot prot, enum lora_gw_mode mode)
 {
-	struct lora_config defaults = {
-		.mode = LORA_GW_MODE_TRANS,
-		.prot = LORA_PROT_LG210,
-	};
-
-	if (!cfg) {
-		cfg = &defaults;
-	}
-
 	int ret = lora_enter_at();
+
 	if (ret) {
 		return ret;
 	}
 
 	char cmd[64];
 
-	/* 选择通信协议 */
 	const char *prot_str;
 
-	switch (cfg->prot) {
+	switch (prot) {
 	case LORA_PROT_LG210:
 		prot_str = "LG210";
 		break;
@@ -636,10 +627,9 @@ int lora_configure(const struct lora_config *cfg)
 		goto out;
 	}
 
-	/* 设置工作模式 */
 	const char *wmode_str;
 
-	switch (cfg->mode) {
+	switch (mode) {
 	case LORA_GW_MODE_FP:
 		wmode_str = "FP";
 		break;
@@ -656,52 +646,10 @@ int lora_configure(const struct lora_config *cfg)
 		goto out;
 	}
 
-	/* 设置通道1参数 */
-	snprintf(cmd, sizeof(cmd), "AT+SPD1=%d", cfg->spd1);
-	ret = lora_send_at_set(cmd, "SPD1");
-	if (ret) {
-		goto out;
-	}
+	global_params.prot = (uint8_t)prot;
+	global_params.mode = (uint8_t)mode;
+	LOG_INF("Set gw mode: prot=%s mode=%s", prot_str, wmode_str);
 
-	snprintf(cmd, sizeof(cmd), "AT+CH1=%d", cfg->ch1);
-	ret = lora_send_at_set(cmd, "CH1");
-	if (ret) {
-		goto out;
-	}
-
-	/* 设置通道2参数 */
-	snprintf(cmd, sizeof(cmd), "AT+SPD2=%d", cfg->spd2);
-	ret = lora_send_at_set(cmd, "SPD2");
-	if (ret) {
-		goto out;
-	}
-
-	snprintf(cmd, sizeof(cmd), "AT+CH2=%d", cfg->ch2);
-	ret = lora_send_at_set(cmd, "CH2");
-	if (ret) {
-		goto out;
-	}
-
-	/* 设置通道选择 */
-	snprintf(cmd, sizeof(cmd), "AT+PNUM=%d", cfg->pnum);
-	ret = lora_send_at_set(cmd, "PNUM");
-	if (ret) {
-		goto out;
-	}
-
-	/* 更新本地缓存 */
-	global_params.prot = (uint8_t)cfg->prot;
-	global_params.mode = (uint8_t)cfg->mode;
-	global_params.spd1 = cfg->spd1;
-	global_params.ch1 = cfg->ch1;
-	global_params.spd2 = cfg->spd2;
-	global_params.ch2 = cfg->ch2;
-	global_params.pnum = cfg->pnum;
-
-	LOG_INF("Configured: prot=%s mode=%s spd1=%d ch1=%d spd2=%d ch2=%d pnum=%d",
-		prot_str, wmode_str, cfg->spd1, cfg->ch1, cfg->spd2, cfg->ch2, cfg->pnum);
-
-	/* 重启使配置生效 */
 	return lora_restart_to_data_mode(1000);
 
 out:
@@ -1524,17 +1472,7 @@ static int cmd_gw_mode(const struct shell *ctx, size_t argc, char **argv)
 		}
 	}
 
-	struct lora_config cfg = {
-		.mode = mode,
-		.prot = prot,
-		.spd1 = global_params.spd1,
-		.ch1 = global_params.ch1,
-		.spd2 = global_params.spd2,
-		.ch2 = global_params.ch2,
-		.pnum = global_params.pnum,
-	};
-
-	int ret = lora_configure(&cfg);
+	int ret = lora_set_gw_mode(prot, mode);
 
 	if (ret) {
 		shell_error(ctx, "Mode config failed (%d)", ret);

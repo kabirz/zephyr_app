@@ -67,13 +67,13 @@ static void mod_cantx_callback(const struct device *dev, int error, void *user_d
 /* LoRa 配置请求 — 通过 msgq 传递, 避免 CAN RX 线程与 work 线程竞态 */
 struct lora_cfg_request {
 	uint8_t cmd;
-	uint8_t prot;
-	uint8_t mode;
-	uint8_t spd;
-	uint16_t ch;
-	uint8_t pnum;
-	uint32_t nid;
-	uint32_t gwid;
+	union {
+		struct { uint8_t prot; uint8_t mode; } mode_params;
+		struct { uint8_t spd; uint16_t ch; } ch_params;
+		uint8_t pnum;
+		uint32_t nid;
+		uint32_t gwid;
+	};
 };
 
 static struct k_work lora_cfg_work;
@@ -95,20 +95,13 @@ static void lora_cfg_work_handler(struct k_work *work)
 
 		switch (req.cmd) {
 		case LORA_CMD_SET_MODE: {
-			struct lora_config cfg = {
-				.prot = (enum lora_gw_prot)req.prot,
-				.mode = (enum lora_gw_mode)req.mode,
-				.spd1 = global_params.spd1,
-				.ch1 = global_params.ch1,
-				.spd2 = global_params.spd2,
-				.ch2 = global_params.ch2,
-				.pnum = global_params.pnum,
-			};
-			int ret = lora_configure(&cfg);
+			enum lora_gw_prot prot = (enum lora_gw_prot)req.mode_params.prot;
+			enum lora_gw_mode mode = (enum lora_gw_mode)req.mode_params.mode;
+			int ret = lora_set_gw_mode(prot, mode);
 
 			resp.data[0] = LORA_CMD_SET_MODE;
-			resp.data[1] = (uint8_t)((cfg.prot << 4) | (cfg.mode & 0x0F));
-			LOG_INF("LoRa SET_MODE: ret=%d prot=%d mode=%d", ret, cfg.prot, cfg.mode);
+			resp.data[1] = (uint8_t)((prot << 4) | (mode & 0x0F));
+			LOG_INF("LoRa SET_MODE: ret=%d prot=%d mode=%d", ret, prot, mode);
 			mod_can_send(&resp);
 			break;
 		}
@@ -121,11 +114,12 @@ static void lora_cfg_work_handler(struct k_work *work)
 			break;
 
 		case LORA_CMD_SET_CH1: {
-			int ret = lora_set_spd1(req.spd);
+			int ret = lora_set_spd1(req.ch_params.spd);
 
 			if (ret == 0) {
-				ret = lora_set_ch1(req.ch);
+				ret = lora_set_ch1(req.ch_params.ch);
 			}
+
 			resp.data[0] = LORA_CMD_SET_CH1;
 			resp.data[1] = global_params.spd1;
 			sys_put_be16(global_params.ch1, &resp.data[2]);
@@ -143,11 +137,12 @@ static void lora_cfg_work_handler(struct k_work *work)
 			break;
 
 		case LORA_CMD_SET_CH2: {
-			int ret = lora_set_spd2(req.spd);
+			int ret = lora_set_spd2(req.ch_params.spd);
 
 			if (ret == 0) {
-				ret = lora_set_ch2(req.ch);
+				ret = lora_set_ch2(req.ch_params.ch);
 			}
+
 			resp.data[0] = LORA_CMD_SET_CH2;
 			resp.data[1] = global_params.spd2;
 			sys_put_be16(global_params.ch2, &resp.data[2]);
@@ -235,8 +230,8 @@ static void can_lora_config_handler(struct can_frame *frame)
 	case LORA_CMD_SET_MODE: {
 		struct lora_cfg_request req = { .cmd = cmd };
 
-		req.prot = frame->data[1] >> 4;
-		req.mode = frame->data[1] & 0x0F;
+		req.mode_params.prot = frame->data[1] >> 4;
+		req.mode_params.mode = frame->data[1] & 0x0F;
 		k_msgq_put(&lora_cfg_msgq, &req, K_NO_WAIT);
 		k_work_submit_to_queue(&lora_cfg_workq, &lora_cfg_work);
 		break;
@@ -256,8 +251,8 @@ static void can_lora_config_handler(struct can_frame *frame)
 	case LORA_CMD_SET_CH1: {
 		struct lora_cfg_request req = { .cmd = cmd };
 
-		req.spd = frame->data[1];
-		req.ch = sys_get_be16(&frame->data[2]);
+		req.ch_params.spd = frame->data[1];
+		req.ch_params.ch = sys_get_be16(&frame->data[2]);
 		k_msgq_put(&lora_cfg_msgq, &req, K_NO_WAIT);
 		k_work_submit_to_queue(&lora_cfg_workq, &lora_cfg_work);
 		break;
@@ -265,8 +260,8 @@ static void can_lora_config_handler(struct can_frame *frame)
 	case LORA_CMD_SET_CH2: {
 		struct lora_cfg_request req = { .cmd = cmd };
 
-		req.spd = frame->data[1];
-		req.ch = sys_get_be16(&frame->data[2]);
+		req.ch_params.spd = frame->data[1];
+		req.ch_params.ch = sys_get_be16(&frame->data[2]);
 		k_msgq_put(&lora_cfg_msgq, &req, K_NO_WAIT);
 		k_work_submit_to_queue(&lora_cfg_workq, &lora_cfg_work);
 		break;
