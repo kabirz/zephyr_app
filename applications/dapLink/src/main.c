@@ -19,6 +19,9 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(zephyr_link, LOG_LEVEL_INF);
 
+#include "webusb.h"
+#include "msosv2.h"
+
 /* DAP Link context bound to the zephyr,swdp-gpio instance (dp0) */
 DAP_LINK_CONTEXT_DEFINE(zl_dap_ctx, DEVICE_DT_GET_ONE(zephyr_swdp_gpio));
 
@@ -90,6 +93,29 @@ int main(void)
 	ret = usbd_add_configuration(&zl_usbd, USBD_SPEED_FS, &zl_fs_config);
 	if (ret) {
 		LOG_ERR("Failed to add FS configuration: %d", ret);
+		return ret;
+	}
+
+	/* WebUSB requires bcdUSB >= 2.1. The default bcdUSB set by
+	 * USBD_DEVICE_DEFINE is 2.0 — bump it here.
+	 */
+	ret = usbd_device_set_bcd_usb(&zl_usbd, USBD_SPEED_FS, USB_SRN_2_1);
+	if (ret) {
+		LOG_ERR("Failed to set bcdUSB to 2.1: %d", ret);
+		return ret;
+	}
+
+	/* Add WebUSB Platform Capability to BOS (required by Chrome/Edge) */
+	ret = usbd_add_descriptor(&zl_usbd, &bos_vreq_webusb);
+	if (ret) {
+		LOG_ERR("Failed to add WebUSB BOS capability: %d", ret);
+		return ret;
+	}
+
+	/* Add MS OS 2.0 BOS capability (required for Windows WebUSB access) */
+	ret = usbd_add_descriptor(&zl_usbd, &bos_vreq_msosv2);
+	if (ret) {
+		LOG_ERR("Failed to add MS OS 2.0 BOS capability: %d", ret);
 		return ret;
 	}
 
