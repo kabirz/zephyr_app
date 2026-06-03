@@ -118,9 +118,9 @@ void adc_read_thread(void)
 			k_usleep(500);
 		}
 
-		/* 0.1° 平均值四舍五入到 1° */
-		int x_degree = (trim_avg(x_samples, XY_SAMPLE_COUNT) + 5) / 10;
-		int y_degree = (trim_avg(y_samples, XY_SAMPLE_COUNT) + 5) / 10;
+		/* 保留 0.1° 精度平均值 */
+		int x_degree = trim_avg(x_samples, XY_SAMPLE_COUNT);
+		int y_degree = trim_avg(y_samples, XY_SAMPLE_COUNT);
 
 		if (x_degree != global_params.x_degree ||
 		    y_degree != global_params.y_degree) {

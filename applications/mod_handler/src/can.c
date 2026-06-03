@@ -479,8 +479,8 @@ int mod_can_send_handler_state(const global_params_t *params)
 	sys_put_be16((uint16_t)params->x_degree, &frame.data[0]);
 	sys_put_be16((uint16_t)params->y_degree, &frame.data[2]);
 
-	/* 按键: btnHandler=1, btnBox (按下=0, 松开=1) */
-	frame.data[4] = 1 | (params->h_button << 1);
+	/* 按键: btnHandler (按下=0, 松开=1) */
+	frame.data[4] = params->h_button;
 	frame.data[5] = 0xFF;
 	frame.data[6] = 0xFF;
 	frame.data[7] = 0xFF;
