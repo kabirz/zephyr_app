@@ -74,7 +74,6 @@ void adc_read_thread(void)
 	uint16_t buf;
 	struct adc_sequence sequence = {.buffer = &buf, .buffer_size = sizeof(buf)};
 	int32_t val_mv;
-	uint32_t sleep_ms = global_params.connect_type == CAN_TYPE ? CAN_SLEEP_MS : LORA_SLEEP_MS;
 
 	#define XY_SAMPLE_COUNT 10
 	static int32_t x_samples[XY_SAMPLE_COUNT];
@@ -139,6 +138,7 @@ void adc_read_thread(void)
 			}
 		}
 		uint32_t diff = k_uptime_get_32() - t1;
+		uint32_t sleep_ms = global_params.connect_type == CAN_TYPE ? CAN_SLEEP_MS : LORA_SLEEP_MS;
 		if (diff < sleep_ms) {
 			k_sleep(K_MSEC(sleep_ms - diff));
 		}

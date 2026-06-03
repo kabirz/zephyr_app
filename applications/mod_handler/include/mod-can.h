@@ -67,7 +67,7 @@ enum lora_config_result {
 	LORA_CFG_FAIL = 0x01,
 };
 
-#define CAN_HEART_TIME 400
+#define CAN_HEART_TIME 800
 
 #include <zephyr/dfu/flash_img.h>
 #include <zephyr/dfu/mcuboot.h>

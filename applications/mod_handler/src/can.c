@@ -479,8 +479,8 @@ int mod_can_send_handler_state(const global_params_t *params)
 	sys_put_be16((uint16_t)params->x_degree, &frame.data[0]);
 	sys_put_be16((uint16_t)params->y_degree, &frame.data[2]);
 
-	/* 按键: btnHandler (按下=0, 松开=1) */
-	frame.data[4] = params->h_button;
+	/* 按键: btnHandler=1, btnBox (按下=0, 松开=1) */
+	frame.data[4] = 1 | (params->h_button << 1);
 	frame.data[5] = 0xFF;
 	frame.data[6] = 0xFF;
 	frame.data[7] = 0xFF;
@@ -506,8 +506,10 @@ void mod_can_parse_scanner(struct can_frame *frame)
 		s->laser_valid = (frame->data[0] & 0x02) ? 1 : -1;
 		s->overbreak_value = (int16_t)sys_get_be16(&frame->data[2]);
 		s->laser_distance = (int32_t)sys_get_be32(&frame->data[4]);
-		LOG_DBG("Overbreak: valid=%d val=%d, Laser: valid=%d val=%d", s->overbreak_valid,
-			s->overbreak_value, s->laser_valid, s->laser_distance);
+		if (global_params.log) {
+			LOG_INF("Overbreak: valid=%d val=%d, Laser: valid=%d val=%d", s->overbreak_valid,
+				s->overbreak_value, s->laser_valid, s->laser_distance);
+		}
 		break;
 
 	case COORD_XY:
@@ -517,7 +519,9 @@ void mod_can_parse_scanner(struct can_frame *frame)
 		s->coord_x = (int32_t)sys_get_be32(&frame->data[0]);
 		s->coord_y = (int32_t)sys_get_be32(&frame->data[4]);
 		s->coord_xy_valid = 1;
-		LOG_DBG("CoordXY: X=%d Y=%d", s->coord_x, s->coord_y);
+		if (global_params.log) {
+			LOG_INF("CoordXY: X=%d Y=%d", s->coord_x, s->coord_y);
+		}
 		break;
 
 	case COORD_Z:
@@ -530,7 +534,9 @@ void mod_can_parse_scanner(struct can_frame *frame)
 		s->coord_z = (int32_t)sys_get_be32(&frame->data[0]);
 		s->coord_z_valid = (frame->data[4] & 0x01) ? 1 : -1;
 		s->coord_xy_valid = s->coord_z_valid;
-		LOG_DBG("CoordZ: Z=%d valid=%d", s->coord_z, s->coord_z_valid);
+		if (global_params.log) {
+			LOG_INF("CoordZ: Z=%d valid=%d", s->coord_z, s->coord_z_valid);
+		}
 		break;
 
 	default:

@@ -3,7 +3,7 @@ env:
 
 on:
   push:
-    branches: [ ai_dev ]
+    branches: [ main ]
     tags:
       - "v*.mod"
     paths:
