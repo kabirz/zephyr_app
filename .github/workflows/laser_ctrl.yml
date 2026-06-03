@@ -59,6 +59,7 @@ jobs:
         uses: softprops/action-gh-release@v3.0.0
         id: release
         with:
+          name: laser_ctrl ${{ github.ref_name }}
           files: workspace/build/${{env.IMAGE_ZIP}}
 
       - name: Send Email
@@ -77,5 +78,5 @@ jobs:
             - Workflow: ${{ github.workflow }}
 
           to: ${{ secrets.TOLISTS }}
-          from: GitHub Release
+          from: ${{ secrets.MAIL_USERNAME }}
           attachments: workspace/build/${{env.IMAGE_ZIP}}

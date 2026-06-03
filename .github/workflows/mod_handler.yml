@@ -1,6 +1,3 @@
-env:
-  ZEPHYR_BASE: /home/zhp/code/zephyr/app/zephyr
-
 on:
   push:
     branches: [ main ]
@@ -19,7 +16,7 @@ permissions:
 jobs:
   build-and-release:
     name: Build zephyr image
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
 
     steps:
@@ -28,13 +25,24 @@ jobs:
         with:
           path: workspace/apps
 
+      - name: Setup Python
+        uses: actions/setup-python@v6.2.0
+        with:
+          python-version: 3.12
+
+      - name: Setup Zephyr
+        uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          base-path: workspace
+          app-path: apps
+          toolchains: arm-zephyr-eabi
+          manifest-file-name: zephyr4_4.yml
+
       - name: Build Firmware
         working-directory: workspace
         shell: bash
         run: |
           set -e
-          source /home/zhp/.venv/zephyr/bin/activate
-          rm -fr build
           west build -b lora_f103rct6 apps/applications/mod_handler --sysbuild
           west archive --no-rebuild -o mod_handler
 
@@ -51,6 +59,7 @@ jobs:
         uses: softprops/action-gh-release@v3.0.0
         id: release
         with:
+          name: mod_handler ${{ github.ref_name }}
           files: workspace/build/${{env.IMAGE_ZIP}}
 
       - name: Send Email
@@ -69,5 +78,5 @@ jobs:
             - Workflow: ${{ github.workflow }}
 
           to: ${{ secrets.TOLISTS }}
-          from: GitHub Release
+          from: ${{ secrets.MAIL_USERNAME }}
           attachments: workspace/build/${{env.IMAGE_ZIP}}
