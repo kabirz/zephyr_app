@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: reportMissingTypeArgument=false, reportUnknownParameterType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportAny=false, reportUnannotatedClassAttribute=false, reportUnusedParameter=false, reportUnusedCallResult=false, reportUnusedImport=false, reportUnknownArgumentType=false, reportImplicitStringConcatenation=false
 """
 LoRa Gateway Simulator — TCP + UDP
 
@@ -140,6 +141,35 @@ def udp_wrap(data: dict) -> bytes:
     return f"USR1566{json_str}USR1566".encode()
 
 
+def _is_tun_ip(ip: str) -> bool:
+    """Check if IP belongs to a VPN/TUN interface"""
+    parts = ip.split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        a, b = int(parts[0]), int(parts[1])
+    except ValueError:
+        return False
+    if a == 198 and b == 18:
+        return True  # Clash TUN
+    if a == 172 and 16 <= b <= 31:
+        return True  # Docker / VPN
+    if a == 100 and 64 <= b <= 127:
+        return True  # CGNAT / Tailscale
+    return False
+
+
+def _same_subnet(ip1: str, ip2: str, prefix_len: int = 24) -> bool:
+    """Check if two IPs are on the same /24 subnet"""
+    p1 = ip1.split(".")
+    p2 = ip2.split(".")
+    if len(p1) != 4 or len(p2) != 4:
+        return False
+    if prefix_len == 24:
+        return p1[0] == p2[0] and p1[1] == p2[1] and p1[2] == p2[2]
+    return False
+
+
 # ── 模拟器配置 ──
 
 class SimConfig:
@@ -149,7 +179,7 @@ class SimConfig:
         self.mac = "D4AD20ED63C4"
         self.dev_name = "USR-LG210-L"
         self.sw_ver = "V4.1.7"
-        self.ip = "127.0.0.1"
+        self._ip = "127.0.0.1"
         self.mask = "255.255.0.0"
         self.gw = "127.0.0.1"
         self.dhcp = "ON"
@@ -158,11 +188,24 @@ class SimConfig:
         self.ttmode = 0
         self.wmode = 0
         self.upwid = "OFF"
-        self.ch = {1: 4700, 2: 4700}
+        self.socken = "ON,OFF"
+        self.socka = "TCPC,192.168.1.100,1883,1234"
+        self.ch = {1: 4700, 2: 4800}
         self.spd = {1: 7, 2: 7}
         self.pwr = {1: 30, 2: 30}
         self.rssi_snr = 12
         self.rssi_val = -65
+
+    def set_interface_ip(self, ip: str):
+        """Set the response IP to the given interface IP and derive GW"""
+        self._ip = ip
+        parts = ip.split(".")
+        if len(parts) == 4:
+            self.gw = f"{parts[0]}.{parts[1]}.{parts[2]}.1"
+
+    @property
+    def ip(self):
+        return self._ip
 
 
 # ── TCP Server ──
@@ -299,8 +342,7 @@ class GatewayTCPServer:
         self._send_to_client(self.cfg.nid, data)
         ts = time.strftime("%H:%M:%S")
         print(
-            f"  [{ts}] TX Scanner [{self.cfg.nid:08X}] "
-            f"CAN=0x{can_id:03X} data={can_data.hex(' ').upper()}"
+            f"  [{ts}] TX Scanner [{self.cfg.nid:08X}] CAN=0x{can_id:03X} data={can_data.hex(' ').upper()}"
         )
 
     def send_test(self, data: bytes):
@@ -339,32 +381,146 @@ class GatewayUDPServer:
         self.cfg = cfg
         self.port = port
         self.running = False
+        self.local_ips = []  # cache of local interface IPs
+
+    def _get_local_ips(self):
+        """Get all non-loopback, non-TUN local IPv4 addresses (cross-platform)"""
+        ips = []
+        seen = set()
+        # Method 1: connect to public DNS to discover primary outbound IP
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            primary = s.getsockname()[0]
+            s.close()
+            if not primary.startswith("127.") and not _is_tun_ip(primary) and primary not in seen:
+                ips.append(primary)
+                seen.add(primary)
+        except Exception:
+            pass
+        # Method 2: hostname resolution
+        try:
+            hostname = socket.gethostname()
+            _, _, addrs = socket.gethostbyname_ex(hostname)
+            for ip in addrs:
+                if not ip.startswith("127") and not _is_tun_ip(ip) and ip not in seen:
+                    ips.append(ip)
+                    seen.add(ip)
+        except Exception:
+            pass
+        # Method 3: Windows ipconfig
+        if not ips and sys.platform == "win32":
+            try:
+                import subprocess
+                out = subprocess.check_output(["ipconfig"], text=True, encoding="gbk", errors="replace")
+                for line in out.splitlines():
+                    line = line.strip()
+                    if line.startswith("IPv4") and ":" in line:
+                        ip = line.split(":")[-1].strip().rstrip(")")
+                        if "%" in ip:
+                            ip = ip.split("%")[0]
+                        if ip and not ip.startswith("127") and not _is_tun_ip(ip) and ip not in seen:
+                            try:
+                                socket.inet_aton(ip)
+                                ips.append(ip)
+                                seen.add(ip)
+                            except socket.error:
+                                pass
+            except Exception:
+                pass
+        return ips
+
+    def _get_iface_info(self, target_ip: str):
+        """Find the IP and GW for the interface that owns target_ip"""
+        # Simple heuristic: find the matching local IP and derive GW
+        for ip in self.local_ips:
+            if ip == target_ip:
+                # Derive GW by replacing last octet with .1
+                parts = ip.split(".")
+                gw = f"{parts[0]}.{parts[1]}.{parts[2]}.1"
+                return ip, gw
+        # Fallback
+        if self.local_ips:
+            ip = self.local_ips[0]
+            parts = ip.split(".")
+            return ip, f"{parts[0]}.{parts[1]}.{parts[2]}.1"
+        return "127.0.0.1", "127.0.0.1"
 
     def start(self):
         self.running = True
+        self.local_ips = self._get_local_ips()
+
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        if sys.platform == "win32":
+            # Windows: IP_RECVDSTADDR gives us the destination IP
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_RECVDSTADDR, 1)
+        else:
+            # Linux/macOS: IP_PKTINFO gives us the destination IP + interface index
+            try:
+                sock.setsockopt(socket.IPPROTO_IP, socket.IP_PKTINFO, 1)
+            except OSError:
+                pass
         sock.bind(("0.0.0.0", self.port))
         sock.settimeout(1.0)
-        print(f"  [UDP] Listening on port {self.port}")
+        print(f"  [UDP] Listening on port {self.port} (interfaces: {', '.join(self.local_ips)})")
 
         buf = bytearray(4096)
+        cmsg_buf = bytearray(1024)
+        has_recvmsg = hasattr(sock, 'recvmsg_into')
+
         while self.running:
             try:
-                nbytes, addr = sock.recvfrom_into(buf, len(buf))
-            except socket.timeout:
+                if has_recvmsg:
+                    # recvmsg_into is Python 3.9+, not available on Windows
+                    _fn = getattr(sock, "recvmsg_into", None)
+                    if _fn is not None:
+                        nbytes, addr, _flags, cmsg = _fn(buf, len(buf), cmsg_buf, len(cmsg_buf))
+                    else:
+                        nbytes, addr = sock.recvfrom_into(buf, len(buf))
+                        cmsg = None
+                else:
+                    # Windows: use getsockopt IP_RECVDSTADDR to get destination IP
+                    nbytes, addr = sock.recvfrom_into(buf, len(buf))
+                    cmsg = None
+            except (socket.timeout, OSError):
                 continue
             except Exception:
                 break
 
+            # Determine which local interface received this packet
+            dst_ip = None
+            if cmsg:
+                # Linux/macOS: parse IP_PKTINFO cmsg
+                for c_level, c_type, c_data in cmsg:
+                    if c_level == socket.IPPROTO_IP and c_type == socket.IP_PKTINFO:
+                        dst_ip = socket.inet_ntoa(c_data[4:8])
+                        break
+
+            # Windows / fallback: find local IP on the same subnet as source
+            if not dst_ip and addr:
+                src_ip = addr[0]
+                for local_ip in self.local_ips:
+                    if _same_subnet(src_ip, local_ip):
+                        dst_ip = local_ip
+                        break
+                if not dst_ip and self.local_ips:
+                    dst_ip = self.local_ips[0]
+
+            # If we got a valid destination, use that interface
+            if dst_ip and not dst_ip.startswith("127") and not _is_tun_ip(dst_ip):
+                self.cfg.set_interface_ip(dst_ip)
+
             raw = bytes(buf[:nbytes]).decode("utf-8", errors="replace")
             ts = time.strftime("%H:%M:%S")
-            print(f"  [{ts}] [UDP] RX {addr[0]}:{addr[1]}: {raw.strip()[:120]}")
+            iface_tag = f"[{dst_ip}]" if dst_ip else ""
+            print(f"  [{ts}] [UDP] RX {iface_tag} from {addr[0]}:{addr[1]}: {raw.strip()[:80]}")
 
             response = self._handle_udp(raw)
             if response:
                 sock.sendto(response, addr)
-                print(f"  [{ts}] [UDP] TX -> {addr[0]}: response sent")
+                print(f"  [{ts}] [UDP] TX -> {addr[0]}:{addr[1]}: response sent")
 
         sock.close()
 
@@ -439,105 +595,120 @@ class GatewayUDPServer:
             return f"\r\n+GWID:{self.cfg.gwid:08X}\r\n\r\nOK\r\n"
 
         if cmd_upper == "AT+CSQ?":
-            return f"\r\n+CSQ:4,18\r\n\r\nOK\r\n"
+            return "\r\n+CSQ:4,18\r\n\r\nOK\r\n"
 
         if cmd_upper == "AT+DHCP?":
             return f"\r\n+DHCP:{self.cfg.dhcp}\r\n\r\nOK\r\n"
 
         if cmd_upper.startswith("AT+DHCP="):
             self.cfg.dhcp = cmd_upper.split("=")[1].strip()
-            return f"\r\nOK\r\n"
+            return "\r\nOK\r\n"
 
         if cmd_upper == "AT+GWIP?":
             return f"\r\n+GWIP:{self.cfg.ip}\r\n\r\nOK\r\n"
 
         if cmd_upper.startswith("AT+GWIP="):
-            self.cfg.ip = cmd_upper.split("=")[1].strip()
-            return f"\r\nOK\r\n"
+            self.cfg.set_interface_ip(cmd_upper.split("=")[1].strip())
+            return "\r\nOK\r\n"
 
         if cmd_upper == "AT+MASK?":
             return f"\r\n+MASK:{self.cfg.mask}\r\n\r\nOK\r\n"
 
         if cmd_upper.startswith("AT+MASK="):
             self.cfg.mask = cmd_upper.split("=")[1].strip()
-            return f"\r\nOK\r\n"
+            return "\r\nOK\r\n"
 
         if cmd_upper == "AT+GW?":
             return f"\r\n+GW:{self.cfg.gw}\r\n\r\nOK\r\n"
 
         if cmd_upper.startswith("AT+GW="):
             self.cfg.gw = cmd_upper.split("=")[1].strip()
-            return f"\r\nOK\r\n"
+            return "\r\nOK\r\n"
 
         if cmd_upper == "AT+OPTION?":
             return f"\r\n+OPTION:{self.cfg.option}\r\n\r\nOK\r\n"
 
         if cmd_upper.startswith("AT+OPTION="):
             self.cfg.option = int(cmd_upper.split("=")[1].strip())
-            return f"\r\nOK\r\n"
+            return "\r\nOK\r\n"
 
+        # NWMODE? / NWMODE=<0|1> — 组网模式
         if cmd_upper == "AT+NWMODE?":
             return f"\r\n+NWMODE:{self.cfg.nwmode}\r\n\r\nOK\r\n"
-
         if cmd_upper.startswith("AT+NWMODE="):
             self.cfg.nwmode = int(cmd_upper.split("=")[1].strip())
-            return f"\r\nOK\r\n"
+            return "\r\n+NWMODE:OK\r\n"
 
+        # TTMODE? / TTMODE=<0|1> — 不组网工作模式
         if cmd_upper == "AT+TTMODE?":
             return f"\r\n+TTMODE:{self.cfg.ttmode}\r\n\r\nOK\r\n"
-
         if cmd_upper.startswith("AT+TTMODE="):
             self.cfg.ttmode = int(cmd_upper.split("=")[1].strip())
-            return f"\r\nOK\r\n"
+            return "\r\n+TTMODE:OK\r\n"
 
+        # WMODE? / WMODE=<0|1> — 组网工作模式
         if cmd_upper == "AT+WMODE?":
             return f"\r\n+WMODE:{self.cfg.wmode}\r\n\r\nOK\r\n"
-
         if cmd_upper.startswith("AT+WMODE="):
             self.cfg.wmode = int(cmd_upper.split("=")[1].strip())
-            return f"\r\nOK\r\n"
+            return "\r\n+WMODE:OK\r\n"
 
         if cmd_upper == "AT+UPWID?":
             return f"\r\n+UPWID:{self.cfg.upwid}\r\n\r\nOK\r\n"
-
         if cmd_upper.startswith("AT+UPWID="):
-            self.cfg.upwid = cmd_upper.split("=")[1].strip()
-            return f"\r\nOK\r\n"
+            val = cmd_upper.split("=")[1].strip().upper()
+            if val in ("ON", "OFF"):
+                self.cfg.upwid = val
+            return f"\r\n+UPWID:{self.cfg.upwid}\r\n"
 
-        # CH<n>=<freq> / CH<n>?
+        # SOCKEN?<status>,<status> / SOCKEN=<status>,<status>
+        if cmd_upper == "AT+SOCKEN?":
+            return f"\r\n+SOCKEN:{self.cfg.socken}\r\n\r\nOK\r\n"
+        if cmd_upper.startswith("AT+SOCKEN="):
+            self.cfg.socken = cmd_upper.split("=", 1)[1].strip()
+            return "\r\n+SOCKEN:OK\r\n"
+
+        # SOCKA?<mode>,<ip>,<rport>,<lport> / SOCKA=<mode>,<ip>,<rport>,<lport>
+        if cmd_upper == "AT+SOCKA?":
+            return f"\r\n+SOCKA:{self.cfg.socka}\r\n\r\nOK\r\n"
+        if cmd_upper.startswith("AT+SOCKA="):
+            self.cfg.socka = cmd_upper.split("=", 1)[1].strip()
+            return "\r\n+SOCKA:OK\r\n"
+
+        # CH(n)? / CH(n)=<freq> — 查询/设置通道n的信道频率 (4100-5100)
         if cmd_upper.startswith("AT+CH") and len(cmd_upper) > 5:
             rest = cmd_upper[5:]
             if "=" in rest:
                 n = int(rest.split("=")[0])
                 val = rest.split("=")[1].strip()
                 self.cfg.ch[n] = int(val)
-                return f"\r\n+CH{n}={val}\r\n\r\nOK\r\n"
+                return f"\r\n+CH{n}:OK\r\n"
             if rest.endswith("?"):
                 n = int(rest[:-1])
                 val = self.cfg.ch.get(n, 4700)
                 return f"\r\n+CH{n}:{val}\r\n\r\nOK\r\n"
 
-        # SPD<n>=<val> / SPD<n>?
+        # SPD(n)? / SPD(n)=<speed> — 查询/设置通道n的速率 (4-11)
         if cmd_upper.startswith("AT+SPD") and len(cmd_upper) > 6:
             rest = cmd_upper[6:]
             if "=" in rest:
                 n = int(rest.split("=")[0])
                 val = rest.split("=")[1].strip()
                 self.cfg.spd[n] = int(val)
-                return f"\r\n+SPD{n}={val}\r\n\r\nOK\r\n"
+                return f"\r\n+SPD{n}:OK\r\n"
             if rest.endswith("?"):
                 n = int(rest[:-1])
                 val = self.cfg.spd.get(n, 7)
                 return f"\r\n+SPD{n}:{val}\r\n\r\nOK\r\n"
 
-        # PWR<n>=<val> / PWR<n>?
+        # PWR(n)? / PWR(n)=<power> — 查询/设置通道n的功率 (24-30)
         if cmd_upper.startswith("AT+PWR") and len(cmd_upper) > 6:
             rest = cmd_upper[6:]
             if "=" in rest:
                 n = int(rest.split("=")[0])
                 val = rest.split("=")[1].strip()
                 self.cfg.pwr[n] = int(val)
-                return f"\r\n+PWR{n}={val}\r\n\r\nOK\r\n"
+                return f"\r\n+PWR{n}:OK\r\n"
             if rest.endswith("?"):
                 n = int(rest[:-1])
                 val = self.cfg.pwr.get(n, 30)
@@ -562,15 +733,15 @@ class GatewayUDPServer:
         # GWID=
         if cmd_upper.startswith("AT+GWID="):
             self.cfg.gwid = int(cmd_upper.split("=")[1].strip(), 16)
-            return f"\r\nOK\r\n"
+            return "\r\nOK\r\n"
 
         # NID=
         if cmd_upper.startswith("AT+NID="):
             self.cfg.nid = int(cmd_upper.split("=")[1].strip(), 16)
-            return f"\r\nOK\r\n"
+            return "\r\nOK\r\n"
 
         # 默认响应
-        return f"\r\nOK\r\n"
+        return "\r\nOK\r\n"
 
 
 # ── 帮助 ──
@@ -610,7 +781,7 @@ def main():
     cfg.nid = int(args.nid, 16)
     cfg.gwid = int(args.gwid, 16)
 
-    print(f"LoRa Gateway Simulator")
+    print("LoRa Gateway Simulator")
     print(f"  NID={cfg.nid:08X}  GWID={cfg.gwid:08X}")
     print(f"  TCP port={args.tcp_port}  UDP port={args.udp_port}")
     print()
@@ -711,9 +882,7 @@ def main():
 
             elif cmd == "stats":
                 print(
-                    f"  TCP: RX={tcp_server.stats['rx']} "
-                    f"TX={tcp_server.stats['tx']} "
-                    f"ERR={tcp_server.stats['err']}"
+                    f"  TCP: RX={tcp_server.stats['rx']} TX={tcp_server.stats['tx']} ERR={tcp_server.stats['err']}"
                 )
                 print(f"  Auto telemetry: {'ON' if tcp_server.auto_telemetry else 'OFF'}")
 
