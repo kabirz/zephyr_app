@@ -1,0 +1,46 @@
+/*
+ * STM32 Bootloader board overlay for can_f103rct6
+ *
+ * USART1: log 输出 (zephyr,shell-uart)
+ * CAN: 固件升级数据传输
+ */
+
+/ {
+	leds {
+		compatible = "gpio-leds";
+		led1: led_0 {
+			gpios = <&gpioc 11 GPIO_ACTIVE_HIGH>;
+		};
+		led2: led_1 {
+			gpios = <&gpioc 12 GPIO_ACTIVE_HIGH>;
+		};
+	};
+
+	gpio_keys {
+		compatible = "gpio-keys";
+		button_0: button_0 {
+			gpios = <&gpioa 13 GPIO_ACTIVE_LOW>;
+			zephyr,code = <0>;
+		};
+	};
+};
+
+&flash0 {
+	/delete-node/ partitions;
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		boot_partition: partition@0 {
+			label = "mcuboot";
+			reg = <0x00000000 DT_SIZE_K(64)>;
+			read-only;
+		};
+
+		slot0_partition: partition@10000 {
+			label = "image-0";
+			reg = <0x00010000 DT_SIZE_K(192)>;
+		};
+	};
+};
