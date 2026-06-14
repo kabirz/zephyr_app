@@ -1,8 +1,9 @@
 /*
  * STM32 Bootloader board overlay for can_f103rct6
  *
- * USART1: log 输出 (zephyr,shell-uart)
+ * USART1: 固件升级数据传输
  * CAN: 固件升级数据传输
+ * RTT: log 输出 (通过 J-Link)
  */
 
 / {

@@ -1,10 +1,12 @@
 #include <fw_upgrade.h>
-#include <string.h>
 #include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/flash.h>
 #include <zephyr/app_version.h>
 #include <zephyr/sys/reboot.h>
+
+LOG_MODULE_REGISTER(fw_upgrade, LOG_LEVEL_INF);
 
 #define FLASH_BUFFER_SIZE 64
 
@@ -37,6 +39,7 @@ int fw_update(struct can_frame *frame)
 	if (frame->id == CAN_ID_PLATFORM_RX) {
 		if (frame->data_32[0] == BOARD_START_UPDATE) {
 			if (size != 8) {
+				LOG_ERR("start update message size must 8");
 				fw_send_response(FW_CODE_FLASH_ERROR, 0);
 				return -1;
 			}
@@ -51,14 +54,17 @@ int fw_update(struct can_frame *frame)
 			}
 
 			uint32_t erase_addr = FLASH_APP_START_ADDR;
+			LOG_INF("Start upgrade, size: %d bytes", total_fw_size);
 
 			while (erase_size > 0) {
 				struct flash_pages_info page_info;
 				if (flash_get_page_info_by_offs(flash_dev, erase_addr, &page_info) != 0) {
+					LOG_ERR("Failed to get page info");
 					fw_send_response(FW_CODE_FLASH_ERROR, 0);
 					return -1;
 				}
 				if (flash_erase(flash_dev, page_info.start_offset, page_info.size) != 0) {
+					LOG_ERR("Erase failed");
 					fw_send_response(FW_CODE_FLASH_ERROR, 0);
 					return -1;
 				}
@@ -78,19 +84,24 @@ int fw_update(struct can_frame *frame)
 				flash_buffer_index = 0;
 			}
 			if (received_fw_size != total_fw_size) {
+				LOG_ERR("Download failed: expected %d, got %d", total_fw_size, received_fw_size);
 				fw_send_response(FW_CODE_TRANFER_ERROR, received_fw_size);
 				return -1;
 			}
+			LOG_INF("Download finished, jumping to app...");
 			fw_send_response(FW_CODE_CONFIRM, 0x55AA55AA);
 			k_msleep(100);
 			JumpToApp(APP_START_ADDR);
 		} else if (frame->data_32[0] == BOARD_VERSION) {
+			LOG_INF("Version request: %s", APP_VERSION_STRING);
 			fw_send_response(FW_CODE_VERSION, APPVERSION);
 		} else if (frame->data_32[0] == BOARD_REBOOT) {
+			LOG_INF("Reboot requested");
 			sys_reboot(SYS_REBOOT_WARM);
 		}
 	} else if (frame->id == CAN_ID_FW_DATA_RX) {
 		if (received_fw_size >= total_fw_size) {
+			LOG_WRN("Extra data received");
 			return -1;
 		}
 
@@ -100,6 +111,7 @@ int fw_update(struct can_frame *frame)
 
 			if (flash_buffer_index >= FLASH_BUFFER_SIZE || received_fw_size >= total_fw_size) {
 				if (flash_write(flash_dev, current_flash_addr, flash_buffer, flash_buffer_index) != 0) {
+					LOG_ERR("Flash write failed at 0x%08x", current_flash_addr);
 					fw_send_response(FW_CODE_FLASH_ERROR, received_fw_size);
 					return -1;
 				}
@@ -107,7 +119,10 @@ int fw_update(struct can_frame *frame)
 				flash_buffer_index = 0;
 
 				if (received_fw_size >= total_fw_size) {
+					LOG_INF("Receive complete: %d/%d", received_fw_size, total_fw_size);
 					fw_send_response(FW_CODE_UPDATE_SUCCESS, received_fw_size);
+				} else if (received_fw_size % 4096 == 0) {
+					LOG_INF("Progress: %d/%d", received_fw_size, total_fw_size);
 				} else if (received_fw_size % 64 == 0) {
 					fw_send_response(FW_CODE_OFFSET, received_fw_size);
 				}
@@ -124,6 +139,8 @@ uint8_t VerifyAppFirmware(void)
 
 	flash_read(flash_dev, FLASH_APP_START_ADDR, &app_stack_ptr, sizeof(app_stack_ptr));
 	flash_read(flash_dev, FLASH_APP_START_ADDR + 4, &app_reset_vec, sizeof(app_reset_vec));
+
+	LOG_INF("Verify: stack=0x%08x, reset=0x%08x", app_stack_ptr, app_reset_vec);
 
 	if ((app_stack_ptr >= 0x20000000) && (app_stack_ptr < 0x2000C000) &&
 	    (app_reset_vec >= FLASH_APP_START_ADDR) && (app_reset_vec < FLASH_APP_END_ADDR)) {

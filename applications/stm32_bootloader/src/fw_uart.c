@@ -1,9 +1,12 @@
 #include <fw_uart.h>
 #include <fw_upgrade.h>
 #include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/uart.h>
 #include <string.h>
+
+LOG_MODULE_REGISTER(fw_uart, LOG_LEVEL_INF);
 
 static const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(usart1));
 
@@ -149,12 +152,15 @@ static void fw_uart_process_thread(void)
 	uart_irq_callback_user_data_set(uart_dev, uart_isr, NULL);
 	uart_irq_rx_enable(uart_dev);
 
+	LOG_INF("UART transport ready");
+
 	while (true) {
 		if (k_msgq_get(&uart_msgq, &frame, K_FOREVER) == 0) {
 			fw_set_response_cb(fw_uart_send_response);
 			memset(&uart_frame, 0, sizeof(uart_frame));
 
 			if (frame.type == UART_FRAME_CMD) {
+				LOG_INF("UART CMD received");
 				uart_frame.id = CAN_ID_PLATFORM_RX;
 			} else if (frame.type == UART_FRAME_DATA) {
 				uart_frame.id = CAN_ID_FW_DATA_RX;

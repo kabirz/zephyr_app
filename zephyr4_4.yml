@@ -25,6 +25,7 @@ manifest:
           - fatfs
           - mcuboot
           - canopennode
+          - segger
           - tf-psa-crypto
 
   self:
