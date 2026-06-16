@@ -1,0 +1,24 @@
+/* Material 主题自定义样式 */
+
+/* 中文字体与行高优化 */
+.md-typeset {
+  font-size: 0.78rem;
+  line-height: 1.7;
+}
+
+/* 代码块字号 */
+.md-typeset code,
+.md-typeset pre code {
+  font-size: 0.85em;
+}
+
+/* 表格自适应 */
+.md-typeset table:not([class]) {
+  display: table;
+  width: 100%;
+}
+
+/* 内容区最大宽度放宽（适合宽表格/代码） */
+.md-grid {
+  max-width: 1440px;
+}
