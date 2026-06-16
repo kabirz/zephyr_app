@@ -1,0 +1,57 @@
+name: docs
+
+# 文档站点构建与部署: MkDocs Material -> gh-pages 分支
+# 触发条件: main 分支文档/应用/配置变更, 或手动触发
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'applications/**'
+      - 'mkdocs.yml'
+      - 'scripts/sync_docs.sh'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+# 推送到 gh-pages 分支需要仓库写权限
+permissions:
+  contents: write
+
+# 避免并发部署冲突, 仅保留最新一次
+concurrency:
+  group: docs-pages
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    name: Build and deploy docs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install MkDocs Material
+        run: pip install mkdocs-material
+
+      - name: Sync application docs
+        # 将 applications/*/README.md 同步到 docs/applications/ (单一数据源)
+        run: bash scripts/sync_docs.sh
+
+      - name: Build site
+        run: mkdocs build
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          publish_branch: gh-pages
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
+          full_commit_message: 'docs: deploy MkDocs Material site'

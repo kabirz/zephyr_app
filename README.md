@@ -1,3 +1,12 @@
+# Zephyr App
+
+[![Documentation](https://img.shields.io/badge/docs-MkDocs%20Material-blue)](https://kabirz.github.io/zephyr_app/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-green)](./LICENSE)
+
+📚 **在线文档**: <https://kabirz.github.io/zephyr_app/> · 源码: <https://github.com/kabirz/zephyr_app>
+
+---
+
 # Zephyr enviroment setup
 [help](https://docs.zephyrproject.org/latest/develop/getting_started/index.html)
 

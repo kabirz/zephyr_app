@@ -1,0 +1,117 @@
+# MkDocs Material 配置
+# 本地预览: mkdocs serve
+# 构建:     mkdocs build
+site_name: Zephyr App
+site_description: 基于 Zephyr RTOS 的嵌入式应用集合 —— 数据采集、激光控制、手持控制器、调试探针
+site_url: https://kabirz.github.io/zephyr_app/
+repo_name: kabirz/zephyr_app
+repo_url: https://github.com/kabirz/zephyr_app
+edit_uri: edit/main/docs/
+docs_dir: docs
+
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.indexes
+    - navigation.tracking
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: 切换至暗色模式
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: 切换至亮色模式
+  font:
+    text: Noto Sans SC
+    code: JetBrains Mono
+  icon:
+    logo: material/chip
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - attr_list
+  - def_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search:
+      # lunr 无中文分词器，ja 作为中文近似分词以改善搜索体验
+      lang:
+        - en
+        - ja
+
+nav:
+  - 首页: index.md
+  - 快速开始:
+      - 环境搭建: getting-started.md
+      - 构建与烧录: build-flash.md
+  - 应用模块:
+      - data_collect 数据采集: applications/data-collect.md
+      - laser_ctrl 激光控制: applications/laser-ctrl.md
+      - mod_handler 手持控制器: applications/mod-handler.md
+      - ZephyrLink 调试探针: applications/zephyrlink.md
+      - canopen_demo CANopen: applications/canopen-demo.md
+      - spi_demo SPI 示例: applications/spi-demo.md
+  - 架构概览: architecture.md
+  - 板级支持: boards.md
+  - 烧录与升级:
+      - FTP 文件下载: ftp_download.md
+      - CAN 总线升级: can_flash.md
+      - Windows 环境配置: setup_windows.md
+  - 开发指南:
+      - Devicetree: dts.md
+      - 网络配置: net.md
+  - 资源链接: resources.md
+  - 变更日志: changelog.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/kabirz/zephyr_app
+  generator:
+    hide: false
+
+extra_css:
+  - stylesheets/extra.css

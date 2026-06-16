@@ -6,3 +6,4 @@ out*
 __pycache__
 *.log
 applications/mod_handler/.config
+applications/mod_handler/.sisyphus
