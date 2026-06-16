@@ -45,12 +45,6 @@
     
     
       
-        
-        
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Noto+Sans+SC:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
-        <style>:root{--md-text-font:"Noto Sans SC";--md-code-font:"JetBrains Mono"}</style>
-      
     
     
       <link rel="stylesheet" href="../stylesheets/extra.css">
@@ -1497,18 +1491,18 @@
 <h2 id="mod_handler">mod_handler 系统架构<a class="headerlink" href="#mod_handler" title="Permanent link">&para;</a></h2>
 <p>mod_handler 采用 Zephyr 多线程架构，通过 <code>gloval_params_t</code> 全局结构体共享状态，<code>k_event</code> 跨线程通知，外围设备电源由 GPIO 统一管理。</p>
 <h3 id="_2">线程模型<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h3>
-<pre class="mermaid"><code>flowchart TD
-    SYS["SYS_INIT 初始化&lt;br/&gt;power_init (PRE_KERNEL_2)&lt;br/&gt;gpio_init (APPLICATION)"]
+<pre class="mmd"><code>flowchart TD
+    SYS["SYS_INIT 初始化&lt;br/&gt;power_init / gpio_init"]
     MAIN(["main 主循环&lt;br/&gt;事件驱动休眠/唤醒&lt;br/&gt;10 分钟无操作自动休眠"])
 
-    CAN["CAN 收发线程&lt;br/&gt;priority 11 · 栈 2048&lt;br/&gt;消息收发 + 协议分发 + OTA 状态机"]
-    HEART["CAN 心跳线程&lt;br/&gt;priority 11 · 栈 1024&lt;br/&gt;400ms 心跳 + 手柄状态上报 0x1E3"]
+    CAN["CAN 收发线程&lt;br/&gt;priority 11 栈 2048&lt;br/&gt;消息收发 协议分发 OTA"]
+    HEART["CAN 心跳线程&lt;br/&gt;priority 11 栈 1024&lt;br/&gt;400ms 心跳 + 0x1E3 上报"]
 
-    LORA["LoRa 处理线程&lt;br/&gt;priority 12 · 栈 1024&lt;br/&gt;UART async+DMA + 统一帧解析"]
-    LHEART["LoRa 心跳线程&lt;br/&gt;priority 12 · 栈 1024&lt;br/&gt;仅 LORA_TYPE 运行&lt;br/&gt;周期遥测 + ACK 检测"]
+    LORA["LoRa 处理线程&lt;br/&gt;priority 12 栈 1024&lt;br/&gt;UART async+DMA 帧解析"]
+    LHEART["LoRa 心跳线程&lt;br/&gt;priority 12 栈 1024&lt;br/&gt;仅 LORA_TYPE 遥测 + ACK"]
 
-    ADC["ADC 采集线程&lt;br/&gt;priority 7 · 栈 1024&lt;br/&gt;X/Y 角度 500ms · 电压 5s"]
-    CFG["LoRa 配参工作队列&lt;br/&gt;priority 8 · 栈 2048&lt;br/&gt;CAN 远程配参异步执行"]
+    ADC["ADC 采集线程&lt;br/&gt;priority 7 栈 1024&lt;br/&gt;X/Y 角度 500ms 电压 5s"]
+    CFG["LoRa 配参工作队列&lt;br/&gt;priority 8 栈 2048&lt;br/&gt;CAN 远程配参异步"]
 
     SYS --&gt; MAIN
     SYS --&gt; CAN
@@ -1519,31 +1513,31 @@
     SYS --&gt; CFG
 
     GP["global_params_t&lt;br/&gt;全局状态共享"]
-    CAN -.读写.-&gt; GP
-    LORA -.读写.-&gt; GP
-    ADC -.读写.-&gt; GP</code></pre>
+    CAN -. 读写 .-&gt; GP
+    LORA -. 读写 .-&gt; GP
+    ADC -. 读写 .-&gt; GP</code></pre>
 <h3 id="can-lora">CAN / LoRa 通信链路<a class="headerlink" href="#can-lora" title="Permanent link">&para;</a></h3>
-<p>双通道冗余链路，默认 CAN，可通过 link_switch 按键（PA10）手动切换。切换时关闭对方电源并重新初始化。</p>
-<pre class="mermaid"><code>flowchart LR
-    subgraph 手柄["mod_handler"]
+<p>双通道冗余链路，默认 CAN，可通过 link_switch 按键（PA10）手动切换。切换时关闭对方电源并重新初始化。帧 ID 详见 <a href="../applications/mod-handler/">mod_handler 文档</a>。</p>
+<pre class="mmd"><code>flowchart LR
+    subgraph H["mod_handler 手柄"]
         CTRL["connect_type&lt;br/&gt;CAN_TYPE / LORA_TYPE"]
+        SW["link_switch 按键&lt;br/&gt;PA10 手动切换链路"]
     end
 
     PLATFORM["平台 / 上位机"]
-    GW["USR-LG210-L 网关"]
+    GW["USR-LG210-L LoRa 网关"]
     SCANNER["激光扫描仪"]
 
-    CTRL &lt;-. "CAN 总线 250Kbps&lt;br/&gt;0x1E3 状态 / 0x763 心跳&lt;br/&gt;0x263·0x363·0x463 扫描仪&lt;br/&gt;0x105·0x106 LoRa 配参" .-&gt; PLATFORM
-    CTRL &lt;-. "LoRa 透传&lt;br/&gt;统一帧 [0xAA55][NID][Len][Data][CRC16]" .-&gt; GW
+    CTRL &lt;--&gt;|"CAN 250Kbps"| PLATFORM
+    CTRL &lt;--&gt;|"LoRa 透传 + CRC16"| GW
     GW --- SCANNER
-
-    PLATFORM -. "扫描仪数据" .-&gt; SCANNER</code></pre>
+    PLATFORM -.-&gt;|"扫描仪数据"| SCANNER</code></pre>
 <h3 id="ota">OTA 固件升级流程<a class="headerlink" href="#ota" title="Permanent link">&para;</a></h3>
 <p>固件通过 CAN 总线分片传输，写入外部 SPI Flash（GD25Q80），由 MCUboot 以 swap-with-scratch 模式完成安全切换。</p>
-<pre class="mermaid"><code>sequenceDiagram
+<pre class="mmd"><code>sequenceDiagram
     participant P as 平台
     participant M as mod_handler
-    participant F as 外部 SPI Flash (GD25Q80)
+    participant F as 外部 SPI Flash
     participant B as MCUboot
 
     P-&gt;&gt;M: CAN 0x101 升级启动命令
@@ -1558,27 +1552,28 @@
     B-&gt;&gt;M: 运行新镜像</code></pre>
 <h3 id="_3">系统休眠 / 唤醒状态机<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h3>
 <p>电源键触发或 10 分钟无操作自动休眠，关闭所有外设电源（CAN / LoRa / 显示 / 手柄）；唤醒时重新上电并刷新显示。</p>
-<pre class="mermaid"><code>stateDiagram-v2
-    [*] --&gt; 运行
-    运行 --&gt; 休眠: 电源键按下 / 10 分钟无操作
-    休眠 --&gt; 运行: 电源键唤醒
+<pre class="mmd"><code>stateDiagram-v2
+    [*] --&gt; Running
+    Running --&gt; Sleeping: 电源键 / 10 分钟无操作
+    Sleeping --&gt; Running: 电源键唤醒
 
-    note right of 休眠
-        system_sleep():
-        · 关闭 CAN/LoRa/显示/手柄电源
-        · lora_deinit() 停止 DMA
-        · sleeping = true
+    Running: 运行中
+    Sleeping: 已休眠
+
+    note right of Sleeping
+        关闭 CAN/LoRa/显示/手柄电源
+        lora_deinit 停止 DMA
+        sleeping = true
     end note
 
-    note right of 运行
-        system_wake():
-        · 重新上电所有外设
-        · LoRa 模式下 lora_init()
-        · 等待 200ms 后 reinit 显示
+    note right of Running
+        重新上电所有外设
+        LoRa 模式下 lora_init
+        200ms 后 reinit 显示
     end note</code></pre>
 <h2 id="data_collect">data_collect 数据流<a class="headerlink" href="#data_collect" title="Permanent link">&para;</a></h2>
 <p>数据采集应用的多通道上报架构：</p>
-<pre class="mermaid"><code>flowchart LR
+<pre class="mmd"><code>flowchart LR
     ADC["ADC 模拟量采集"]
     MB["Modbus 服务器&lt;br/&gt;原始 ADU"]
 
@@ -1594,21 +1589,21 @@
     ADC --&gt; NET
 
     HOST["上位机 / 平台"]
-    FTP -.下载.-&gt; HOST
-    HTTP -.下载.-&gt; HOST
-    MB &lt;-.轮询.-&gt; HOST
-    NET -.推送.-&gt; HOST</code></pre>
+    FTP -.-&gt;|"下载"| HOST
+    HTTP -.-&gt;|"下载"| HOST
+    MB &lt;--&gt;|"轮询"| HOST
+    NET -.-&gt;|"推送"| HOST</code></pre>
 <h2 id="zephyrlink-usb">ZephyrLink USB 复合设备<a class="headerlink" href="#zephyrlink-usb" title="Permanent link">&para;</a></h2>
 <p>CMSIS-DAP 调试探针的 USB 设备拓扑：</p>
-<pre class="mermaid"><code>flowchart TD
+<pre class="mmd"><code>flowchart TD
     USB["Zephyr 新版 USB 栈&lt;br/&gt;CONFIG_USB_DEVICE_STACK_NEXT"]
     USB --&gt; DAP["CMSIS-DAP v2&lt;br/&gt;USB Bulk&lt;br/&gt;兼容 Keil/OpenOCD/pyOCD"]
     USB --&gt; CDC["CDC ACM&lt;br/&gt;虚拟串口透传"]
-    USB --&gt; MSC["MSC&lt;br/&gt;拖放烧写 (可选)"]
+    USB --&gt; MSC["MSC&lt;br/&gt;拖放烧写 可选"]
 
     DAP --&gt; SWD["SWD 调试接口&lt;br/&gt;SWCLK/SWDIO/nRESET"]
     CDC --&gt; UART["USART2 桥接&lt;br/&gt;目标 UART 透传"]
-    MSC --&gt; FLASH["目标 Flash&lt;br/&gt;.hex/.bin 自动烧写"]</code></pre>
+    MSC --&gt; FLASH["目标 Flash&lt;br/&gt;hex/bin 自动烧写"]</code></pre>
 <div class="admonition tip">
 <p class="admonition-title">深入阅读</p>
 <p>各应用的完整协议、引脚、Shell 命令详见 <a href="../applications/mod-handler/">应用模块</a>。</p>
@@ -1690,6 +1685,10 @@
     
     
       <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../javascripts/mermaid.min.js"></script>
+      
+        <script src="../javascripts/mermaid-init.js"></script>
       
     
   </body>
