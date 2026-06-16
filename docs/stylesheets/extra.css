@@ -1,5 +1,13 @@
 /* Material 主题自定义样式 */
 
+/* 系统字体栈: 不依赖 Google Fonts, 中文显示友好 */
+:root {
+  --md-text-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --md-code-font: "JetBrains Mono", "Fira Code", "Cascadia Code", Consolas,
+    "Source Code Pro", monospace;
+}
+
 /* 中文字体与行高优化 */
 .md-typeset {
   font-size: 0.78rem;
@@ -18,7 +26,20 @@
   width: 100%;
 }
 
-/* 内容区最大宽度放宽（适合宽表格/代码） */
+/* 内容区最大宽度放宽 (适合宽表格/代码/Mermaid 图) */
 .md-grid {
   max-width: 1440px;
+}
+
+/* Mermaid 图表居中 + 避免溢出 */
+.mermaid,
+.mmd {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+}
+.mermaid svg,
+.mmd svg {
+  max-width: 100%;
+  height: auto;
 }

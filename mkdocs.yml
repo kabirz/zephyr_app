@@ -12,6 +12,7 @@ docs_dir: docs
 theme:
   name: material
   language: zh
+  font: false                    # 不从 Google Fonts 加载, 使用系统字体 (国内访问稳定)
   features:
     - navigation.tabs
     - navigation.sections
@@ -41,9 +42,6 @@ theme:
       toggle:
         icon: material/brightness-4
         name: 切换至亮色模式
-  font:
-    text: Noto Sans SC
-    code: JetBrains Mono
   icon:
     logo: material/chip
     repo: fontawesome/brands/github
@@ -54,7 +52,7 @@ markdown_extensions:
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid
-          class: mermaid
+          class: mmd                # 自定义 class, 避免 Material 自动从 unpkg 加载 mermaid (国内失败), 改由本地脚本渲染
           format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.highlight:
       anchor_linenums: true
@@ -77,10 +75,15 @@ markdown_extensions:
 
 plugins:
   - search:
-      # lunr 无中文分词器，ja 作为中文近似分词以改善搜索体验
+      # lunr 无中文分词器, ja 作为中文近似分词以改善搜索体验
       lang:
         - en
         - ja
+
+# 本地化 mermaid.js: 不依赖任何 CDN, 本地加载 + 自主渲染 .mmd 元素
+extra_javascript:
+  - javascripts/mermaid.min.js
+  - javascripts/mermaid-init.js
 
 nav:
   - 首页: index.md
@@ -110,8 +113,6 @@ extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/kabirz/zephyr_app
-  generator:
-    hide: false
 
 extra_css:
   - stylesheets/extra.css
