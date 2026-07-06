@@ -1,0 +1,20 @@
+config NRF24L01P
+	bool "Nordic nRF24L01+ 2.4GHz radio driver"
+	default y
+	depends on SPI
+	help
+	  启用 Nordic nRF24L01+ 射频收发器驱动（SPI + GPIO 中断）。
+
+config NRF24L01P_INIT_PRIORITY
+	int "nRF24L01P init priority"
+	default 70
+	depends on NRF24L01P
+	help
+	  nRF24L01P 设备初始化优先级。须晚于 SPI/GPIO 控制器（POST_KERNEL 内）。
+
+config NRF24L01P_LOG_LEVEL
+	int "nRF24L01P log level"
+	default 3
+	depends on NRF24L01P && LOG
+	help
+	  0=none 1=err 2=wrn 3=inf 4=dbg。

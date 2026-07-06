@@ -1,0 +1,19 @@
+/* 示例接线：stm32f407 daq 板 spi1 接 W25Q128、spi2 接 W5500，故使用 spi3。
+ * 引脚为示例，请按实际硬件调整。 */
+&spi3 {
+	status = "okay";
+	pinctrl-0 = <&spi3_sck_pc10 &spi3_miso_pc11 &spi3_mosi_pc12>;
+	pinctrl-names = "default";
+	cs-gpios = <&gpioc 13 GPIO_ACTIVE_LOW>;
+
+	nrf24: nrf24l01p@0 {
+		compatible = "nordic,nrf24l01p";
+		reg = <0x0>;
+		spi-max-frequency = <8000000>;
+		ce-gpios = <&gpiob 0 GPIO_ACTIVE_HIGH>;
+		irq-gpios = <&gpiob 1 GPIO_ACTIVE_LOW>;
+		channel = <76>;
+		data-rate = "1m";
+		tx-power = "0dbm";
+	};
+};

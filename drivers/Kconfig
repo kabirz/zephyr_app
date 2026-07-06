@@ -1,5 +1,6 @@
 menu "Custom Device Drivers"
 
 rsource "flash/Kconfig"
+rsource "nrf24l01p/Kconfig"
 
 endmenu

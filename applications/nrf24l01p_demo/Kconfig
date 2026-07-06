@@ -1,0 +1,14 @@
+mainmenu "nRF24L01P Demo"
+
+choice NRF24L01P_DEMO_ROLE
+	prompt "nRF24L01P demo role"
+	default NRF24L01P_DEMO_ROLE_TX
+
+config NRF24L01P_DEMO_ROLE_TX
+	bool "Transmitter"
+
+config NRF24L01P_DEMO_ROLE_RX
+	bool "Receiver"
+endchoice
+
+source "Kconfig.zephyr"
