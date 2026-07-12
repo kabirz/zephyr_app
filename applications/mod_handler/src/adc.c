@@ -14,12 +14,12 @@
 #include <display.h>
 #include <mod-can.h>
 #include <mod-gpio.h>
-#include <lora.h>
+#include <rf24.h>
 
 LOG_MODULE_REGISTER(adc_reader, LOG_LEVEL_INF);
 
 #define CAN_SLEEP_MS  20
-#define LORA_SLEEP_MS 200
+#define RF24_SLEEP_MS 60
 #define DT_SPEC_AND_COMMA(node_id, prop, idx) ADC_DT_SPEC_GET_BY_IDX(node_id, idx),
 
 static const struct adc_dt_spec adc_channels[] = {
@@ -133,12 +133,10 @@ void adc_read_thread(void)
 		if (global_params.connect_type == CAN_TYPE) {
 			mod_can_send_handler_state(&global_params);
 		} else {
-			if (!global_params.test_mode) {
-				lora_send_telemetry(&global_params);
-			}
+			rf24_send_telemetry(&global_params);
 		}
 		uint32_t diff = k_uptime_get_32() - t1;
-		uint32_t sleep_ms = global_params.connect_type == CAN_TYPE ? CAN_SLEEP_MS : LORA_SLEEP_MS;
+		uint32_t sleep_ms = global_params.connect_type == CAN_TYPE ? CAN_SLEEP_MS : RF24_SLEEP_MS;
 		if (diff < sleep_ms) {
 			k_sleep(K_MSEC(sleep_ms - diff));
 		}

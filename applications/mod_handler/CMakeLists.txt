@@ -14,8 +14,7 @@ target_sources(app PRIVATE
   src/font_8x16.c
   src/font_5x8.c
   src/gpio.c
-  src/lora.c
+  src/rf24.c
   src/main.c
   src/persist.c
 )
-

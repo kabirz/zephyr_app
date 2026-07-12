@@ -1,20 +1,40 @@
+# Nordic nRF24L01+ radio driver configuration options
+
 config NRF24L01P
 	bool "Nordic nRF24L01+ 2.4GHz radio driver"
 	default y
 	depends on SPI
 	help
-	  启用 Nordic nRF24L01+ 射频收发器驱动（SPI + GPIO 中断）。
+	  Enable driver for the Nordic nRF24L01+ 2.4GHz transceiver
+	  (SPI bus + GPIO interrupt).
 
 config NRF24L01P_INIT_PRIORITY
-	int "nRF24L01P init priority"
+	int "Init priority"
 	default 70
 	depends on NRF24L01P
 	help
-	  nRF24L01P 设备初始化优先级。须晚于 SPI/GPIO 控制器（POST_KERNEL 内）。
+	  nRF24L01P device initialization priority. Must run after the
+	  SPI and GPIO controllers (within POST_KERNEL).
 
 config NRF24L01P_LOG_LEVEL
-	int "nRF24L01P log level"
+	int "Log level"
 	default 3
 	depends on NRF24L01P && LOG
 	help
-	  0=none 1=err 2=wrn 3=inf 4=dbg。
+	  0=none 1=err 2=wrn 3=inf 4=dbg.
+
+config NRF24L01P_INT_THREAD_STACK_SIZE
+	int "Stack size for interrupt handler"
+	default 1024
+	depends on NRF24L01P
+	help
+	  Stack size of the internal thread that drains the RX FIFO and
+	  processes TX completion events on IRQ.
+
+config NRF24L01P_INT_THREAD_PRIORITY
+	int "Priority of interrupt handler thread"
+	default 2
+	depends on NRF24L01P
+	help
+	  Priority of the internal bottom-half thread (cooperative thread;
+	  lower value means higher priority).

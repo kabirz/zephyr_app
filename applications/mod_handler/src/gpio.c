@@ -2,9 +2,9 @@
  * Copyright (c) 2026 Kabirz.
  * SPDX-License-Identifier: Apache-2.0
  *
- * GPIO 按键检测 + 外设电源管理 + CAN/LoRa 切换 + 系统休眠/唤醒
+ * GPIO 按键检测 + 外设电源管理 + CAN/2.4G 切换 + 系统休眠/唤醒
  * 按键防抖: ISR → k_work_delayable, 延时读 GPIO 电平确认
- * 电源控制: CAN/LoRa/显示/手柄 4 路 GPIO 独立使能
+ * 电源控制: CAN/2.4G(nRF24)/显示/手柄 4 路 GPIO 独立使能
  */
 
 #include <zephyr/device.h>
@@ -13,7 +13,7 @@
 #include <common.h>
 #include <display.h>
 #include <mod-can.h>
-#include <lora.h>
+#include <rf24.h>
 #include <mod-gpio.h>
 #include <persist.h>
 
@@ -26,10 +26,9 @@ static const struct gpio_dt_spec handler_button = GPIO_DT_SPEC_GET(USER_NODE, ha
 static const struct gpio_dt_spec link_switch = GPIO_DT_SPEC_GET(USER_NODE, linksw_gpios);
 
 static const struct gpio_dt_spec can_power_gpio = GPIO_DT_SPEC_GET(USER_NODE, canpower_gpios);
-static const struct gpio_dt_spec lora_power_gpio = GPIO_DT_SPEC_GET(USER_NODE, lorapower_gpios);
+static const struct gpio_dt_spec rf24_power_gpio = GPIO_DT_SPEC_GET(USER_NODE, rf24power_gpios);
 static const struct gpio_dt_spec dis_power_gpio = GPIO_DT_SPEC_GET(USER_NODE, dispower_gpios);
 static const struct gpio_dt_spec handler_power_gpio = GPIO_DT_SPEC_GET(USER_NODE, handlerpower_gpios);
-static const struct gpio_dt_spec loralink_gpio = GPIO_DT_SPEC_GET(USER_NODE, loralink_gpios);
 
 static struct gpio_callback power_button_cb_data;
 static struct gpio_callback linksw_cb_data;
@@ -50,34 +49,34 @@ static void btn_display_work_handler(struct k_work *work)
 	if (global_params.connect_type == CAN_TYPE) {
 		mod_can_send_handler_state(&global_params);
 	} else {
-		lora_send_telemetry(&global_params);
+		rf24_send_telemetry(&global_params);
 	}
 }
 
-void canlora_switch(uint8_t type)
+void connect_switch(uint8_t type)
 {
 	if (global_params.connect_type == CAN_TYPE) {
-		k_event_clear(&global_params.event, LORA_EVENT);
-		lora_deinit();
+		k_event_clear(&global_params.event, RF24_EVENT);
+		rf24_deinit();
 		can_power_enable(true);
 		k_event_post(&global_params.event, CAN_EVENT | CAN_RX_EVENT);
 		mod_display_can();
 	} else {
 		k_event_clear(&global_params.event, CAN_EVENT | CAN_RX_EVENT);
 		can_power_enable(false);
-		lora_init();
-		k_event_post(&global_params.event, LORA_EVENT);
-		mod_display_lora(global_params.rssi);
+		rf24_init();
+		k_event_post(&global_params.event, RF24_EVENT);
+		mod_display_rf24(global_params.rssi);
 	}
-	LOG_INF("Link switch: %s", global_params.connect_type == CAN_TYPE ? "CAN" : "LoRa");
+	LOG_INF("Link switch: %s", global_params.connect_type == CAN_TYPE ? "CAN" : "2.4G");
 	persist_save_connect_type();
 }
 
 static void linksw_work_handler(struct k_work *work)
 {
 	if (gpio_pin_get_dt(&link_switch) == 0) {
-		global_params.connect_type = (global_params.connect_type == CAN_TYPE) ? LORA_TYPE : CAN_TYPE;
-		canlora_switch(global_params.connect_type);
+		global_params.connect_type = (global_params.connect_type == CAN_TYPE) ? RF24_TYPE : CAN_TYPE;
+		connect_switch(global_params.connect_type);
 	}
 }
 
@@ -86,19 +85,14 @@ int handler_get_btn(void)
 	return gpio_pin_get_dt(&handler_button);
 }
 
-bool lora_get_link_status(void)
-{
-	return gpio_pin_get_dt(&loralink_gpio) == 1;
-}
-
 void can_power_enable(bool up)
 {
 	gpio_pin_set_dt(&can_power_gpio, up);
 }
 
-void lora_power_enable(bool up)
+void rf24_power_enable(bool up)
 {
-	gpio_pin_set_dt(&lora_power_gpio, up);
+	gpio_pin_set_dt(&rf24_power_gpio, up);
 }
 
 void dis_power_enable(bool up)
@@ -122,7 +116,7 @@ void system_sleep(void)
 	if (global_params.connect_type == CAN_TYPE) {
 		can_power_enable(false);
 	} else {
-		lora_deinit();
+		rf24_deinit();
 	}
 	dis_power_enable(false);
 	handler_power_enable(false);
@@ -135,7 +129,7 @@ static void system_wake(void)
 	if (global_params.connect_type == CAN_TYPE) {
 		can_power_enable(true);
 	} else {
-		lora_init();
+		rf24_init();
 	}
 	k_msleep(200);
 	mod_display_reinit();
@@ -201,9 +195,9 @@ static int power_init(void)
 		return ret;
 	}
 
-	ret = gpio_pin_configure_dt(&lora_power_gpio, GPIO_OUTPUT);
+	ret = gpio_pin_configure_dt(&rf24_power_gpio, GPIO_OUTPUT);
 	if (ret < 0) {
-		LOG_ERR("Failed to configure lora power pin: %d", ret);
+		LOG_ERR("Failed to configure rf24 power pin: %d", ret);
 		return ret;
 	}
 
@@ -291,12 +285,6 @@ int gpio_init(void)
 		return ret;
 	}
 
-	ret = gpio_pin_configure_dt(&loralink_gpio, GPIO_INPUT);
-	if (ret < 0) {
-		LOG_ERR("Failed to configure loralink pin: %d", ret);
-		return ret;
-	}
-
 	ret = gpio_pin_interrupt_configure_dt(&power_button, GPIO_INT_EDGE_FALLING);
 	if (ret < 0) {
 		LOG_ERR("Failed to configure power button interrupt: %d", ret);
@@ -326,9 +314,9 @@ int gpio_init(void)
 	global_params.h_button = gpio_pin_get_dt(&handler_button);
 
 	LOG_INF("GPIO initialized successfully");
-	LOG_INF("  PB12 (Charge Full): %s", gpio_pin_get_dt(&charge_full) ? "HIGH" : "LOW");
-	LOG_INF("  PB13 (Charging):    %s", gpio_pin_get_dt(&charging) ? "HIGH" : "LOW");
-	LOG_INF("  PB14 (Power Button): %s", gpio_pin_get_dt(&power_button) ? "HIGH" : "LOW");
+	LOG_INF("  PA3 (Charge Full): %s", gpio_pin_get_dt(&charge_full) ? "HIGH" : "LOW");
+	LOG_INF("  PA2 (Charging):    %s", gpio_pin_get_dt(&charging) ? "HIGH" : "LOW");
+	LOG_INF("  PA1 (Power Button): %s", gpio_pin_get_dt(&power_button) ? "HIGH" : "LOW");
 
 	return 0;
 }
@@ -342,22 +330,22 @@ static int cmd_link_can(const struct shell *ctx, size_t argc, char **argv)
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 	global_params.connect_type = CAN_TYPE;
-	canlora_switch(global_params.connect_type);
+	connect_switch(global_params.connect_type);
 	return 0;
 }
 
-static int cmd_link_lora(const struct shell *ctx, size_t argc, char **argv)
+static int cmd_link_rf24(const struct shell *ctx, size_t argc, char **argv)
 {
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
-	global_params.connect_type = LORA_TYPE;
-	canlora_switch(global_params.connect_type);
+	global_params.connect_type = RF24_TYPE;
+	connect_switch(global_params.connect_type);
 	return 0;
 }
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_link_cmds,
 	SHELL_CMD(can, NULL, "Switch to CAN", cmd_link_can),
-	SHELL_CMD(lora, NULL, "Switch to LoRa", cmd_link_lora),
+	SHELL_CMD(rf24, NULL, "Switch to 2.4G (nRF24L01+)", cmd_link_rf24),
 	SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(link, &sub_link_cmds, "Link switch commands", NULL);

@@ -1,4 +1,9 @@
-/* nRF24L01+ Zephyr 驱动实现 */
+/* nRF24L01+ Zephyr 驱动实现
+ *
+ * 中断驱动接收：IRQ → ISR(k_sem_give) → 中断线程排空 RX FIFO → msgq/callback 投递。
+ * TX 在 send 内等待中断线程处理 TX_DS/MAX_RT 后通知，返回 ACK 结果与耗时。
+ * 参考 Zephyr MCP2515 CAN 驱动 (can_mcp2515.c) 的 sem + 专用中断线程模式。
+ */
 #define DT_DRV_COMPAT nordic_nrf24l01p
 
 #include <zephyr/kernel.h>
@@ -7,7 +12,6 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/util.h>
-#include <errno.h>
 #include <string.h>
 
 #include "nrf24l01p.h"
@@ -36,9 +40,26 @@ struct nrf24_config {
 };
 
 struct nrf24_data {
-	struct k_sem irq_sem;
-	struct k_mutex lock;
+	struct k_mutex lock;        /* SPI 总线互斥 */
 	struct gpio_callback irq_cb;
+
+	/* —— 中断驱动 —— */
+	struct k_sem irq_sem;       /* ISR → 中断线程（唯一唤醒源）*/
+	struct k_sem tx_done_sem;   /* 中断线程 → send 线程（TX 完成通知）*/
+	volatile uint8_t last_status;       /* 中断线程读到的 STATUS */
+	volatile uint8_t last_observe_tx;   /* 中断线程读到的 OBSERVE_TX (ARC_CNT) */
+
+	/* —— RX 投递目标（msgq 与 callback 二选一，msgq 优先）—— */
+	struct k_msgq *rx_msgq;
+	nrf24_rx_callback_t rx_cb;
+	void *rx_cb_user_data;
+	/* 内部兜底 msgq 指针：用户未注册任何投递目标时，中断线程把帧放这里供 nrf24_recv 取 */
+	struct k_msgq *fallback_msgq;
+
+	/* —— 中断底半部线程 —— */
+	struct k_thread irq_thread;
+	k_thread_stack_t *irq_stack;
+
 	enum nrf24_mode mode;
 	bool ready;
 };
@@ -208,8 +229,96 @@ static void nrf24_irq_handler(const struct device *port, struct gpio_callback *c
 
 	struct nrf24_data *d = CONTAINER_OF(cb, struct nrf24_data, irq_cb);
 
-	/* ISR 内不做 SPI 事务，仅唤醒等待者 */
+	/* ISR 内不做 SPI 事务，仅唤醒中断线程 */
 	k_sem_give(&d->irq_sem);
+}
+
+/* —— 中断线程前向声明 —— */
+static void nrf24_irq_thread(void *p1, void *p2, void *p3);
+
+/* —— 锁内：读取一帧 RX 载荷，返回长度（DPL 读 R_RX_PL_WID，FIXED 用 rx_payload_width）—— */
+static uint8_t fetch_rx_payload_locked(const struct device *dev, uint8_t *buf)
+{
+	const struct nrf24_config *cfg = get_cfg(dev);
+	uint8_t plen = 0;
+
+	if (parse_payload_mode(cfg->payload_mode) == NRF24_PAYLOAD_DYNAMIC) {
+		if (read_rx_pl_wid_locked(dev, &plen) < 0) {
+			return 0;
+		}
+		if (plen > NRF24_MAX_PAYLOAD) {
+			cmd_locked(dev, FLUSH_RX);
+			return 0;
+		}
+	} else {
+		plen = (cfg->rx_payload_width <= NRF24_MAX_PAYLOAD) ? cfg->rx_payload_width
+								    : NRF24_MAX_PAYLOAD;
+	}
+	if (read_rx_payload_locked(dev, buf, plen) < 0) {
+		return 0;
+	}
+	return plen;
+}
+
+/* 中断底半部线程：ISR 唤醒后排空 RX FIFO、处理 TX 完成。
+ * RX 帧通过 msgq(优先) 或 callback 投递给用户（释放锁后调用）。
+ * TX 完成后 give tx_done_sem 通知 send 线程。*/
+static void nrf24_irq_thread(void *p1, void *p2, void *p3)
+{
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+	const struct device *dev = p1;
+	struct nrf24_data *d = get_data(dev);
+
+	while (1) {
+		k_sem_take(&d->irq_sem, K_FOREVER);
+		if (!d->ready) {
+			continue;
+		}
+
+		k_mutex_lock(&d->lock, K_FOREVER);
+
+		uint8_t status;
+
+		reg_read_locked(dev, L01REG_STATUS, &status);
+
+		/* TX 完成：TX_DS（ACK 收到）或 MAX_RT（重传耗尽）*/
+		if (status & (BIT(TX_DS) | BIT(MAX_RT))) {
+			d->last_status = status;
+			reg_read_locked(dev, L01REG_OBSERVE_TX,
+					(uint8_t *)&d->last_observe_tx);
+			reg_write_locked(dev, L01REG_STATUS, BIT(TX_DS) | BIT(MAX_RT));
+			k_sem_give(&d->tx_done_sem);
+		}
+
+		/* RX 就绪：循环排空 FIFO（边沿触发可能合并多帧，循环保证不丢）*/
+		while (status & BIT(RX_DR)) {
+			uint8_t buf[NRF24_MAX_PAYLOAD];
+			uint8_t plen = fetch_rx_payload_locked(dev, buf);
+
+			cmd_locked(dev, FLUSH_RX);
+			reg_write_locked(dev, L01REG_STATUS, BIT(RX_DR));
+
+			if (plen > 0) {
+				/* 释放锁后投递，避免回调/msgq 阻塞 SPI 总线 */
+				k_mutex_unlock(&d->lock);
+				struct k_msgq *target = d->rx_msgq ? d->rx_msgq
+								   : d->fallback_msgq;
+
+				if (target) {
+					struct nrf24_frame f = { .len = plen };
+
+					memcpy(f.data, buf, plen);
+					k_msgq_put(target, &f, K_NO_WAIT);
+				} else if (d->rx_cb) {
+					d->rx_cb(dev, buf, plen, d->rx_cb_user_data);
+				}
+				k_mutex_lock(&d->lock, K_FOREVER);
+			}
+			reg_read_locked(dev, L01REG_STATUS, &status);
+		}
+		k_mutex_unlock(&d->lock);
+	}
 }
 
 /* 检查 SPI/GPIO 就绪 + 配置 CE 输出、IRQ 输入与下降沿中断 */
@@ -517,10 +626,10 @@ bool nrf24_rx_ready(const struct device *dev)
 	return (status & BIT(RX_DR)) != 0;
 }
 
-int nrf24_send(const struct device *dev, const void *buf, size_t len, k_timeout_t timeout)
+int nrf24_send(const struct device *dev, const void *buf, size_t len, k_timeout_t timeout,
+	       struct nrf24_tx_result *result)
 {
 	struct nrf24_data *d = get_data(dev);
-	uint8_t status = 0;
 	int ret;
 
 	if (len == 0 || len > NRF24_MAX_PAYLOAD) {
@@ -529,42 +638,69 @@ int nrf24_send(const struct device *dev, const void *buf, size_t len, k_timeout_
 
 	k_mutex_lock(&d->lock, K_FOREVER);
 
-	/* 排空陈旧 sem */
-	while (k_sem_take(&d->irq_sem, K_NO_WAIT) == 0) {
+	/* 排空陈旧 tx_done_sem */
+	while (k_sem_take(&d->tx_done_sem, K_NO_WAIT) == 0) {
 	}
 
+	/* 切 PTX、清 TX FIFO、写载荷 */
 	ret = set_mode_locked(dev, NRF24_MODE_PTX);
 	if (ret < 0) {
 		goto out;
 	}
-
 	cmd_locked(dev, FLUSH_TX);
+	/* 进入 PTX 前清掉可能的残留 TX_DS/MAX_RT */
+	reg_write_locked(dev, L01REG_STATUS, BIT(TX_DS) | BIT(MAX_RT));
+
 	ret = write_tx_payload_locked(dev, buf, (uint8_t)len);
 	if (ret < 0) {
-		goto out;
+		goto out_restore;
 	}
 
 	/* CE 高电平 ≥10us 触发发送 */
+	uint32_t t0 = k_uptime_get_32();
+
 	ce_set(dev, 1);
 	k_busy_wait(15);
 
-	ret = k_sem_take(&d->irq_sem, timeout);
+	/* 释放锁，让中断线程能处理 TX_DS/MAX_RT IRQ */
+	k_mutex_unlock(&d->lock);
+
+	ret = k_sem_take(&d->tx_done_sem, timeout);
+	uint32_t elapsed_ms = k_uptime_get_32() - t0;
+
+	k_mutex_lock(&d->lock, K_FOREVER);
+	ce_set(dev, 0);
+
 	if (ret < 0) {
-		ce_set(dev, 0);
+		/* 超时：清除可能残留的 TX 状态，flush 未发出载荷 */
+		cmd_locked(dev, FLUSH_TX);
+		reg_write_locked(dev, L01REG_STATUS, BIT(TX_DS) | BIT(MAX_RT));
+		if (result) {
+			result->acked = false;
+			result->elapsed_ms = elapsed_ms;
+			result->retransmits = 0;
+		}
 		ret = -EAGAIN;
-		goto out;
+		goto out_restore;
 	}
 
-	reg_read_locked(dev, L01REG_STATUS, &status);
-	if (status & BIT(MAX_RT)) {
+	bool max_rt = (d->last_status & BIT(MAX_RT)) != 0;
+
+	if (max_rt) {
 		cmd_locked(dev, FLUSH_TX);
 		ret = -EIO;
 	} else {
 		ret = 0;
 	}
-	reg_write_locked(dev, L01REG_STATUS, IRQ_ALL);
-	ce_set(dev, 0);
+	if (result) {
+		result->acked = !max_rt;
+		result->elapsed_ms = elapsed_ms;
+		result->retransmits = d->last_observe_tx & 0x0F; /* ARC_CNT */
+	}
 
+out_restore:
+	/* 发送完成（或失败）后切回 PRX，恢复接收待命 */
+	set_mode_locked(dev, NRF24_MODE_PRX);
 out:
 	k_mutex_unlock(&d->lock);
 	return ret;
@@ -573,67 +709,52 @@ out:
 int nrf24_recv(const struct device *dev, void *buf, size_t max_len, k_timeout_t timeout)
 {
 	struct nrf24_data *d = get_data(dev);
-	const struct nrf24_config *cfg = get_cfg(dev);
-	uint8_t status = 0;
-	uint8_t plen = 0;
+	struct nrf24_frame f;
 	int ret;
 
-	k_mutex_lock(&d->lock, K_FOREVER);
-
+	/* 确保 PRX 待命（poll 模式入口）*/
 	if (d->mode != NRF24_MODE_PRX) {
-		ret = set_mode_locked(dev, NRF24_MODE_PRX);
+		ret = nrf24_start_rx(dev);
 		if (ret < 0) {
-			goto out;
+			return ret;
 		}
 	}
 
-	reg_read_locked(dev, L01REG_STATUS, &status);
-	if (!(status & BIT(RX_DR))) {
-		while (k_sem_take(&d->irq_sem, K_NO_WAIT) == 0) {
-		}
-		ret = k_sem_take(&d->irq_sem, timeout);
-		if (ret < 0) {
-			ret = -EAGAIN;
-			goto out;
-		}
-		reg_read_locked(dev, L01REG_STATUS, &status);
+	/* 从兜底 msgq 取帧（中断线程已排空 FIFO 并投递到这里）*/
+	if (!d->fallback_msgq) {
+		return -ENOTSUP;
 	}
-
-	if (!(status & BIT(RX_DR))) {
-		ret = -EIO;
-		goto out;
-	}
-
-	if (parse_payload_mode(cfg->payload_mode) == NRF24_PAYLOAD_DYNAMIC) {
-		ret = read_rx_pl_wid_locked(dev, &plen);
-		if (ret < 0) {
-			goto out;
-		}
-		if (plen > NRF24_MAX_PAYLOAD) {
-			cmd_locked(dev, FLUSH_RX);
-			ret = -EIO;
-			goto out_clr;
-		}
-	} else {
-		plen = (cfg->rx_payload_width <= NRF24_MAX_PAYLOAD) ? cfg->rx_payload_width
-								    : NRF24_MAX_PAYLOAD;
-	}
-
-	if (plen > max_len) {
-		plen = (uint8_t)max_len;
-	}
-	ret = read_rx_payload_locked(dev, buf, plen);
+	ret = k_msgq_get(d->fallback_msgq, &f, timeout);
 	if (ret < 0) {
-		goto out_clr;
+		return -EAGAIN;
 	}
-	ret = plen;
+	uint8_t plen = (f.len > max_len) ? (uint8_t)max_len : f.len;
 
-out_clr:
-	cmd_locked(dev, FLUSH_RX);
-	reg_write_locked(dev, L01REG_STATUS, BIT(RX_DR));
-out:
+	memcpy(buf, f.data, plen);
+	return plen;
+}
+
+int nrf24_add_rx_msgq(const struct device *dev, struct k_msgq *msgq)
+{
+	struct nrf24_data *d = get_data(dev);
+
+	k_mutex_lock(&d->lock, K_FOREVER);
+	d->rx_msgq = msgq;
+	d->rx_cb = NULL; /* msgq 优先 */
 	k_mutex_unlock(&d->lock);
-	return ret;
+	return 0;
+}
+
+int nrf24_add_rx_callback(const struct device *dev, nrf24_rx_callback_t cb, void *user_data)
+{
+	struct nrf24_data *d = get_data(dev);
+
+	k_mutex_lock(&d->lock, K_FOREVER);
+	d->rx_msgq = NULL;
+	d->rx_cb = cb;
+	d->rx_cb_user_data = user_data;
+	k_mutex_unlock(&d->lock);
+	return 0;
 }
 
 int nrf24_configure(const struct device *dev, const struct nrf24_cfg *cfg)
@@ -711,7 +832,8 @@ static int nrf24_init(const struct device *dev)
 	struct nrf24_data *d = get_data(dev);
 	int ret;
 
-	k_sem_init(&d->irq_sem, 0, 1);
+	k_sem_init(&d->irq_sem, 0, K_SEM_MAX_LIMIT);
+	k_sem_init(&d->tx_done_sem, 0, 1);
 	k_mutex_init(&d->lock);
 	d->mode = NRF24_MODE_STANDBY;
 	d->ready = false;
@@ -741,15 +863,31 @@ static int nrf24_init(const struct device *dev)
 	k_mutex_unlock(&d->lock);
 	ce_set(dev, 1);   /* PRX：CE 保持高 */
 
-	LOG_INF("nRF24L01P initialized");
+	/* 启动中断底半部线程 */
+	k_thread_create(&d->irq_thread, d->irq_stack,
+			K_THREAD_STACK_SIZEOF(d->irq_stack),
+			nrf24_irq_thread, (void *)dev, NULL, NULL,
+			K_PRIO_COOP(CONFIG_NRF24L01P_INT_THREAD_PRIORITY), 0, K_NO_WAIT);
+	k_thread_name_set(&d->irq_thread, "nrf24_irq");
+
+	LOG_INF("nRF24L01P initialized (irq-driven rx)");
 	return 0;
 }
 
-#define NRF24_DEVICE(idx)                                        \
-	NRF24_CFG_INIT(idx)                                      \
-	static struct nrf24_data nrf24_data_##idx;               \
-	DEVICE_DT_INST_DEFINE(idx, nrf24_init, NULL,             \
-		&nrf24_data_##idx, &nrf24_cfg_##idx,                 \
+#define NRF24_DEVICE(idx)                                                    \
+	NRF24_CFG_INIT(idx)                                                  \
+	/* 兜底 RX msgq：用户未注册投递目标时，中断线程把帧放这里 */            \
+	K_MSGQ_DEFINE(nrf24_fallback_msgq_##idx, sizeof(struct nrf24_frame),  \
+		      4, 4);                                                  \
+	/* 中断底半部线程独立栈 */                                            \
+	static K_KERNEL_STACK_DEFINE(nrf24_irq_stack_##idx,                  \
+				     CONFIG_NRF24L01P_INT_THREAD_STACK_SIZE); \
+	static struct nrf24_data nrf24_data_##idx = {                        \
+		.fallback_msgq = &nrf24_fallback_msgq_##idx,                 \
+		.irq_stack = nrf24_irq_stack_##idx,                          \
+	};                                                                   \
+	DEVICE_DT_INST_DEFINE(idx, nrf24_init, NULL,                         \
+		&nrf24_data_##idx, &nrf24_cfg_##idx,                             \
 		POST_KERNEL, CONFIG_NRF24L01P_INIT_PRIORITY, NULL);
 
 DT_INST_FOREACH_STATUS_OKAY(NRF24_DEVICE)

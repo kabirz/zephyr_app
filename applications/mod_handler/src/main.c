@@ -14,7 +14,7 @@
 #include <mod-can.h>
 #include <display.h>
 #include <mod-gpio.h>
-#include <lora.h>
+#include <rf24.h>
 #include <zephyr/settings/settings.h>
 
 LOG_MODULE_REGISTER(main_app, LOG_LEVEL_INF);
@@ -38,7 +38,7 @@ int main(void)
 
 	settings_load();
 
-	canlora_switch(global_params.connect_type);
+	connect_switch(global_params.connect_type);
 
 	while (1) {
 		if (global_params.sleeping) {
@@ -46,8 +46,7 @@ int main(void)
 			continue;
 		}
 
-		if (!global_params.test_mode &&
-		    (k_uptime_get_32() - last_activity_time) > ACTIVITY_TIMEOUT_MS) {
+		if ((k_uptime_get_32() - last_activity_time) > ACTIVITY_TIMEOUT_MS) {
 			system_sleep();
 			LOG_INF("system entering sleep (inactivity timeout)");
 			continue;

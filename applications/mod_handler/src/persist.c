@@ -23,10 +23,10 @@ static int persist_set(const char *name, size_t len, settings_read_cb read_cb, v
 			uint8_t type;
 
 			read_cb(cb_arg, &type, sizeof(type));
-			if (type == CAN_TYPE || type == LORA_TYPE) {
+			if (type == CAN_TYPE || type == RF24_TYPE) {
 				global_params.connect_type = type;
 				LOG_INF("Loaded connect_type: %d (%s)", type,
-					type == CAN_TYPE ? "CAN" : "LoRa");
+					type == CAN_TYPE ? "CAN" : "2.4G");
 			}
 		}
 		return 0;

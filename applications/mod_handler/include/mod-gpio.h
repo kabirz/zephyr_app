@@ -5,12 +5,11 @@
 #include <common.h>
 battery_status_t read_battery_status(void);
 int gpio_init(void);
-void canlora_switch(uint8_t type);
+void connect_switch(uint8_t type);
 void can_power_enable(bool up);
-void lora_power_enable(bool up);
+void rf24_power_enable(bool up);
 void dis_power_enable(bool up);
 void handler_power_enable(bool up);
 int handler_get_btn(void);
-bool lora_get_link_status(void);
 void system_sleep(void);
 #endif

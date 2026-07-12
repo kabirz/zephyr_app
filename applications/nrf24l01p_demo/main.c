@@ -9,6 +9,9 @@ LOG_MODULE_REGISTER(nrf24_demo, CONFIG_LOG_DEFAULT_LEVEL);
 
 static const struct device *const nrf24 = DEVICE_DT_GET(DT_NODELABEL(nrf24));
 
+/* RX 角色: 中断驱动 msgq 接收 */
+K_MSGQ_DEFINE(demo_rx_msgq, sizeof(struct nrf24_frame), 8, 4);
+
 #ifdef CONFIG_NRF24L01P_DEMO_ROLE_TX
 static void run_tx(void)
 {
@@ -21,12 +24,15 @@ static void run_tx(void)
 		payload[2] = 0x5A;
 		payload[3] = (uint8_t)(0xFF - payload[0]);
 
-		int ret = nrf24_send(nrf24, payload, sizeof(payload), K_MSEC(100));
+		struct nrf24_tx_result result;
+		int ret = nrf24_send(nrf24, payload, sizeof(payload), K_MSEC(100), &result);
 
 		if (ret == 0) {
-			LOG_INF("TX seq=%u ok", payload[0]);
+			LOG_INF("TX seq=%u acked=%d %ums retrans=%d",
+				payload[0], result.acked, result.elapsed_ms, result.retransmits);
 		} else {
-			LOG_WRN("TX seq=%u failed: %d", payload[0], ret);
+			LOG_WRN("TX seq=%u failed: %d acked=%d retrans=%d",
+				payload[0], ret, result.acked, result.retransmits);
 		}
 		k_sleep(K_SECONDS(1));
 	}
@@ -34,24 +40,24 @@ static void run_tx(void)
 #else
 static void run_rx(void)
 {
-	uint8_t rbuf[32] = {0};
 	int ret = nrf24_start_rx(nrf24);
 
 	if (ret < 0) {
 		LOG_ERR("start_rx failed: %d", ret);
 		return;
 	}
+	/* 注册 msgq: IRQ 线程收到帧后投递到这里 */
+	nrf24_add_rx_msgq(nrf24, &demo_rx_msgq);
+	LOG_INF("RX waiting (irq-driven msgq)...");
+
+	struct nrf24_frame frame;
 
 	while (1) {
-		int n = nrf24_recv(nrf24, rbuf, sizeof(rbuf), K_SECONDS(5));
-
-		if (n > 0) {
-			LOG_INF("RX len=%d: [%02x %02x %02x %02x]",
-				n, rbuf[0], rbuf[1], rbuf[2], rbuf[3]);
-		} else if (n == -EAGAIN) {
-			LOG_INF("RX timeout");
-		} else {
-			LOG_WRN("RX error: %d", n);
+		ret = k_msgq_get(&demo_rx_msgq, &frame, K_FOREVER);
+		if (ret == 0 && frame.len > 0) {
+			LOG_INF("RX len=%u: [%02x %02x %02x %02x]",
+				frame.len, frame.data[0], frame.data[1],
+				frame.data[2], frame.data[3]);
 		}
 	}
 }
