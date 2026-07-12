@@ -944,21 +944,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#can-lora" class="md-nav__link">
+  <a href="#can24g" class="md-nav__link">
     <span class="md-ellipsis">
       
-        CAN 控制 LoRa 参数
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#canlora" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        CAN/LoRa 连接切换
+        CAN/2.4G 连接切换
       
     </span>
   </a>
@@ -971,55 +960,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#lora" class="md-nav__link">
+  <a href="#24g-nrf24l01" class="md-nav__link">
     <span class="md-ellipsis">
       
-        LoRa 统一帧格式
+        2.4G 无线帧格式 (nRF24L01+)
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="LoRa 统一帧格式">
+    <nav class="md-nav" aria-label="2.4G 无线帧格式 (nRF24L01+)">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#lora-data-9-0x01-can-0x1e3-8" class="md-nav__link">
+  <a href="#nrf24l01" class="md-nav__link">
     <span class="md-ellipsis">
       
-        LoRa 遥测数据 (Data 9 字节, 类型 0x01 + 与 CAN 0x1E3 一致的 8 字节)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#lora_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        LoRa 扫描仪数据 (网关→手柄)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#lora_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        LoRa 链路检测
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#lora_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        LoRa 网关参数
+        nRF24L01+ 中断驱动收发
       
     </span>
   </a>
@@ -1736,21 +1692,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#can-lora" class="md-nav__link">
+  <a href="#can24g" class="md-nav__link">
     <span class="md-ellipsis">
       
-        CAN 控制 LoRa 参数
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#canlora" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        CAN/LoRa 连接切换
+        CAN/2.4G 连接切换
       
     </span>
   </a>
@@ -1763,55 +1708,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#lora" class="md-nav__link">
+  <a href="#24g-nrf24l01" class="md-nav__link">
     <span class="md-ellipsis">
       
-        LoRa 统一帧格式
+        2.4G 无线帧格式 (nRF24L01+)
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="LoRa 统一帧格式">
+    <nav class="md-nav" aria-label="2.4G 无线帧格式 (nRF24L01+)">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#lora-data-9-0x01-can-0x1e3-8" class="md-nav__link">
+  <a href="#nrf24l01" class="md-nav__link">
     <span class="md-ellipsis">
       
-        LoRa 遥测数据 (Data 9 字节, 类型 0x01 + 与 CAN 0x1E3 一致的 8 字节)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#lora_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        LoRa 扫描仪数据 (网关→手柄)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#lora_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        LoRa 链路检测
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#lora_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        LoRa 网关参数
+        nRF24L01+ 中断驱动收发
       
     </span>
   </a>
@@ -1888,33 +1800,30 @@
 
 
 <h1 id="mod-handler">Mod Handler — 激光测距手持控制器<a class="headerlink" href="#mod-handler" title="Permanent link">&para;</a></h1>
-<p>基于 Zephyr RTOS 的嵌入式手持控制器模块，运行在 STM32F103RCT6 上，用于激光测距设备的远程操控。采集操纵杆角度和电池状态，通过 CAN 总线或 LoRa 无线与激光设备通信，提供 OLED 显示、系统休眠和 OTA 固件升级能力。</p>
-<p><strong>版本</strong>: 0.1.2-release | <strong>许可证</strong>: Apache-2.0</p>
+<p>基于 Zephyr RTOS 的嵌入式手持控制器模块，运行在 STM32F103RCT6 上，用于激光测距设备的远程操控。采集操纵杆角度和电池状态，通过 CAN 总线或 2.4G 无线 (nRF24L01+) 与激光设备通信，提供 OLED 显示、系统休眠和 OTA 固件升级能力。</p>
+<p><strong>版本</strong>: 0.1.4-release | <strong>许可证</strong>: Apache-2.0</p>
 <h2 id="_1">功能特性<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>操纵杆控制</strong> — 双通道 ADC 采集 X/Y 轴角度，变化时即时上报 + 显示刷新</li>
-<li><strong>双通道通信</strong> — CAN 总线 (250Kbps) + LoRa 无线 (WH-L101-L 透传)，互斥冗余链路</li>
-<li><strong>CAN/LoRa 手动切换</strong> — 通过 link_switch 按键 (PA10) 手动切换，切换时关闭对方电源并重新初始化，启动默认 CAN</li>
-<li><strong>CAN 手柄状态上报</strong> — 帧 ID 0x1E3，8 字节 payload (X/Y 角度 BE + 按键反转 + 保留)，心跳成功时周期发送，角度/按键变化时即时发送</li>
+<li><strong>双通道通信</strong> — CAN 总线 (250Kbps) + 2.4G 无线 (nRF24L01+)，互斥冗余链路</li>
+<li><strong>CAN/2.4G 手动切换</strong> — 通过 link_switch 按键 (PA10) 手动切换，切换时关闭对方电源并重新初始化，启动默认 CAN</li>
+<li><strong>CAN 手柄状态上报</strong> — 帧 ID 0x1E3，8 字节 payload (X/Y 角度 BE + 按键 + 保留)，心跳成功时周期发送，角度/按键变化时即时发送</li>
 <li><strong>CAN 扫描仪数据接收</strong> — 帧 ID 0x263/0x363/0x463，接收超欠挖、激光测距、X/Y/Z 坐标，即时显示</li>
-<li><strong>LoRa 遥测</strong> — 统一帧格式 (NID+Length+Data+CRC16)，角度/按键变化时即时发送 (仅 CAN 断开时)，半双工节流 (发送后等待上位机响应或 500ms 超时)</li>
-<li><strong>LoRa 链路检测</strong> — 应用层心跳，周期发送遥测帧，连续 3 次 ACK 超时判定断连</li>
-<li><strong>LoRa 网关管理</strong> — 支持 FP/TRANS/NET 三种工作模式，NODE/LG210/LG220 三种协议，Shell 一键配置或 CAN 远程配置</li>
-<li><strong>CAN 远程配参</strong> — Host 通过 CAN 帧 0x105/0x106 远程设置/查询 LoRa 通信参数 (prot+mode+spd+ch)、节点 ID (NID)、网关 ID (GWID)，所有多字节字段使用大端序</li>
-<li><strong>LoRa 数据接收</strong> — 网关下发的扫描仪数据与 CAN 帧格式一致，复用 <code>mod_can_parse_scanner</code> 解析</li>
-<li><strong>心跳保活</strong> — CAN 心跳帧 (400ms 周期)，连续 3 次失败停止心跳循环</li>
-<li><strong>电池管理</strong> — 充电状态 GPIO 检测、电源电压 ADC 采集 (5s 周期)，毫伏阈值映射电量图标</li>
+<li><strong>2.4G 遥测</strong> — 帧格式 <code>[CAN ID 2B BE][payload]</code>，复用 CAN 帧内容，角度/按键变化时即时发送 (仅 CAN 断开时)</li>
+<li><strong>2.4G 数据接收</strong> — 网关下发的扫描仪数据按 CAN ID 分发，复用 <code>mod_can_parse_scanner</code> 解析</li>
+<li><strong>中断驱动无线收发</strong> — nRF24L01+ 驱动内置 IRQ 线程，收到数据自动投递到 msgq；发送等待硬件 ACK 返回结果 (成功/失败 + 耗时 + 重传次数)</li>
+<li><strong>心跳保活</strong> — CAN 心跳帧 (800ms 周期)，连续 3 次失败停止心跳循环</li>
+<li><strong>电池管理</strong> — 充电状态 GPIO 检测、电源电压 ADC 采集，毫伏阈值映射电量图标</li>
 <li><strong>OLED 显示</strong> — SH1106 128x64 I2C 屏幕，事件驱动刷新，Row 0 使用图标（信号/电池/连接类型），变化时即时更新对应行</li>
 <li><strong>系统休眠/唤醒</strong> — 电源键触发或 10 分钟无操作自动休眠，关闭所有外设电源；唤醒时重新上电并刷新显示</li>
 <li><strong>OTA 升级</strong> — 通过 CAN 总线接收固件，写入外部 SPI Flash，MCUBoot 安全切换</li>
-<li><strong>外设电源管理</strong> — CAN / LoRa / 显示 / 手柄 四路独立 GPIO 电源开关，整合在 gpio.c 统一管理</li>
+<li><strong>外设电源管理</strong> — CAN / 2.4G (nRF24) / 显示 / 手柄 四路独立 GPIO 电源开关，整合在 gpio.c 统一管理</li>
 </ul>
 <h2 id="_2">硬件要求<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
 <ul>
 <li>MCU: STM32F103RCT6 (ARM Cortex-M3, 72MHz, 256KB Flash, 48KB RAM)</li>
 <li>外部 SPI Flash: GD25Q80 (存放 OTA 升级镜像)</li>
-<li>LoRa 模块: 有人物联网 WH-L101-L (串口透传, UART 115200bps)</li>
-<li>LoRa 网关: 有人物联网 USR-LG210-L</li>
+<li>无线模块: Nordic nRF24L01+ (SPI 接口，2.4GHz)</li>
 <li>OLED: SH1106 128x64 (I2C 地址 0x3C)</li>
 <li>CAN 收发器: 250Kbps</li>
 </ul>
@@ -1949,43 +1858,36 @@
 </span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>  |     +-- 启动时初始全屏刷新, 事件驱动休眠/唤醒
 </span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>  |     +-- 10 分钟无操作自动休眠, 关闭所有外设电源
 </span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>  |
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>  +-- CAN 总线 (priority 11)
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>  +-- CAN 总线 (priority 8 收发 / 11 心跳)
 </span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>  |     +-- 消息收发与协议分发
 </span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>  |     +-- 固件升级状态机
-</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>  |     +-- 心跳保活 (400ms) + 手柄状态上报 (0x1E3, 大端序)
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>  |     +-- 心跳保活 (800ms) + 手柄状态上报 (0x1E3, 大端序)
 </span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>  |     +-- 扫描仪数据接收 (0x263/0x363/0x463, 即时解析+显示)
-</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>  |     +-- LoRa 远程配参 (0x105/0x106, k_work 异步)
-</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>  |
-</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>  +-- LoRa UART (WH-L101-L, priority 12)
-</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>  |     +-- DMA 双缓冲透传
-</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>  |     +-- 遥测帧发送 (仅 CAN 断开时, 事件驱动)
-</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>  |     +-- 接收帧解析: 心跳 ACK + 扫描仪数据 (复用 CAN 解析)
-</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>  |     +-- AT 指令收发 (经 USR-LG210-L 网关中转)
-</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>  |     +-- Shell 调试命令 (send/at/exit/gw)
-</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>  |
-</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>  +-- LoRa 心跳 (priority 12)
-</span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>  |     +-- 仅 connect_type == LORA_TYPE 时运行
-</span><span id="__span-2-23"><a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>  |     +-- 周期发送遥测帧, 等待网关 ACK
-</span><span id="__span-2-24"><a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>  |     +-- 连续 3 次超时 → lora_connected = false
-</span><span id="__span-2-25"><a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>  |
-</span><span id="__span-2-26"><a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a>  +-- ADC 采集 (priority 7)
-</span><span id="__span-2-27"><a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a>  |     +-- 操纵杆 X/Y 角度 (500ms, 变化时即时显示+发送)
-</span><span id="__span-2-28"><a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a>  |     +-- 电源电压 (5s 周期, 变化时即时显示)
-</span><span id="__span-2-29"><a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a>  |
-</span><span id="__span-2-30"><a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a>  +-- GPIO 按键 + 电源管理 (priority 7, PRE_KERNEL_2 初始化)
-</span><span id="__span-2-31"><a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a>        +-- 按键防抖: ISR → k_work_delayable, 延时读 GPIO 电平确认
-</span><span id="__span-2-32"><a id="__codelineno-2-32" name="__codelineno-2-32" href="#__codelineno-2-32"></a>        +-- 操纵手柄按键: 边沿检测, 电平变化时触发
-</span><span id="__span-2-33"><a id="__codelineno-2-33" name="__codelineno-2-33" href="#__codelineno-2-33"></a>        +-- 操纵手柄按键 (ISR → k_work → 即时显示+发送)
-</span><span id="__span-2-34"><a id="__codelineno-2-34" name="__codelineno-2-34" href="#__codelineno-2-34"></a>        +-- 电源键 (ISR → k_work → 休眠/唤醒)
-</span><span id="__span-2-35"><a id="__codelineno-2-35" name="__codelineno-2-35" href="#__codelineno-2-35"></a>        +-- link_switch (ISR → k_work → CAN/LoRa 切换 + 对方电源关闭)
-</span><span id="__span-2-36"><a id="__codelineno-2-36" name="__codelineno-2-36" href="#__codelineno-2-36"></a>        +-- 充电状态 GPIO 检测
-</span><span id="__span-2-37"><a id="__codelineno-2-37" name="__codelineno-2-37" href="#__codelineno-2-37"></a>        +-- 4 路 GPIO 电源开关 (CAN/LoRa/显示/手柄)
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>  |
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>  +-- 2.4G 无线 nRF24L01+ (rf24.c + 驱动内置 IRQ 线程)
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>  |     +-- 中断驱动接收: IRQ→驱动 IRQ 线程排空 FIFO→投递 msgq
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>  |     +-- RX 线程 (priority 8): 从 msgq 取帧, 按 CAN ID 分发到扫描仪解析器
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>  |     +-- 遥测发送: nrf24_send 等待 ACK, 返回 {acked, elapsed_ms, retransmits}
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>  |     +-- 发送后自动切回 PRX 接收模式
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>  |
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>  +-- ADC 采集 (priority 7 角度 / 8 电压)
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>  |     +-- 操纵杆 X/Y 角度 (周期采集, 变化时即时显示+发送)
+</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>  |     +-- 电源电压 (200ms 周期, 变化时即时显示)
+</span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>  |
+</span><span id="__span-2-23"><a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>  +-- GPIO 按键 + 电源管理 (PRE_KERNEL_2 初始化)
+</span><span id="__span-2-24"><a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>        +-- 按键防抖: ISR → k_work_delayable, 延时读 GPIO 电平确认
+</span><span id="__span-2-25"><a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>        +-- 操纵手柄按键 (ISR → k_work → 即时显示+发送)
+</span><span id="__span-2-26"><a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a>        +-- 电源键 (ISR → k_work → 休眠/唤醒)
+</span><span id="__span-2-27"><a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a>        +-- link_switch (ISR → k_work → CAN/2.4G 切换 + 对方电源关闭)
+</span><span id="__span-2-28"><a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a>        +-- 充电状态 GPIO 检测
+</span><span id="__span-2-29"><a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a>        +-- 4 路 GPIO 电源开关 (CAN/nRF24/显示/手柄)
 </span></code></pre></div>
 <h3 id="_6">线程清单<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
 <th>线程</th>
+<th>函数</th>
 <th>栈大小</th>
 <th>优先级</th>
 <th>说明</th>
@@ -1994,57 +1896,68 @@
 <tbody>
 <tr>
 <td>CAN 收发</td>
+<td><code>mod_can_process_thread</code></td>
 <td>2048</td>
-<td>11</td>
+<td>8</td>
 <td>CAN 消息接收与协议处理</td>
 </tr>
 <tr>
 <td>CAN 心跳</td>
+<td><code>can_heart_thread</code></td>
 <td>1024</td>
 <td>11</td>
-<td>400ms 周期心跳 + 手柄状态上报，3 次失败停止</td>
+<td>800ms 周期心跳 + 手柄状态上报，3 次失败停止</td>
 </tr>
 <tr>
-<td>LoRa 处理</td>
+<td>2.4G 接收</td>
+<td><code>rf24_rx_thread</code></td>
 <td>1024</td>
-<td>12</td>
-<td>UART DMA 双缓冲 + AT 指令解析 + 接收数据分发</td>
+<td>8</td>
+<td>从 rf24_rx_msgq 取帧，按 CAN ID 分发到扫描仪解析器</td>
 </tr>
 <tr>
-<td>LoRa 心跳</td>
-<td>1024</td>
-<td>12</td>
-<td>仅 LoRa 模式运行，周期遥测 + ACK 检测</td>
-</tr>
-<tr>
-<td>ADC 采集</td>
+<td>ADC 角度</td>
+<td><code>adc_read_thread</code></td>
 <td>1024</td>
 <td>7</td>
-<td>500ms 周期采集操纵杆角度，变化时即时显示+发送</td>
+<td>周期采集操纵杆角度，变化时即时显示+发送</td>
+</tr>
+<tr>
+<td>ADC 电压</td>
+<td><code>adc_power_thread</code></td>
+<td>1024</td>
+<td>8</td>
+<td>200ms 周期采集电源电压，变化时即时显示</td>
+</tr>
+<tr>
+<td>nRF24 IRQ</td>
+<td><code>nrf24_irq_thread</code> (驱动内)</td>
+<td>1024</td>
+<td>2</td>
+<td>IRQ 底半部：排空 RX FIFO→msgq，处理 TX 完成</td>
 </tr>
 </tbody>
 </table>
 <h3 id="_7">线程间通信<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>全局状态</strong>: <code>gloval_params_t</code> 结构体（操纵杆角度、电池状态、扫描仪数据、连接类型等）</li>
-<li><strong>事件通知</strong>: <code>k_event</code> — WAKE_EVENT(休眠唤醒), CAN_EVENT/LORA_EVENT(连接切换)</li>
-<li><strong>消息队列</strong>: CAN 和 LoRa 各自使用 <code>k_msgq</code> 传递帧数据</li>
-<li><strong>信号量</strong>: <code>k_sem</code> 配合 LoRa ACK 检测</li>
-<li><strong>工作队列</strong>: <code>k_work</code> / <code>k_work_delayable</code> — 按键防抖、显示+发送、LoRa 配参异步执行</li>
-<li><strong>互斥锁</strong>: <code>lora_mode_mutex</code> (AT 模式), <code>lora_tx_mutex</code> (LoRA TX), <code>display_mutex</code> (显示)</li>
+<li><strong>全局状态</strong>: <code>global_params_t</code> 结构体（操纵杆角度、电池状态、扫描仪数据、连接类型等）</li>
+<li><strong>事件通知</strong>: <code>k_event</code> — WAKE_EVENT(休眠唤醒), CAN_EVENT/CAN_RX_EVENT(CAN 激活), RF24_EVENT(2.4G 激活)</li>
+<li><strong>消息队列</strong>: CAN 接收使用 <code>k_msgq</code>；nRF24 驱动内部 IRQ 线程→应用 RX 线程使用 <code>k_msgq</code> (投递 <code>nrf24_frame</code>)</li>
+<li><strong>信号量</strong>: nRF24 驱动 <code>irq_sem</code>(ISR→IRQ 线程) + <code>tx_done_sem</code>(IRQ 线程→send 线程)</li>
+<li><strong>工作队列</strong>: <code>k_work</code> / <code>k_work_delayable</code> — 按键防抖、显示+发送</li>
+<li><strong>互斥锁</strong>: <code>rf24_tx_mutex</code> (2.4G TX 序列化), <code>display_mutex</code> (显示), 驱动内部 <code>lock</code> (SPI 总线)</li>
 </ul>
 <h2 id="oled">OLED 显示布局<a class="headerlink" href="#oled" title="Permanent link">&para;</a></h2>
-<p>SH1106 128x64 像素，使用 8x16 ASCII 字体 + 独立位图图标，4 行 × 16 列字符：</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>Row 0: [CAN/LORA图标][信号图标]  NID     [电池图标]  ← 连接类型 + 信号 + NID + 电池
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>Row 1: OB:+12345      Dis:12345             ← 超欠挖 + 激光距离 (来自扫描仪)
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>Row 2: X:+15.0      Y:-3.5                 ← X/Y 轴角度 (-20° ~ +20°)
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>Row 3: BTN:OFF                              ← 按键状态 (ON/OFF)
+<p>SH1106 128x64 像素，使用 8x16 ASCII 字体 + 独立位图图标：</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>Row 0: [2.4G/CAN图标][信号图标]            [电池图标]  ← 连接类型 + 信号 + 电池
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>Row 1: OB:+12345      Dis:12345                         ← 超欠挖 + 激光距离 (来自扫描仪)
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>Row 2: X:+15.0        Y:-3.5                            ← X/Y 坐标 (来自扫描仪)
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>Row 3: Z:+1.20                                          ← Z 坐标 (来自扫描仪)
 </span></code></pre></div>
 <p>Row 0 图标说明:
-- <strong>连接类型图标</strong> (8x16): CAN 或 LORA 标签图标
-- <strong>信号图标</strong> (16x16): LoRa RSSI 信号强度，0-4 级柱状图
-- <strong>电池图标</strong> (24x16): 毫伏阈值映射 4 级电量图标，充电时显示闪电标记
-- <strong>NID</strong>: 8 位十六进制节点 ID</p>
+- <strong>连接类型</strong> (8x16): "2.4G" 或 "CAN" 文本 (ROW0_ASCII 模式) / 标签图标 (label_rf24/label_can)
+- <strong>信号图标</strong> (16x16): 0-4 级柱状图
+- <strong>电池图标</strong> (24x16): 毫伏阈值映射 4 级电量图标，充电时显示闪电标记</p>
 <p>启动时全屏刷新一次，之后各模块事件驱动更新对应行。所有 <code>display_write</code> 通过 <code>display_mutex</code> 保护，<code>display_str_pad</code> 用空格填充行尾清除旧数据残留。</p>
 <h2 id="can">CAN 通信协议<a class="headerlink" href="#can" title="Permanent link">&para;</a></h2>
 <p>帧 ID 定义在 <code>mod-can.h</code>:</p>
@@ -2075,12 +1988,12 @@
 <tr>
 <td>0x763</td>
 <td>手柄 → 平台</td>
-<td>心跳保活 (400ms)</td>
+<td>心跳保活 (800ms)</td>
 </tr>
 <tr>
 <td>0x1E3</td>
 <td>手柄 → 平台</td>
-<td>手柄状态 (X/Y 角度 BE + 按键反转 + 保留)</td>
+<td>手柄状态 (X/Y 角度 BE + 按键 + 保留)</td>
 </tr>
 <tr>
 <td>0x263</td>
@@ -2094,18 +2007,8 @@
 </tr>
 <tr>
 <td>0x463</td>
-<td>平台 → 平台</td>
-<td>Z 坐标数据</td>
-</tr>
-<tr>
-<td>0x105</td>
 <td>平台 → 手柄</td>
-<td>LoRa 参数设置/查询命令</td>
-</tr>
-<tr>
-<td>0x106</td>
-<td>手柄 → 平台</td>
-<td>LoRa 参数配置/查询响应</td>
+<td>Z 坐标数据</td>
 </tr>
 </tbody>
 </table>
@@ -2136,7 +2039,7 @@
 <td>4</td>
 <td>1</td>
 <td>btn flags</td>
-<td>bit0: btnHandler(反转), 按下=0, 松开=1</td>
+<td>bit0: btnHandler</td>
 </tr>
 <tr>
 <td>5-7</td>
@@ -2239,407 +2142,33 @@
 </tr>
 </tbody>
 </table>
-<h3 id="can-lora">CAN 控制 LoRa 参数<a class="headerlink" href="#can-lora" title="Permanent link">&para;</a></h3>
-<p>Host 通过 CAN 帧 0x105 设置或查询 LoRa 参数，设备通过 0x106 响应。所有多字节字段使用大端序 (BE)。</p>
-<p><strong>命令码:</strong></p>
-<table>
-<thead>
-<tr>
-<th>命令码</th>
-<th>名称</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>0x01</td>
-<td>SET</td>
-<td>设置通信参数 (prot/mode/spd/ch)</td>
-</tr>
-<tr>
-<td>0x02</td>
-<td>QUERY</td>
-<td>查询通信参数</td>
-</tr>
-<tr>
-<td>0x03</td>
-<td>QUERY_NID</td>
-<td>查询节点 ID</td>
-</tr>
-<tr>
-<td>0x04</td>
-<td>SET_NID</td>
-<td>设置节点 ID</td>
-</tr>
-<tr>
-<td>0x05</td>
-<td>QUERY_GWID</td>
-<td>查询网关 ID</td>
-</tr>
-<tr>
-<td>0x06</td>
-<td>SET_GWID</td>
-<td>设置网关 ID</td>
-</tr>
-</tbody>
-</table>
-<p><strong>SET 通信参数 (0x105, data[0] = 0x01, DLC 8):</strong></p>
-<table>
-<thead>
-<tr>
-<th>偏移</th>
-<th>长度</th>
-<th>字段</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>0</td>
-<td>1</td>
-<td>命令</td>
-<td>0x01 = SET</td>
-</tr>
-<tr>
-<td>1</td>
-<td>1</td>
-<td>prot[7:4] + mode[3:0]</td>
-<td>prot: 0=NODE, 1=LG210, 2=LG220; mode: 0=FP, 1=TRANS, 2=NET</td>
-</tr>
-<tr>
-<td>2</td>
-<td>1</td>
-<td>SPD</td>
-<td>速率等级 1-12</td>
-</tr>
-<tr>
-<td>3</td>
-<td>1</td>
-<td>CH</td>
-<td>信道 0-127</td>
-</tr>
-</tbody>
-</table>
-<p><strong>QUERY 通信参数 (0x105, data[0] = 0x02):</strong></p>
-<table>
-<thead>
-<tr>
-<th>偏移</th>
-<th>长度</th>
-<th>字段</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>0</td>
-<td>1</td>
-<td>命令</td>
-<td>0x02 = QUERY</td>
-</tr>
-</tbody>
-</table>
-<p><strong>SET/QUERY 响应 (0x106, DLC 8):</strong></p>
-<table>
-<thead>
-<tr>
-<th>偏移</th>
-<th>长度</th>
-<th>字段</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>0</td>
-<td>1</td>
-<td>结果</td>
-<td>0x00=成功, 0x01=失败</td>
-</tr>
-<tr>
-<td>1</td>
-<td>1</td>
-<td>prot[7:4] + mode[3:0]</td>
-<td>同 SET 格式</td>
-</tr>
-<tr>
-<td>2</td>
-<td>1</td>
-<td>SPD</td>
-<td>速率等级</td>
-</tr>
-<tr>
-<td>3</td>
-<td>1</td>
-<td>CH</td>
-<td>信道</td>
-</tr>
-</tbody>
-</table>
-<p><strong>QUERY_NID (0x105, data[0] = 0x03) / SET_NID (0x105, data[0] = 0x04):</strong></p>
-<table>
-<thead>
-<tr>
-<th>偏移</th>
-<th>长度</th>
-<th>字段</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>0</td>
-<td>1</td>
-<td>命令</td>
-<td>0x03 = QUERY_NID, 0x04 = SET_NID</td>
-</tr>
-<tr>
-<td>4-7</td>
-<td>4</td>
-<td>NID</td>
-<td>uint32_t BE (仅 SET_NID 携带)</td>
-</tr>
-</tbody>
-</table>
-<p><strong>NID 响应 (0x106, DLC 8):</strong></p>
-<table>
-<thead>
-<tr>
-<th>偏移</th>
-<th>长度</th>
-<th>字段</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>0</td>
-<td>1</td>
-<td>结果</td>
-<td>0x00=成功, 0x01=失败</td>
-</tr>
-<tr>
-<td>4-7</td>
-<td>4</td>
-<td>NID</td>
-<td>uint32_t BE</td>
-</tr>
-</tbody>
-</table>
-<p><strong>QUERY_GWID (0x105, data[0] = 0x05) / SET_GWID (0x105, data[0] = 0x06):</strong></p>
-<table>
-<thead>
-<tr>
-<th>偏移</th>
-<th>长度</th>
-<th>字段</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>0</td>
-<td>1</td>
-<td>命令</td>
-<td>0x05 = QUERY_GWID, 0x06 = SET_GWID</td>
-</tr>
-<tr>
-<td>4-7</td>
-<td>4</td>
-<td>GWID</td>
-<td>uint32_t BE (仅 SET_GWID 携带)</td>
-</tr>
-</tbody>
-</table>
-<p><strong>GWID 响应 (0x106, DLC 8):</strong></p>
-<table>
-<thead>
-<tr>
-<th>偏移</th>
-<th>长度</th>
-<th>字段</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>0</td>
-<td>1</td>
-<td>结果</td>
-<td>0x00=成功, 0x01=失败</td>
-</tr>
-<tr>
-<td>4-7</td>
-<td>4</td>
-<td>GWID</td>
-<td>uint32_t BE</td>
-</tr>
-</tbody>
-</table>
-<h3 id="canlora">CAN/LoRa 连接切换<a class="headerlink" href="#canlora" title="Permanent link">&para;</a></h3>
+<h3 id="can24g">CAN/2.4G 连接切换<a class="headerlink" href="#can24g" title="Permanent link">&para;</a></h3>
 <p>系统默认 <code>connect_type = CAN_TYPE</code>，通过 link_switch 按键 (PA10) 手动切换：</p>
 <ol>
-<li>按下 link_switch → ISR → k_work → CAN ↔ LoRa 切换</li>
-<li>切换时关闭对方外设电源 (lora_deinit/can_power_enable)</li>
+<li>按下 link_switch → ISR → k_work → CAN ↔ 2.4G 切换</li>
+<li>切换时关闭对方外设电源 (rf24_deinit/can_power_enable)</li>
 <li>切换时即时刷新 OLED Row 0</li>
 <li>CAN 模式：角度/按键变化时通过 CAN 发送，心跳线程周期发送手柄状态帧</li>
-<li>LoRa 模式：角度/按键变化时通过 LoRa 发送遥测帧，LoRa 心跳线程维护链路检测</li>
+<li>2.4G 模式：角度/按键变化时通过 nRF24 发送遥测帧，RX 线程接收扫描仪数据</li>
 </ol>
-<h2 id="lora">LoRa 统一帧格式<a class="headerlink" href="#lora" title="Permanent link">&para;</a></h2>
-<p>数据模式完整帧 (含帧头帧尾):</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>[0xAA][0x55][NID 4B BE][Length 2B BE][Data NB][CRC16-CCITT 2B BE][\r\n]
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>  帧头      ───────── 统一帧 ──────────                   帧尾
+<h2 id="24g-nrf24l01">2.4G 无线帧格式 (nRF24L01+)<a class="headerlink" href="#24g-nrf24l01" title="Permanent link">&para;</a></h2>
+<p>单包 ≤ 32 字节，帧格式遵循 CAN ID + 数据模式：</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>[CAN ID 2B BE][payload 0~30B]
 </span></code></pre></div>
-<p>CRC 覆盖: NID + Length + Data (不含帧头帧尾)。AT 模式使用纯文本，不使用帧头帧尾。</p>
-<table>
-<thead>
-<tr>
-<th>帧类型</th>
-<th>方向</th>
-<th>Data 内容</th>
-<th>总长度</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>遥测/心跳</td>
-<td>手柄→网关</td>
-<td><code>[0x01][X 2B][Y 2B][btn][0xFF×3]</code> (9B)</td>
-<td>17 字节</td>
-</tr>
-<tr>
-<td>心跳 ACK</td>
-<td>网关→手柄</td>
-<td>空 (Length=0)</td>
-<td>8 字节</td>
-</tr>
-<tr>
-<td>RSSI 请求</td>
-<td>手柄→网关</td>
-<td><code>[0x03]</code> (1B)</td>
-<td>9 字节</td>
-</tr>
-<tr>
-<td>RSSI 响应</td>
-<td>网关→手柄</td>
-<td><code>[0x03][rssi 1B]</code> (2B)</td>
-<td>10 字节</td>
-</tr>
-<tr>
-<td>扫描仪数据</td>
-<td>网关→手柄</td>
-<td><code>[Type][CAN ID 2B BE][CAN data NB]</code></td>
-<td>变长</td>
-</tr>
-<tr>
-<td>测试数据</td>
-<td>双向</td>
-<td><code>[0x02][payload NB]</code></td>
-<td>变长</td>
-</tr>
-</tbody>
-</table>
-<h3 id="lora-data-9-0x01-can-0x1e3-8">LoRa 遥测数据 (Data 9 字节, 类型 0x01 + 与 CAN 0x1E3 一致的 8 字节)<a class="headerlink" href="#lora-data-9-0x01-can-0x1e3-8" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>偏移</th>
-<th>长度</th>
-<th>字段</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>0-1</td>
-<td>2</td>
-<td>coord_x</td>
-<td>int16_t BE, 单位 0.1°</td>
-</tr>
-<tr>
-<td>2-3</td>
-<td>2</td>
-<td>coord_y</td>
-<td>int16_t BE, 单位 0.1°</td>
-</tr>
-<tr>
-<td>4</td>
-<td>1</td>
-<td>btn flags</td>
-<td>bit0: btnHandler(反转), 按下=0, 松开=1</td>
-</tr>
-<tr>
-<td>5-7</td>
-<td>3</td>
-<td>reserved</td>
-<td>固定 0xFF</td>
-</tr>
-</tbody>
-</table>
-<h3 id="lora_1">LoRa 扫描仪数据 (网关→手柄)<a class="headerlink" href="#lora_1" title="Permanent link">&para;</a></h3>
-<p>Data 字段 = <code>[Type 1B] + [CAN frame ID 2B BE] + [CAN data bytes]</code>，与 CAN 帧数据一致，复用 <code>mod_can_parse_scanner</code> 解析。</p>
-<h3 id="lora_2">LoRa 链路检测<a class="headerlink" href="#lora_2" title="Permanent link">&para;</a></h3>
 <ul>
-<li>心跳线程仅 <code>connect_type == LORA_TYPE</code> 时运行</li>
-<li>周期发送遥测帧，等待网关 ACK (空载荷帧)</li>
-<li>连续 3 次超时 → <code>lora_connected = false</code></li>
-<li>收到任何合法帧 (NID 匹配 + CRC 正确) → <code>lora_connected = true</code></li>
-<li><code>lora_is_connected()</code> 供外部查询链路状态</li>
+<li><strong>发送</strong> (手柄→网关): ID = 0x1E3 (HANDLER_STATE)，payload = <code>[x 2B BE][y 2B BE][btn][0xFF 3B]</code>，与 CAN 帧内容一致</li>
+<li><strong>接收</strong> (网关→手柄): 按 CAN ID 分发，支持 0x263 / 0x363 / 0x463，剥离 ID 后构造临时 <code>can_frame</code> 复用 <code>mod_can_parse_scanner()</code> 解析</li>
 </ul>
-<h3 id="lora_3">LoRa 网关参数<a class="headerlink" href="#lora_3" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>参数</th>
-<th>AT 指令</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>协议</td>
-<td>AT+LORAPROT</td>
-<td>NODE (点对点), LG210 (默认), LG220</td>
-</tr>
-<tr>
-<td>工作模式</td>
-<td>AT+WMODE</td>
-<td>FP (点对点), TRANS (透传, 默认), NET (组网)</td>
-</tr>
-<tr>
-<td>速率</td>
-<td>AT+SPD</td>
-<td>1-12, 默认 10</td>
-</tr>
-<tr>
-<td>信道</td>
-<td>AT+CH</td>
-<td>0-127, 默认 72 (470MHz)</td>
-</tr>
-<tr>
-<td>网关 ID</td>
-<td>AT+GWID</td>
-<td>uint32_t, 组网模式有效</td>
-</tr>
-<tr>
-<td>节点 ID</td>
-<td>AT+NID</td>
-<td>uint32_t</td>
-</tr>
-</tbody>
-</table>
+<h3 id="nrf24l01">nRF24L01+ 中断驱动收发<a class="headerlink" href="#nrf24l01" title="Permanent link">&para;</a></h3>
+<p>驱动 (<code>drivers/nrf24l01p/</code>) 采用中断驱动模型（参考 Zephyr MCP2515 CAN 驱动）：</p>
+<ul>
+<li><strong>IRQ 引脚</strong>下降沿 → ISR (<code>k_sem_give</code>，不碰 SPI) → 驱动内置 <code>nrf24_irq</code> 线程</li>
+<li><strong>接收</strong>: IRQ 线程读 STATUS，循环排空 RX FIFO，每帧以 <code>K_NO_WAIT</code> 投递到用户注册的 msgq (<code>nrf24_add_rx_msgq</code>) 或回调 (<code>nrf24_add_rx_callback</code>)</li>
+<li><strong>发送</strong>: <code>nrf24_send()</code> 切 PTX → CE 脉冲触发 → 等待 IRQ 线程处理 TX_DS(ACK)/MAX_RT(重传耗尽) → 返回 <code>nrf24_tx_result {acked, elapsed_ms, retransmits}</code> → 自动切回 PRX</li>
+</ul>
 <h2 id="shell">Shell 命令<a class="headerlink" href="#shell" title="Permanent link">&para;</a></h2>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>link can                                  -- 切换到 CAN 模式
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>link lora                                 -- 切换到 LoRa 模式
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>lora send &lt;data&gt;                           -- 透传模式发送
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>lora at &lt;cmd&gt;                              -- 发送 AT 指令 (自动进入 AT 模式, 支持直接输入 AT+ 前缀)
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>lora exit                                  -- 退出 AT 模式
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>lora gw config [prot] [mode] [spd] [ch]   -- 配置通信参数
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>  prot: node, lg210 (default), lg220
-</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>  mode: trans (default), fp, net
-</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>lora gw query                              -- 查询当前通信参数
-</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>lora nid [hex_value]                       -- 查询/设置节点 ID
-</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>lora gwid [hex_value]                      -- 查询/设置网关 ID
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>link can       -- 切换到 CAN 模式
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>link rf24      -- 切换到 2.4G (nRF24L01+) 模式
 </span></code></pre></div>
 <h2 id="ota">OTA 升级流程<a class="headerlink" href="#ota" title="Permanent link">&para;</a></h2>
 <ol>
@@ -2665,9 +2194,24 @@
 <td>CAN1, 250Kbps</td>
 </tr>
 <tr>
-<td>LoRa UART</td>
-<td>PA3 / PA2</td>
-<td>USART2, 115200bps (WH-L101-L, DMA1 CH6/CH7)</td>
+<td>nRF24 SPI</td>
+<td>PB13 / PB14 / PB15</td>
+<td>SPI2 (SCK/MISO/MOSI)</td>
+</tr>
+<tr>
+<td>nRF24 CS</td>
+<td>PB12</td>
+<td>SPI2 片选</td>
+</tr>
+<tr>
+<td>nRF24 CE</td>
+<td>PA9</td>
+<td>片使能</td>
+</tr>
+<tr>
+<td>nRF24 IRQ</td>
+<td>PC6</td>
+<td>中断输入 (下降沿)</td>
 </tr>
 <tr>
 <td>调试串口</td>
@@ -2695,7 +2239,7 @@
 <td>GPIO 输出</td>
 </tr>
 <tr>
-<td>LoRa 电源</td>
+<td>nRF24 电源</td>
 <td>PC9</td>
 <td>GPIO 输出</td>
 </tr>
@@ -2726,60 +2270,53 @@
 </tr>
 <tr>
 <td>充电满</td>
-<td>PB12</td>
+<td>PA3</td>
 <td>GPIO 输入上拉，低有效</td>
 </tr>
 <tr>
 <td>充电中</td>
-<td>PB13</td>
+<td>PA2</td>
 <td>GPIO 输入上拉，低有效</td>
 </tr>
 <tr>
 <td>电源键</td>
-<td>PB14</td>
+<td>PA1</td>
 <td>GPIO 输入上拉</td>
 </tr>
 <tr>
 <td>Link Switch</td>
 <td>PA10</td>
-<td>GPIO 输入上拉 (CAN/LoRa 手动切换)</td>
-</tr>
-<tr>
-<td>LoRa HOSTWAKE</td>
-<td>PA0</td>
-<td>GPIO 输入</td>
-</tr>
-<tr>
-<td>LoRa RESET</td>
-<td>PB3</td>
-<td>GPIO 输出</td>
+<td>GPIO 输入上拉 (CAN/2.4G 手动切换)</td>
 </tr>
 </tbody>
 </table>
 <h2 id="_9">目录结构<a class="headerlink" href="#_9" title="Permanent link">&para;</a></h2>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>include/
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>  common.h          -- 全局状态类型 (gloval_params_t, scanner_data_t, 事件位定义)
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>  mod-can.h         -- CAN 协议定义 + OTA 接口 + LoRa 配参命令/结果枚举
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>  lora.h            -- LoRa 驱动接口 (透传/AT/遥测/网关配置/NID-GWID管理/链路检测/统一帧常量)
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>  common.h          -- 全局状态类型 (global_params_t, scanner_data_t, 事件位定义)
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>  mod-can.h         -- CAN 协议定义 + OTA 接口
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>  rf24.h            -- 2.4G 无线接口 (nRF24L01+ 封装: telemetry/data_send/init/deinit)
 </span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>  display.h         -- 显示模块接口
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>  mod-gpio.h        -- GPIO 电源控制 + 按键 + 电池状态 + CAN/LoRa 切换
-</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>  battery_icons.h   -- 电池图标位图 (24x16, 4 级电量 + 充电动画)
-</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>  label_icons.h     -- 连接类型标签图标位图 (8x16, CAN/LORA)
-</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>  signal_icons.h    -- LoRa 信号强度图标位图 (16x16, 0-4 级)
-</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>src/
-</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>  main.c            -- 入口 + 主循环 (休眠/唤醒事件驱动)
-</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>  can.c             -- CAN 收发 + 心跳线程 + 手柄状态上报 + 扫描仪数据解析 + LoRa 远程配参
-</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>  firmware.c        -- OTA 固件升级状态机
-</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a>  lora.c            -- LoRa UART async+DMA + 遥测帧 + 接收数据分发 + 心跳线程 + 网关管理 + Shell
-</span><span id="__span-6-15"><a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a>  font_8x16.c       -- 8x16 ASCII 字体位图 (95 字符)
-</span><span id="__span-6-16"><a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a>  adc.c             -- ADC 操纵杆角度采集 + 电源电压采样
-</span><span id="__span-6-17"><a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a>  gpio.c            -- GPIO 按键防抖 + 电源管理 + CAN/LoRa 切换 + 休眠/唤醒 + Shell
-</span><span id="__span-6-18"><a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a>  display.c         -- SH1106 OLED 显示 (8x16 文本 + 位图图标, display_str_pad 防残留)
-</span><span id="__span-6-19"><a id="__codelineno-6-19" name="__codelineno-6-19" href="#__codelineno-6-19"></a>boards/
-</span><span id="__span-6-20"><a id="__codelineno-6-20" name="__codelineno-6-20" href="#__codelineno-6-20"></a>  lora_f103rct6.overlay  -- 板级 Devicetree 覆盖
-</span><span id="__span-6-21"><a id="__codelineno-6-21" name="__codelineno-6-21" href="#__codelineno-6-21"></a>sysbuild.conf            -- MCUBoot sysbuild 配置
-</span><span id="__span-6-22"><a id="__codelineno-6-22" name="__codelineno-6-22" href="#__codelineno-6-22"></a>sysbuild/mcuboot.conf    -- MCUBoot 编译参数
-</span><span id="__span-6-23"><a id="__codelineno-6-23" name="__codelineno-6-23" href="#__codelineno-6-23"></a>VERSION                  -- 版本号定义
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>  mod-gpio.h        -- GPIO 电源控制 + 按键 + 电池状态 + CAN/2.4G 切换
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>  persist.h         -- Settings 持久化 (connect_type)
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>  battery_icons.h   -- 电池图标位图 (24x16, 4 级电量 + 充电动画)
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>  label_icons.h     -- 连接类型标签图标位图 (8x16, label_can/label_rf24)
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>  signal_icons.h    -- 信号强度图标位图 (16x16, 0-4 级)
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>src/
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>  main.c            -- 入口 + 主循环 (休眠/唤醒事件驱动)
+</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>  can.c             -- CAN 收发 + 心跳线程 + 手柄状态上报 + 扫描仪数据解析
+</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a>  firmware.c        -- OTA 固件升级状态机
+</span><span id="__span-6-15"><a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a>  rf24.c            -- 2.4G 无线 (nRF24L01+) + msgq 驱动 RX 线程 + 遥测发送
+</span><span id="__span-6-16"><a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a>  font_8x16.c       -- 8x16 ASCII 字体位图 (95 字符)
+</span><span id="__span-6-17"><a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a>  font_5x8.c        -- 5x8 ASCII 字体位图
+</span><span id="__span-6-18"><a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a>  adc.c             -- ADC 操纵杆角度采集 + 电源电压采样
+</span><span id="__span-6-19"><a id="__codelineno-6-19" name="__codelineno-6-19" href="#__codelineno-6-19"></a>  gpio.c            -- GPIO 按键防抖 + 电源管理 + CAN/2.4G 切换 + 休眠/唤醒 + Shell
+</span><span id="__span-6-20"><a id="__codelineno-6-20" name="__codelineno-6-20" href="#__codelineno-6-20"></a>  display.c         -- SH1106 OLED 显示 (8x16 文本 + 位图图标, display_str_pad 防残留)
+</span><span id="__span-6-21"><a id="__codelineno-6-21" name="__codelineno-6-21" href="#__codelineno-6-21"></a>  persist.c         -- Settings 持久化 (connect_type)
+</span><span id="__span-6-22"><a id="__codelineno-6-22" name="__codelineno-6-22" href="#__codelineno-6-22"></a>boards/
+</span><span id="__span-6-23"><a id="__codelineno-6-23" name="__codelineno-6-23" href="#__codelineno-6-23"></a>  lora_f103rct6.overlay  -- 板级 Devicetree 覆盖
+</span><span id="__span-6-24"><a id="__codelineno-6-24" name="__codelineno-6-24" href="#__codelineno-6-24"></a>sysbuild.conf            -- MCUBoot sysbuild 配置
+</span><span id="__span-6-25"><a id="__codelineno-6-25" name="__codelineno-6-25" href="#__codelineno-6-25"></a>sysbuild/mcuboot.conf    -- MCUBoot 编译参数
+</span><span id="__span-6-26"><a id="__codelineno-6-26" name="__codelineno-6-26" href="#__codelineno-6-26"></a>VERSION                  -- 版本号定义 (0.1.4-release)
 </span></code></pre></div>
 
 
