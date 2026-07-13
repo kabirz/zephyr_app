@@ -2,7 +2,7 @@
 
 config NRF24L01P
 	bool "Nordic nRF24L01+ 2.4GHz radio driver"
-	default y
+	default n
 	depends on SPI
 	help
 	  Enable driver for the Nordic nRF24L01+ 2.4GHz transceiver
