@@ -25,7 +25,6 @@ typedef struct {
 } scanner_data_t;
 
 #define WAKE_EVENT     BIT(0)
-#define CAN_RX_EVENT   BIT(1)
 #define CAN_EVENT      BIT(2)
 #define RF24_EVENT     BIT(3) /* 2.4G (nRF24L01+) 无线模式事件 */
 

@@ -12,7 +12,6 @@
 #include <zephyr/logging/log.h>
 #include <common.h>
 #include <display.h>
-#include <mod-can.h>
 #include <rf24.h>
 #include <mod-gpio.h>
 #include <persist.h>
@@ -55,10 +54,10 @@ void connect_switch(uint8_t type)
 		k_event_clear(&global_params.event, RF24_EVENT);
 		rf24_deinit();
 		can_power_enable(true);
-		k_event_post(&global_params.event, CAN_EVENT | CAN_RX_EVENT);
+		k_event_post(&global_params.event, CAN_EVENT);
 		mod_display_can();
 	} else {
-		k_event_clear(&global_params.event, CAN_EVENT | CAN_RX_EVENT);
+		k_event_clear(&global_params.event, CAN_EVENT);
 		can_power_enable(false);
 		rf24_init();
 		k_event_post(&global_params.event, RF24_EVENT);

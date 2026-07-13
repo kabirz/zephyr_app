@@ -12,9 +12,7 @@
 #include <zephyr/drivers/adc.h>
 #include <common.h>
 #include <display.h>
-#include <mod-can.h>
 #include <mod-gpio.h>
-#include <rf24.h>
 
 LOG_MODULE_REGISTER(adc_reader, LOG_LEVEL_INF);
 
