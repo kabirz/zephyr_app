@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * 通用链路发送：按 connect_type 分派 CAN / 2.4G (nRF24L01+)。
- * send_handler_state 由事件驱动调用点 (gpio/adc) 与周期心跳线程复用。
+ * - send_handler_state：事件驱动发送手柄状态帧 (HANDLER_STATE)，由 gpio/adc 调用。
+ * - heart_thread：周期发送心跳保活帧 (COBID_HEATBEAT)，CAN/RF24 共用。
  */
 
 #include <zephyr/kernel.h>
@@ -34,7 +35,7 @@ int send_handler_state(const uint8_t *data, uint8_t len)
 	}
 }
 
-/* 统一心跳：周期上报手柄状态，按 connect_type 自动分派 CAN/RF24。
+/* 周期心跳保活：发送 0x763 心跳帧，按 connect_type 走 CAN/RF24。
  * 等 CAN_EVENT 或 RF24_EVENT 任一置位（connect_switch 切换时置位）。
  */
 static void heart_thread(void)
@@ -45,23 +46,18 @@ static void heart_thread(void)
 			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
 			continue;
 		}
-		uint8_t buf[8];
-		sys_put_be16((uint16_t)global_params.x_degree, &buf[0]);
-		sys_put_be16((uint16_t)global_params.y_degree, &buf[2]);
-		buf[4] = global_params.h_button;
-		uint8_t len;
+		/* 心跳保活帧：参照 CAN heart，帧 ID 0x763 (COBID_HEATBEAT)，数据 1 字节 (0x05) */
+		uint8_t heartbeat = 5;
 		if (global_params.connect_type == CAN_TYPE) {
-			buf[5] = buf[6] = buf[7] = 0xFF;
-			len = 8;
+			struct can_frame frame = {
+				.id = COBID_HEATBEAT,
+				.dlc = can_bytes_to_dlc(1),
+			};
+			frame.data[0] = heartbeat;
+			mod_can_send(&frame);
 		} else {
-			buf[5] = buf[6] = 0xFF;
-			len = 7;
+			rf24_data_send(COBID_HEATBEAT, &heartbeat, 1);
 		}
-		if (global_params.log) {
-			LOG_INF("x: %d, y: %d, button: %d",
-				global_params.x_degree, global_params.y_degree, global_params.h_button);
-		}
-		send_handler_state(buf, len);
 		k_sleep(K_MSEC(global_params.report_period));
 	}
 }
