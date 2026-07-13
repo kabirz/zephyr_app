@@ -95,19 +95,6 @@ bool rf24_data_send(uint16_t can_id, const uint8_t *data, size_t len)
 	return true;
 }
 
-bool rf24_send_telemetry(const global_params_t *params)
-{
-	uint8_t payload[7];
-
-	sys_put_be16((uint16_t)params->x_degree, &payload[0]);
-	sys_put_be16((uint16_t)params->y_degree, &payload[2]);
-	payload[4] = params->h_button;
-	payload[5] = 0xFF;
-	payload[6] = 0xFF;
-
-	return rf24_data_send(HANDLER_STATE, payload, sizeof(payload));
-}
-
 bool rf24_get_link_status(void)
 {
 	return true;

@@ -47,3 +47,20 @@ int send_handler_state(const global_params_t *params)
 		return rf24_data_send(HANDLER_STATE, payload, sizeof(payload)) ? 0 : -EIO;
 	}
 }
+
+/* 统一心跳：周期上报手柄状态，按 connect_type 自动分派 CAN/RF24。
+ * 等 CAN_EVENT 或 RF24_EVENT 任一置位（connect_switch 切换时置位）。
+ */
+static void heart_thread(void)
+{
+	while (true) {
+		k_event_wait(&global_params.event, CAN_EVENT | RF24_EVENT, false, K_FOREVER);
+		if (global_params.sleeping) {
+			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
+			continue;
+		}
+		send_handler_state(&global_params);
+		k_sleep(K_MSEC(global_params.report_period));
+	}
+}
+K_THREAD_DEFINE(thread_heart, 1024, heart_thread, NULL, NULL, NULL, 11, 0, 0);

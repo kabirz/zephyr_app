@@ -45,16 +45,6 @@ void rf24_deinit(void);
 bool rf24_data_send(uint16_t can_id, const uint8_t *data, size_t len);
 
 /**
- * @brief 打包并发送手柄遥测帧 (CAN ID = HANDLER_STATE)
- *
- * 载荷: [x 2B BE][y 2B BE][btn 1B][0xFF][0xFF][0xFF]
- *
- * @param params 全局参数
- * @return true 发送成功, false 失败
- */
-bool rf24_send_telemetry(const global_params_t *params);
-
-/**
  * @brief 2.4G 链路状态
  *
  * nRF24L01+ 无硬件链路指示, 简化为常返回 true (假设在线).

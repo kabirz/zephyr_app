@@ -9,7 +9,6 @@ enum {
 	PLATFORM_RX = 0x101,
 	PLATFORM_TX = 0x102,
 	FW_DATA_RX = 0x103,
-	COBID_HEATBEAT = 0x763,
 	HANDLER_STATE = 0x1E3,
 	OVERBREAK_LASER = 0x263,
 	COORD_XY = 0x363,
@@ -52,14 +51,6 @@ struct image_fw_msg {
 };
 int fw_update(struct can_frame *frame);
 int mod_can_send(struct can_frame *frame);
-
-/**
- * @brief 通过 CAN 发送手柄状态帧 (0x1E3, 大端序)
- *
- * @param params 全局参数
- * @return 0 成功, 负数失败
- */
-int mod_can_send_handler_state(const global_params_t *params);
 
 /**
  * @brief 解析扫描仪 CAN 数据 (0x263/0x363/0x463)
