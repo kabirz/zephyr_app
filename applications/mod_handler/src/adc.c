@@ -130,11 +130,7 @@ void adc_read_thread(void)
 		}
 
 		/* 上报 */
-		if (global_params.connect_type == CAN_TYPE) {
-			mod_can_send_handler_state(&global_params);
-		} else {
-			rf24_send_telemetry(&global_params);
-		}
+		send_handler_state(&global_params);
 		uint32_t diff = k_uptime_get_32() - t1;
 		uint32_t sleep_ms = global_params.connect_type == CAN_TYPE ? CAN_SLEEP_MS : RF24_SLEEP_MS;
 		if (diff < sleep_ms) {

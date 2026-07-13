@@ -46,11 +46,7 @@ static void btn_display_work_handler(struct k_work *work)
 	LOG_INF("handler button: %d", global_params.h_button);
 	last_activity_time = k_uptime_get_32();
 
-	if (global_params.connect_type == CAN_TYPE) {
-		mod_can_send_handler_state(&global_params);
-	} else {
-		rf24_send_telemetry(&global_params);
-	}
+	send_handler_state(&global_params);
 }
 
 void connect_switch(uint8_t type)
