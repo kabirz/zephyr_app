@@ -39,6 +39,23 @@ void rf24_init(void)
 		LOG_ERR("nRF24 device not ready");
 		return;
 	}
+
+	/* 应用持久化的地址和信道配置 */
+	if (global_params.rf24_channel <= RF24_ADDR_MAX_CH) {
+		struct nrf24_cfg cfg = {
+			.channel = global_params.rf24_channel,
+			.address_width = RF24_ADDR_LEN,
+			.tx_addr = global_params.rf24_addr,
+		};
+
+		nrf24_configure(rf24_dev, &cfg);
+		LOG_INF("nRF24 configured: ch=%d addr=%02x%02x%02x%02x%02x",
+			global_params.rf24_channel,
+			global_params.rf24_addr[0], global_params.rf24_addr[1],
+			global_params.rf24_addr[2], global_params.rf24_addr[3],
+			global_params.rf24_addr[4]);
+	}
+
 	/* 注册 msgq: 驱动 IRQ 线程收到帧后投递到这里 */
 	nrf24_add_rx_msgq(rf24_dev, &rf24_rx_msgq);
 	/* 进入 PRX 接收模式并拉高 CE */

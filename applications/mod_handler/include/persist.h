@@ -12,4 +12,7 @@
 /** 保存当前 connect_type 到 settings */
 void persist_save_connect_type(void);
 
+/** 保存当前 rf24_channel + rf24_addr 到 settings */
+void persist_save_rf24_config(void);
+
 #endif

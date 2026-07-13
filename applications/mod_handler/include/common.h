@@ -44,6 +44,10 @@ typedef struct {
 	volatile bool sleeping;
 	struct k_event event;
 	bool log;
+#define RF24_ADDR_LEN 5
+#define RF24_ADDR_MAX_CH 125
+	uint8_t rf24_channel;
+	uint8_t rf24_addr[RF24_ADDR_LEN];
 } global_params_t;
 
 extern global_params_t global_params;

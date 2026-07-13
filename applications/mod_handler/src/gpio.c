@@ -8,6 +8,7 @@
  */
 
 #include <stdlib.h>
+#include <string.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/byteorder.h>
@@ -20,6 +21,39 @@
 #include <persist.h>
 
 LOG_MODULE_REGISTER(power_gpio, LOG_LEVEL_INF);
+
+/**
+ * @brief 将 12 字节 STM32 UID 转换为 5 字节唯一 SN 码
+ *
+ * 算法: CRC32 低 4 字节 + XOR 校验字节
+ * - 对 12 字节 UID 做 CRC32，取低 4 字节作为 SN[0..3]
+ * - SN[4] = SN[0] ^ SN[1] ^ SN[2] ^ SN[3] (校验字节)
+ *
+ * @param uid 12 字节 UID 输入
+ * @param sn  5 字节 SN 输出
+ */
+static void uid_to_sn(const uint8_t *uid, uint8_t *sn)
+{
+	uint32_t crc = 0xFFFFFFFF;
+
+	/* CRC32 计算 */
+	for (int i = 0; i < 12; i++) {
+		crc ^= uid[i];
+		for (int j = 0; j < 8; j++) {
+			crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1));
+		}
+	}
+
+	/* 取低 4 字节 */
+	sn[0] = crc & 0xFF;
+	sn[1] = (crc >> 8) & 0xFF;
+	sn[2] = (crc >> 16) & 0xFF;
+	sn[3] = (crc >> 24) & 0xFF;
+
+	/* 校验字节 */
+	sn[4] = sn[0] ^ sn[1] ^ sn[2] ^ sn[3];
+}
+
 #define USER_NODE DT_PATH(zephyr_user)
 static const struct gpio_dt_spec charge_full = GPIO_DT_SPEC_GET(USER_NODE, chargefull_gpios);
 static const struct gpio_dt_spec charging = GPIO_DT_SPEC_GET(USER_NODE, charging_gpios);
@@ -223,6 +257,17 @@ static int power_init(void)
 	global_params.report_period = REPORT_PERIOD_MS;
 	global_params.connect_type = CAN_TYPE;
 	global_params.log = false;
+
+	/* 读取芯片唯一码，转换为 5 字节地址 (SN) */
+	const uint8_t *uid = (const uint8_t *)UID_BASE;
+
+	uid_to_sn(uid, global_params.rf24_addr);
+	LOG_INF("SN: %02x%02x%02x%02x%02x",
+		global_params.rf24_addr[0], global_params.rf24_addr[1],
+		global_params.rf24_addr[2], global_params.rf24_addr[3],
+		global_params.rf24_addr[4]);
+	global_params.rf24_channel = 76; /* nRF24 默认信道 */
+
 	k_event_init(&global_params.event);
 	k_event_post(&global_params.event, CAN_EVENT);
 
@@ -332,6 +377,23 @@ SYS_INIT(power_init, PRE_KERNEL_2, 1);
 
 #ifdef CONFIG_SHELL
 #include <zephyr/shell/shell.h>
+#include <rf24.h>
+#include <nrf24l01p.h>
+
+static int cmd_link_log(const struct shell *ctx, size_t argc, char **argv)
+{
+	if (argc < 2) {
+		shell_print(ctx, "log: %s", global_params.log ? "on" : "off");
+		return 0;
+	}
+
+	int val = (int)strtol(argv[1], NULL, 10);
+
+	global_params.log = (val != 0);
+	shell_print(ctx, "log: %s", global_params.log ? "on" : "off");
+	return 0;
+}
+
 static int cmd_link_can(const struct shell *ctx, size_t argc, char **argv)
 {
 	ARG_UNUSED(argc);
@@ -391,10 +453,49 @@ static int cmd_link_test(const struct shell *ctx, size_t argc, char **argv)
 	return 0;
 }
 
+/* 设置 nRF24 信道: link rf24_ch <0-125> */
+static int cmd_link_rf24_ch(const struct shell *ctx, size_t argc, char **argv)
+{
+	if (argc < 2) {
+		shell_print(ctx, "rf24 channel: %d", global_params.rf24_channel);
+		return 0;
+	}
+
+	int ch = (int)strtol(argv[1], NULL, 10);
+
+	if (ch < 0 || ch > RF24_ADDR_MAX_CH) {
+		shell_error(ctx, "invalid channel: %d (0-%d)", ch, RF24_ADDR_MAX_CH);
+		return -EINVAL;
+	}
+
+	global_params.rf24_channel = (uint8_t)ch;
+	shell_print(ctx, "rf24 channel set to: %d", global_params.rf24_channel);
+	return 0;
+}
+
+/* 查询当前 rf24 配置: link rf24_get */
+static int cmd_link_rf24_get(const struct shell *ctx, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	char addr_str[RF24_ADDR_LEN * 2 + 1] = {0};
+
+	for (int i = 0; i < RF24_ADDR_LEN; i++) {
+		snprintf(addr_str + i * 2, 3, "%02x", global_params.rf24_addr[i]);
+	}
+	shell_print(ctx, "rf24 channel: %d", global_params.rf24_channel);
+	shell_print(ctx, "rf24 addr:   %s", addr_str);
+	return 0;
+}
+
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_link_cmds,
-	SHELL_CMD(can, NULL, "Switch to CAN", cmd_link_can),
-	SHELL_CMD(rf24, NULL, "Switch to 2.4G (nRF24L01+)", cmd_link_rf24),
-	SHELL_CMD(test, NULL, "Test current link [count]", cmd_link_test),
+	SHELL_CMD_ARG(can, NULL, "Switch to CAN", cmd_link_can, 1, 0),
+	SHELL_CMD_ARG(rf24, NULL, "Switch to 2.4G (nRF24L01+)", cmd_link_rf24, 1, 0),
+	SHELL_CMD_ARG(test, NULL, "Test current link [count]", cmd_link_test, 1, 1),
+	SHELL_CMD_ARG(log, NULL, "Enable/disable debug log [0/1]", cmd_link_log, 1, 1),
+	SHELL_CMD_ARG(rf24_ch, NULL, "Get/set nRF24 channel [0-125]", cmd_link_rf24_ch, 1, 1),
+	SHELL_CMD_ARG(rf24_get, NULL, "Query current nRF24 config", cmd_link_rf24_get, 1, 0),
 	SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(link, &sub_link_cmds, "Link switch commands", NULL);

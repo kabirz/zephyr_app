@@ -11,7 +11,9 @@
 #include <display.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/logging/log.h>
+#include <rf24.h>
 #include <common.h>
+#include <persist.h>
 LOG_MODULE_REGISTER(mod_can, LOG_LEVEL_INF);
 
 static const struct device *can_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_canbus));
@@ -28,6 +30,9 @@ static void mod_canrx_msg_handler(struct can_frame *frame)
 	case COORD_XY:
 	case COORD_Z:
 		mod_can_parse_scanner(frame);
+		break;
+	case RF24_CONFIG_CMD:
+		mod_can_rf24_config(frame);
 		break;
 	default:
 		LOG_ERR("can frame id (0x%x) is not support", frame->id);
@@ -99,6 +104,9 @@ int mod_can_init(void)
 	can_add_rx_filter_msgq(can_dev, &mod_can_msgq, &filter);
 
 	filter.id = COORD_Z;
+	can_add_rx_filter_msgq(can_dev, &mod_can_msgq, &filter);
+
+	filter.id = RF24_CONFIG_CMD;
 	can_add_rx_filter_msgq(can_dev, &mod_can_msgq, &filter);
 end:
 	return err;
@@ -179,4 +187,74 @@ void mod_can_parse_scanner(struct can_frame *frame)
 
 	/* 解析完成后刷新扫描仪数据显示 */
 	mod_display_scanner(s);
+}
+
+/* ================================================================
+ * nRF24 配置 CAN 命令 (0x104)
+ *
+ * CMD SET_CHANNEL (0x01): Byte 0=cmd, Byte 1=channel, Byte 2-7=reserved
+ * CMD GET_CONFIG  (0x02): Byte 0=cmd, Byte 1-7=reserved
+ * RESP (0x105): [cmd 1B][channel 1B][addr 5B][reserved 1B]
+ * ================================================================ */
+
+static void rf24_send_config_resp(uint8_t cmd)
+{
+	uint8_t buf[8] = {0};
+
+	buf[0] = cmd;
+	buf[1] = global_params.rf24_channel;
+	memcpy(&buf[2], global_params.rf24_addr, RF24_ADDR_LEN);
+
+	struct can_frame resp = {
+		.id = RF24_CONFIG_RESP,
+		.dlc = can_bytes_to_dlc(8),
+	};
+
+	memcpy(resp.data, buf, 8);
+	int ret = mod_can_send(&resp);
+
+	if (ret == 0) {
+		LOG_INF("RF24 RESP: cmd=0x%02x ch=%d addr=%02x%02x%02x%02x%02x",
+			cmd, global_params.rf24_channel,
+			global_params.rf24_addr[0], global_params.rf24_addr[1],
+			global_params.rf24_addr[2], global_params.rf24_addr[3],
+			global_params.rf24_addr[4]);
+	} else {
+		LOG_ERR("RF24 RESP send failed: %d", ret);
+	}
+}
+
+void mod_can_rf24_config(struct can_frame *frame)
+{
+	if (frame->dlc < 1) {
+		return;
+	}
+
+	uint8_t cmd = frame->data[0];
+
+	switch (cmd) {
+	case RF24_CMD_SET_CHANNEL: {
+		if (frame->dlc < 2) {
+			LOG_WRN("RF24 SET_CH: dlc too short");
+			return;
+		}
+		uint8_t channel = frame->data[1];
+
+		if (channel > RF24_ADDR_MAX_CH) {
+			LOG_WRN("RF24 SET_CH: invalid channel %d", channel);
+			return;
+		}
+		global_params.rf24_channel = channel;
+		persist_save_rf24_config();
+		LOG_INF("RF24 SET_CH: ch=%d", channel);
+		rf24_send_config_resp(cmd);
+		break;
+	}
+	case RF24_CMD_GET_CONFIG:
+		rf24_send_config_resp(cmd);
+		break;
+	default:
+		LOG_WRN("RF24 CONFIG: unknown cmd 0x%02x", cmd);
+		break;
+	}
 }
