@@ -933,10 +933,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#can-lora" class="md-nav__link">
+  <a href="#can-24g" class="md-nav__link">
     <span class="md-ellipsis">
       
-        CAN / LoRa 通信链路
+        CAN / 2.4G 通信链路
       
     </span>
   </a>
@@ -1407,10 +1407,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#can-lora" class="md-nav__link">
+  <a href="#can-24g" class="md-nav__link">
     <span class="md-ellipsis">
       
-        CAN / LoRa 通信链路
+        CAN / 2.4G 通信链路
       
     </span>
   </a>
@@ -1495,41 +1495,39 @@
     SYS["SYS_INIT 初始化&lt;br/&gt;power_init / gpio_init"]
     MAIN(["main 主循环&lt;br/&gt;事件驱动休眠/唤醒&lt;br/&gt;10 分钟无操作自动休眠"])
 
-    CAN["CAN 收发线程&lt;br/&gt;priority 11 栈 2048&lt;br/&gt;消息收发 协议分发 OTA"]
-    HEART["CAN 心跳线程&lt;br/&gt;priority 11 栈 1024&lt;br/&gt;400ms 心跳 + 0x1E3 上报"]
+    CAN["CAN 收发线程&lt;br/&gt;priority 8 栈 2048&lt;br/&gt;消息收发 协议分发 OTA"]
+    HEART["CAN 心跳线程&lt;br/&gt;priority 11 栈 1024&lt;br/&gt;800ms 心跳 + 0x1E3 上报"]
 
-    LORA["LoRa 处理线程&lt;br/&gt;priority 12 栈 1024&lt;br/&gt;UART async+DMA 帧解析"]
-    LHEART["LoRa 心跳线程&lt;br/&gt;priority 12 栈 1024&lt;br/&gt;仅 LORA_TYPE 遥测 + ACK"]
+    RF24["2.4G 接收线程&lt;br/&gt;priority 8 栈 1024&lt;br/&gt;rf24_rx_msgq 取帧 按 CAN ID 分发"]
+    IRQ["nRF24 IRQ 线程&lt;br/&gt;驱动内 priority 2 栈 1024&lt;br/&gt;中断底半部 排空 FIFO 处理 TX"]
 
-    ADC["ADC 采集线程&lt;br/&gt;priority 7 栈 1024&lt;br/&gt;X/Y 角度 500ms 电压 5s"]
-    CFG["LoRa 配参工作队列&lt;br/&gt;priority 8 栈 2048&lt;br/&gt;CAN 远程配参异步"]
+    ADC["ADC 采集线程&lt;br/&gt;priority 7 角度 / 8 电压 栈 1024&lt;br/&gt;X/Y 角度周期 + 电压 200ms"]
 
     SYS --&gt; MAIN
     SYS --&gt; CAN
     SYS --&gt; HEART
-    SYS --&gt; LORA
-    SYS --&gt; LHEART
+    SYS --&gt; RF24
+    SYS --&gt; IRQ
     SYS --&gt; ADC
-    SYS --&gt; CFG
 
     GP["global_params_t&lt;br/&gt;全局状态共享"]
     CAN -. 读写 .-&gt; GP
-    LORA -. 读写 .-&gt; GP
+    RF24 -. 读写 .-&gt; GP
     ADC -. 读写 .-&gt; GP</code></pre>
-<h3 id="can-lora">CAN / LoRa 通信链路<a class="headerlink" href="#can-lora" title="Permanent link">&para;</a></h3>
+<h3 id="can-24g">CAN / 2.4G 通信链路<a class="headerlink" href="#can-24g" title="Permanent link">&para;</a></h3>
 <p>双通道冗余链路，默认 CAN，可通过 link_switch 按键（PA10）手动切换。切换时关闭对方电源并重新初始化。帧 ID 详见 <a href="../applications/mod-handler/">mod_handler 文档</a>。</p>
 <pre class="mmd"><code>flowchart LR
     subgraph H["mod_handler 手柄"]
-        CTRL["connect_type&lt;br/&gt;CAN_TYPE / LORA_TYPE"]
+        CTRL["connect_type&lt;br/&gt;CAN_TYPE / RF24_TYPE"]
         SW["link_switch 按键&lt;br/&gt;PA10 手动切换链路"]
     end
 
     PLATFORM["平台 / 上位机"]
-    GW["USR-LG210-L LoRa 网关"]
+    GW["2.4G 网关 (nRF24L01+)"]
     SCANNER["激光扫描仪"]
 
     CTRL &lt;--&gt;|"CAN 250Kbps"| PLATFORM
-    CTRL &lt;--&gt;|"LoRa 透传 + CRC16"| GW
+    CTRL &lt;--&gt;|"2.4G nRF24L01+ (硬件 ACK)"| GW
     GW --- SCANNER
     PLATFORM -.-&gt;|"扫描仪数据"| SCANNER</code></pre>
 <h3 id="ota">OTA 固件升级流程<a class="headerlink" href="#ota" title="Permanent link">&para;</a></h3>
@@ -1551,7 +1549,7 @@
     B-&gt;&gt;B: swap-with-scratch 安全切换
     B-&gt;&gt;M: 运行新镜像</code></pre>
 <h3 id="_3">系统休眠 / 唤醒状态机<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h3>
-<p>电源键触发或 10 分钟无操作自动休眠，关闭所有外设电源（CAN / LoRa / 显示 / 手柄）；唤醒时重新上电并刷新显示。</p>
+<p>电源键触发或 10 分钟无操作自动休眠，关闭所有外设电源（CAN / 2.4G / 显示 / 手柄）；唤醒时重新上电并刷新显示。</p>
 <pre class="mmd"><code>stateDiagram-v2
     [*] --&gt; Running
     Running --&gt; Sleeping: 电源键 / 10 分钟无操作
@@ -1561,14 +1559,14 @@
     Sleeping: 已休眠
 
     note right of Sleeping
-        关闭 CAN/LoRa/显示/手柄电源
-        lora_deinit 停止 DMA
+        关闭 CAN/2.4G/显示/手柄电源
+        rf24_deinit (POWER_DOWN + 断电)
         sleeping = true
     end note
 
     note right of Running
         重新上电所有外设
-        LoRa 模式下 lora_init
+        2.4G 模式下 rf24_init
         200ms 后 reinit 显示
     end note</code></pre>
 <h2 id="data_collect">data_collect 数据流<a class="headerlink" href="#data_collect" title="Permanent link">&para;</a></h2>

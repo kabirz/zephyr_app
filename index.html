@@ -1403,7 +1403,7 @@
 <li>
 <p><span class="twemoji lg middle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M7 6h10a6 6 0 0 1 6 6 6 6 0 0 1-6 6c-1.78 0-3.37-.77-4.47-2h-1.06c-1.1 1.23-2.69 2-4.47 2a6 6 0 0 1-6-6 6 6 0 0 1 6-6M6 9v2H4v2h2v2h2v-2h2v-2H8V9zm9.5 3a1.5 1.5 0 0 0-1.5 1.5 1.5 1.5 0 0 0 1.5 1.5 1.5 1.5 0 0 0 1.5-1.5 1.5 1.5 0 0 0-1.5-1.5m3-3a1.5 1.5 0 0 0-1.5 1.5 1.5 1.5 0 0 0 1.5 1.5 1.5 1.5 0 0 0 1.5-1.5A1.5 1.5 0 0 0 18.5 9"/></svg></span> <strong>mod_handler 手持控制器</strong></p>
 <hr />
-<p>操纵杆采集 + OLED 显示 + CAN/LoRa 双链路 + OTA 升级，激光测距远程操控。</p>
+<p>操纵杆采集 + OLED 显示 + CAN/2.4G 双链路 + OTA 升级，激光测距远程操控。</p>
 <p><a href="applications/mod-handler/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> 查看文档</a></p>
 </li>
 <li>
@@ -1418,9 +1418,9 @@
 <ul>
 <li><strong>统一构建</strong>：基于 west + CMake + sysbuild（MCUboot bootloader）</li>
 <li><strong>安全升级</strong>：MCUboot swap-with-scratch，支持 CAN/FTP/smp 多通道 OTA</li>
-<li><strong>丰富外设</strong>：ADC、CAN、LoRa、SPI Flash、OLED、Ethernet、USB</li>
+<li><strong>丰富外设</strong>：ADC、CAN、nRF24L01+ 2.4G、SPI Flash、OLED、Ethernet、USB</li>
 <li><strong>多板支持</strong>：STM32F1/F4/H7 系列自定义板</li>
-<li><strong>协议完善</strong>：CANopen、Modbus、自定义 CAN/LoRa 二进制协议</li>
+<li><strong>协议完善</strong>：CANopen、Modbus、自定义 CAN/2.4G 二进制协议</li>
 </ul>
 <h2 id="_2">快速开始<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># 1. 获取源码</span>

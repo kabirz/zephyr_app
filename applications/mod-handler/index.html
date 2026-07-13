@@ -1829,13 +1829,13 @@
 </ul>
 <h2 id="_3">构建<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
 <div class="language-shell highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># 标准构建（含 MCUBoot sysbuild）</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>west<span class="w"> </span>build<span class="w"> </span>-b<span class="w"> </span>lora_f103rct6<span class="w"> </span>.<span class="w"> </span>--sysbuild
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>west<span class="w"> </span>build<span class="w"> </span>-b<span class="w"> </span>nrf24_f103rct6<span class="w"> </span>.<span class="w"> </span>--sysbuild
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># 带 shell 和 imgmgr 调试工具</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>west<span class="w"> </span>build<span class="w"> </span>-b<span class="w"> </span>lora_f103rct6<span class="w"> </span>.<span class="w"> </span>--sysbuild<span class="w"> </span>-Dmod_handler_SNIPPET<span class="o">=</span>imgmgr-shell
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>west<span class="w"> </span>build<span class="w"> </span>-b<span class="w"> </span>nrf24_f103rct6<span class="w"> </span>.<span class="w"> </span>--sysbuild<span class="w"> </span>-Dmod_handler_SNIPPET<span class="o">=</span>imgmgr-shell
 </span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
 </span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># 清理重建</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>west<span class="w"> </span>build<span class="w"> </span>-b<span class="w"> </span>lora_f103rct6<span class="w"> </span>.<span class="w"> </span>--sysbuild<span class="w"> </span>--pristine
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>west<span class="w"> </span>build<span class="w"> </span>-b<span class="w"> </span>nrf24_f103rct6<span class="w"> </span>.<span class="w"> </span>--sysbuild<span class="w"> </span>--pristine
 </span></code></pre></div>
 <h2 id="_4">烧录<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h2>
 <p>sysbuild 构建包含 mcuboot + app，在 build 根目录执行 west flash 会按 flash_order 依次烧录全部镜像。默认使用 pyocd：</p>
@@ -2313,7 +2313,7 @@
 </span><span id="__span-6-20"><a id="__codelineno-6-20" name="__codelineno-6-20" href="#__codelineno-6-20"></a>  display.c         -- SH1106 OLED 显示 (8x16 文本 + 位图图标, display_str_pad 防残留)
 </span><span id="__span-6-21"><a id="__codelineno-6-21" name="__codelineno-6-21" href="#__codelineno-6-21"></a>  persist.c         -- Settings 持久化 (connect_type)
 </span><span id="__span-6-22"><a id="__codelineno-6-22" name="__codelineno-6-22" href="#__codelineno-6-22"></a>boards/
-</span><span id="__span-6-23"><a id="__codelineno-6-23" name="__codelineno-6-23" href="#__codelineno-6-23"></a>  lora_f103rct6.overlay  -- 板级 Devicetree 覆盖
+</span><span id="__span-6-23"><a id="__codelineno-6-23" name="__codelineno-6-23" href="#__codelineno-6-23"></a>  nrf24_f103rct6.overlay  -- 板级 Devicetree 覆盖
 </span><span id="__span-6-24"><a id="__codelineno-6-24" name="__codelineno-6-24" href="#__codelineno-6-24"></a>sysbuild.conf            -- MCUBoot sysbuild 配置
 </span><span id="__span-6-25"><a id="__codelineno-6-25" name="__codelineno-6-25" href="#__codelineno-6-25"></a>sysbuild/mcuboot.conf    -- MCUBoot 编译参数
 </span><span id="__span-6-26"><a id="__codelineno-6-26" name="__codelineno-6-26" href="#__codelineno-6-26"></a>VERSION                  -- 版本号定义 (0.1.4-release)
