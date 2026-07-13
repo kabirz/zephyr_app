@@ -6,7 +6,7 @@
 |------|-----|------|------|-------------|----------|
 | `stm32f407` | STM32F407VETx | Cortex-M4F | 168 MHz | 512 KB / 192 KB | data_collect（DAQ） |
 | `apollo_h743ii` | STM32H743IITx | Cortex-M7 | 480 MHz | 2 MB / 1 MB | data_collect（高性能） |
-| `lora_f103rct6` | STM32F103RCT6 | Cortex-M3 | 72 MHz | 256 KB / 48 KB | mod_handler 手持控制器 |
+| `nrf24_f103rct6` | STM32F103RCT6 | Cortex-M3 | 72 MHz | 256 KB / 48 KB | mod_handler 手持控制器 |
 | `laser_f103ret7` | STM32F103RET6 | Cortex-M3 | 72 MHz | 512 KB / 64 KB | laser_ctrl 激光控制 |
 | `can_f103_rct6` | STM32F103RCT6 | Cortex-M3 | 72 MHz | 256 KB / 48 KB | CAN 通信应用 |
 | `stm32f103_bluepill` | STM32F103C8T6 | Cortex-M3 | 72 MHz | 64 KB / 20 KB | 通用调试 / ZephyrLink |

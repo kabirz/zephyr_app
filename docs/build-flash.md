@@ -19,10 +19,10 @@
 === "mod_handler"
 
     ```bash
-    west build -b lora_f103rct6 apps/applications/mod_handler --sysbuild
+    west build -b nrf24_f103rct6 apps/applications/mod_handler --sysbuild
 
     # 带 shell 与 imgmgr 调试工具
-    west build -b lora_f103rct6 apps/applications/mod_handler --sysbuild \
+    west build -b nrf24_f103rct6 apps/applications/mod_handler --sysbuild \
         -Dmod_handler_SNIPPET=imgmgr-shell
     ```
 

@@ -4,7 +4,7 @@ on:
     tags:
       - "v*.mod"
     paths:
-      - boards/lora_f103rct6
+      - boards/nrf24_f103rct6
       - applications/mod_handler
       - zephyr4_4.yml
   workflow_dispatch:
@@ -43,7 +43,7 @@ jobs:
         shell: bash
         run: |
           set -e
-          west build -b lora_f103rct6 apps/applications/mod_handler --sysbuild
+          west build -b nrf24_f103rct6 apps/applications/mod_handler --sysbuild
           west archive --no-rebuild -o mod_handler
 
           echo "IMAGE_ZIP=mod_handler.zip" >>  $GITHUB_ENV

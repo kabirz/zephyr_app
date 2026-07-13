@@ -33,13 +33,13 @@
 
 ```shell
 # 标准构建（含 MCUBoot sysbuild）
-west build -b lora_f103rct6 . --sysbuild
+west build -b nrf24_f103rct6 . --sysbuild
 
 # 带 shell 和 imgmgr 调试工具
-west build -b lora_f103rct6 . --sysbuild -Dmod_handler_SNIPPET=imgmgr-shell
+west build -b nrf24_f103rct6 . --sysbuild -Dmod_handler_SNIPPET=imgmgr-shell
 
 # 清理重建
-west build -b lora_f103rct6 . --sysbuild --pristine
+west build -b nrf24_f103rct6 . --sysbuild --pristine
 ```
 
 ## 烧录
@@ -274,7 +274,7 @@ src/
   display.c         -- SH1106 OLED 显示 (8x16 文本 + 位图图标, display_str_pad 防残留)
   persist.c         -- Settings 持久化 (connect_type)
 boards/
-  lora_f103rct6.overlay  -- 板级 Devicetree 覆盖
+  nrf24_f103rct6.overlay  -- 板级 Devicetree 覆盖
 sysbuild.conf            -- MCUBoot sysbuild 配置
 sysbuild/mcuboot.conf    -- MCUBoot 编译参数
 VERSION                  -- 版本号定义 (0.1.4-release)

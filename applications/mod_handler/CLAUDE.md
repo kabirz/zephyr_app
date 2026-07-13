@@ -5,7 +5,7 @@
 mod_handler 是一个运行在 STM32F103RCT6 (ARM Cortex-M3, 72MHz, 256KB Flash, 48KB RAM) 上的 Zephyr RTOS 嵌入式应用。它作为激光测距系统的**手持控制器模块**，负责采集操纵杆角度、电池状态，并通过 CAN 总线或 2.4G 无线 (nRF24L01+) 与激光设备通信，同时提供 OLED 显示、系统休眠和 OTA 固件升级能力。
 
 - **版本**: 0.1.4-release
-- **硬件平台**: lora_f103rct6 (自定义板)
+- **硬件平台**: nrf24_f103rct6 (自定义板)
 - **Bootloader**: MCUBoot (swap-with-scratch 模式)
 - **无线模块**: Nordic nRF24L01+ (SPI 接口，2.4GHz，中断驱动)
 - **许可证**: Apache-2.0
@@ -78,10 +78,10 @@ main() + SYS_INIT
 
 ```shell
 # 标准构建（带 MCUBoot sysbuild）
-west build -b lora_f103rct6 . --sysbuild
+west build -b nrf24_f103rct6 . --sysbuild
 
 # 带 shell 和 imgmgr snippet
-west build -b lora_f103rct6 . --sysbuild -Dmod_handler_SNIPPET=imgmgr-shell
+west build -b nrf24_f103rct6 . --sysbuild -Dmod_handler_SNIPPET=imgmgr-shell
 ```
 
 ### 烧录
@@ -93,12 +93,12 @@ west flash
 ### 清理重建
 
 ```shell
-west build -b lora_f103rct6 . --sysbuild --pristine
+west build -b nrf24_f103rct6 . --sysbuild --pristine
 ```
 
 ### 硬件连接 (devicetree overlay)
 
-板级 overlay 定义在 `boards/lora_f103rct6.overlay`，核心引脚分配:
+板级 overlay 定义在 `boards/nrf24_f103rct6.overlay`，核心引脚分配:
 
 | 功能 | 引脚 | 说明 |
 |------|------|------|
@@ -195,7 +195,7 @@ src/
   display.c         -- SH1106 OLED 显示 (8x16 文本 + 位图图标, display_str_pad 防残留, global_params 定义)
   persist.c         -- Settings 持久化 (connect_type, FCB 后端)
 boards/
-  lora_f103rct6.overlay  -- 板级 devicetree 覆盖
+  nrf24_f103rct6.overlay  -- 板级 devicetree 覆盖
 sysbuild.conf            -- MCUBoot 配置
 sysbuild/mcuboot.conf    -- MCUBoot 参数
 VERSION                  -- 版本号 (0.1.4-release)
@@ -235,7 +235,7 @@ VERSION                  -- 版本号 (0.1.4-release)
 ## AI 使用指引
 
 - 修改 CAN 协议时，同步更新 `mod-can.h` 中的枚举定义
-- 添加新外设时，先在 `boards/lora_f103rct6.overlay` 的 `zephyr,user` 节点中定义引脚，然后在对应驱动中用 `GPIO_DT_SPEC_GET` / `ADC_DT_SPEC_GET_BY_IDX` 获取
+- 添加新外设时，先在 `boards/nrf24_f103rct6.overlay` 的 `zephyr,user` 节点中定义引脚，然后在对应驱动中用 `GPIO_DT_SPEC_GET` / `ADC_DT_SPEC_GET_BY_IDX` 获取
 - `global_params_t` 中 `connect_type` 使用 `CAN_TYPE (1)` / `RF24_TYPE (2)` 区分连接类型，通过 link_switch (PA10) 手动切换
 - `global_params` 定义在 `display.c`，声明在 `common.h`
 - 事件位定义: `WAKE_EVENT BIT(0)`, `CAN_RX_EVENT BIT(1)`, `CAN_EVENT BIT(2)`, `RF24_EVENT BIT(3)`
@@ -261,4 +261,4 @@ VERSION                  -- 版本号 (0.1.4-release)
 - 系统休眠: `system_sleep()` 关闭所有外设电源 (can/rf24/dis/handler_power_enable + rf24_deinit)，设置 `sleeping = true`，clear WAKE_EVENT
 - 系统唤醒: `system_wake()` 重新上电所有外设，2.4G 模式下调用 `rf24_init()`，等待 200ms 后 `mod_display_reinit()` + `mod_display_all()`，设置 `sleeping = false`
 - nRF24 电源时序封装在 `rf24_init/deinit` 内: init = `rf24_power_enable(true)` + 等 10ms + `nrf24_start_rx`；deinit = `nrf24_set_mode(POWER_DOWN)` + `rf24_power_enable(false)`（先软关机再断电，避免 SPI 引脚悬空）
-- 历史命名说明: 部分标识保留 LoRa 命名（如板名 `lora_f103rct6`），但代码中无线相关符号已统一为 RF24 前缀 (RF24_TYPE/RF24_EVENT/mod_display_rf24/label_rf24/connect_switch/link rf24)
+- 命名说明: 板名 `nrf24_f103rct6` 取自 nRF24L01+ 射频芯片；代码中无线相关符号统一为 RF24 前缀 (RF24_TYPE/RF24_EVENT/mod_display_rf24/label_rf24/connect_switch/link rf24)

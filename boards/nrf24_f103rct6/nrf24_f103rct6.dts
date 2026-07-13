@@ -9,7 +9,7 @@
 #include <st/f1/stm32f103r(c-d-e)tx-pinctrl.dtsi>
 
 / {
-	model = "lora_f103rct6 board";
+	model = "nrf24_f103rct6 board";
 	compatible = "stm32f103";
 
 	chosen {

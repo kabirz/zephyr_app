@@ -1,5 +1,5 @@
-identifier: lora_f103rct6
-name: lora F103RCT6 Board
+identifier: nrf24_f103rct6
+name: nrf24 F103RCT6 Board
 type: mcu
 arch: arm
 toolchain:

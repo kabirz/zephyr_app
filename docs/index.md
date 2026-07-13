@@ -24,7 +24,7 @@
 
     ---
 
-    操纵杆采集 + OLED 显示 + CAN/LoRa 双链路 + OTA 升级，激光测距远程操控。
+    操纵杆采集 + OLED 显示 + CAN/2.4G 双链路 + OTA 升级，激光测距远程操控。
 
     [:octicons-arrow-right-24: 查看文档](applications/mod-handler.md)
 
@@ -42,9 +42,9 @@
 
 - **统一构建**：基于 west + CMake + sysbuild（MCUboot bootloader）
 - **安全升级**：MCUboot swap-with-scratch，支持 CAN/FTP/smp 多通道 OTA
-- **丰富外设**：ADC、CAN、LoRa、SPI Flash、OLED、Ethernet、USB
+- **丰富外设**：ADC、CAN、nRF24L01+ 2.4G、SPI Flash、OLED、Ethernet、USB
 - **多板支持**：STM32F1/F4/H7 系列自定义板
-- **协议完善**：CANopen、Modbus、自定义 CAN/LoRa 二进制协议
+- **协议完善**：CANopen、Modbus、自定义 CAN/2.4G 二进制协议
 
 ## 快速开始
 

@@ -13,46 +13,44 @@ flowchart TD
     SYS["SYS_INIT 初始化<br/>power_init / gpio_init"]
     MAIN(["main 主循环<br/>事件驱动休眠/唤醒<br/>10 分钟无操作自动休眠"])
 
-    CAN["CAN 收发线程<br/>priority 11 栈 2048<br/>消息收发 协议分发 OTA"]
-    HEART["CAN 心跳线程<br/>priority 11 栈 1024<br/>400ms 心跳 + 0x1E3 上报"]
+    CAN["CAN 收发线程<br/>priority 8 栈 2048<br/>消息收发 协议分发 OTA"]
+    HEART["CAN 心跳线程<br/>priority 11 栈 1024<br/>800ms 心跳 + 0x1E3 上报"]
 
-    LORA["LoRa 处理线程<br/>priority 12 栈 1024<br/>UART async+DMA 帧解析"]
-    LHEART["LoRa 心跳线程<br/>priority 12 栈 1024<br/>仅 LORA_TYPE 遥测 + ACK"]
+    RF24["2.4G 接收线程<br/>priority 8 栈 1024<br/>rf24_rx_msgq 取帧 按 CAN ID 分发"]
+    IRQ["nRF24 IRQ 线程<br/>驱动内 priority 2 栈 1024<br/>中断底半部 排空 FIFO 处理 TX"]
 
-    ADC["ADC 采集线程<br/>priority 7 栈 1024<br/>X/Y 角度 500ms 电压 5s"]
-    CFG["LoRa 配参工作队列<br/>priority 8 栈 2048<br/>CAN 远程配参异步"]
+    ADC["ADC 采集线程<br/>priority 7 角度 / 8 电压 栈 1024<br/>X/Y 角度周期 + 电压 200ms"]
 
     SYS --> MAIN
     SYS --> CAN
     SYS --> HEART
-    SYS --> LORA
-    SYS --> LHEART
+    SYS --> RF24
+    SYS --> IRQ
     SYS --> ADC
-    SYS --> CFG
 
     GP["global_params_t<br/>全局状态共享"]
     CAN -. 读写 .-> GP
-    LORA -. 读写 .-> GP
+    RF24 -. 读写 .-> GP
     ADC -. 读写 .-> GP
 ```
 
-### CAN / LoRa 通信链路
+### CAN / 2.4G 通信链路
 
 双通道冗余链路，默认 CAN，可通过 link_switch 按键（PA10）手动切换。切换时关闭对方电源并重新初始化。帧 ID 详见 [mod_handler 文档](applications/mod-handler.md)。
 
 ```mermaid
 flowchart LR
     subgraph H["mod_handler 手柄"]
-        CTRL["connect_type<br/>CAN_TYPE / LORA_TYPE"]
+        CTRL["connect_type<br/>CAN_TYPE / RF24_TYPE"]
         SW["link_switch 按键<br/>PA10 手动切换链路"]
     end
 
     PLATFORM["平台 / 上位机"]
-    GW["USR-LG210-L LoRa 网关"]
+    GW["2.4G 网关 (nRF24L01+)"]
     SCANNER["激光扫描仪"]
 
     CTRL <-->|"CAN 250Kbps"| PLATFORM
-    CTRL <-->|"LoRa 透传 + CRC16"| GW
+    CTRL <-->|"2.4G nRF24L01+ (硬件 ACK)"| GW
     GW --- SCANNER
     PLATFORM -.->|"扫描仪数据"| SCANNER
 ```
@@ -82,7 +80,7 @@ sequenceDiagram
 
 ### 系统休眠 / 唤醒状态机
 
-电源键触发或 10 分钟无操作自动休眠，关闭所有外设电源（CAN / LoRa / 显示 / 手柄）；唤醒时重新上电并刷新显示。
+电源键触发或 10 分钟无操作自动休眠，关闭所有外设电源（CAN / 2.4G / 显示 / 手柄）；唤醒时重新上电并刷新显示。
 
 ```mermaid
 stateDiagram-v2
@@ -94,14 +92,14 @@ stateDiagram-v2
     Sleeping: 已休眠
 
     note right of Sleeping
-        关闭 CAN/LoRa/显示/手柄电源
-        lora_deinit 停止 DMA
+        关闭 CAN/2.4G/显示/手柄电源
+        rf24_deinit (POWER_DOWN + 断电)
         sleeping = true
     end note
 
     note right of Running
         重新上电所有外设
-        LoRa 模式下 lora_init
+        2.4G 模式下 rf24_init
         200ms 后 reinit 显示
     end note
 ```
