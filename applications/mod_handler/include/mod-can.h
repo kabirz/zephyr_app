@@ -41,8 +41,6 @@ enum {
 	LASER_FW_UPDATE,
 };
 
-#define CAN_HEART_TIME 800
-
 #include <zephyr/dfu/flash_img.h>
 #include <zephyr/dfu/mcuboot.h>
 #include <zephyr/storage/flash_map.h>

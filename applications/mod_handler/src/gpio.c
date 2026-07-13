@@ -213,7 +213,7 @@ static int power_init(void)
 		return ret;
 	}
 
-	global_params.can_heart_time = CAN_HEART_TIME;
+	global_params.report_period = REPORT_PERIOD_MS;
 	global_params.connect_type = CAN_TYPE;
 	global_params.log = false;
 	k_event_init(&global_params.event);

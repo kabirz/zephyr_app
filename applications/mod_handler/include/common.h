@@ -36,8 +36,9 @@ typedef struct {
 	uint32_t power_mv;
 #define CAN_TYPE   1
 #define RF24_TYPE  2 /* 2.4G (nRF24L01+) 无线模式 */
+#define REPORT_PERIOD_MS 800   /* 周期状态上报间隔，CAN/RF24 共用 */
 	uint8_t connect_type;
-	uint32_t can_heart_time;
+	uint32_t report_period;
 	battery_status_t battery_status;
 	scanner_data_t scanner;
 	uint8_t rssi;
