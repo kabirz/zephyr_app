@@ -7,12 +7,14 @@
  * 电源控制: CAN/2.4G(nRF24)/显示/手柄 4 路 GPIO 独立使能
  */
 
+#include <stdlib.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/logging/log.h>
 #include <common.h>
 #include <display.h>
+#include <mod-can.h>
 #include <rf24.h>
 #include <mod-gpio.h>
 #include <persist.h>
@@ -50,19 +52,12 @@ static void btn_display_work_handler(struct k_work *work)
 	sys_put_be16((uint16_t)global_params.x_degree, &buf[0]);
 	sys_put_be16((uint16_t)global_params.y_degree, &buf[2]);
 	buf[4] = global_params.h_button;
-	uint8_t len;
-	if (global_params.connect_type == CAN_TYPE) {
-		buf[5] = buf[6] = buf[7] = 0xFF;
-		len = 8;
-	} else {
-		buf[5] = buf[6] = 0xFF;
-		len = 7;
-	}
+	buf[5] = buf[6] = buf[7] = 0xff;
 	if (global_params.log) {
 		LOG_INF("x: %d, y: %d, button: %d",
 			global_params.x_degree, global_params.y_degree, global_params.h_button);
 	}
-	send_handler_state(buf, len);
+	send_handler_state(buf, 8);
 }
 
 void connect_switch(uint8_t type)
@@ -355,9 +350,51 @@ static int cmd_link_rf24(const struct shell *ctx, size_t argc, char **argv)
 	return 0;
 }
 
+/* 测试当前链路通信：发 count 次 TEST_FRAME，统计成功/失败 */
+static int cmd_link_test(const struct shell *ctx, size_t argc, char **argv)
+{
+	int count = 10;
+
+	if (argc > 1) {
+		count = (int)strtol(argv[1], NULL, 10);
+		if (count < 1) {
+			count = 1;
+		} else if (count > 100) {
+			count = 100;
+		}
+	}
+
+	int ok = 0, failed = 0;
+
+	for (int i = 0; i < count; i++) {
+		uint8_t seq = (uint8_t)i;
+		bool success;
+
+		if (global_params.connect_type == CAN_TYPE) {
+			struct can_frame frame = {
+				.id = TEST_FRAME,
+				.dlc = can_bytes_to_dlc(1),
+			};
+			frame.data[0] = seq;
+			success = mod_can_send(&frame) >= 0;
+		} else {
+			success = rf24_data_send(TEST_FRAME, &seq, 1);
+		}
+		if (success) {
+			ok++;
+		} else {
+			failed++;
+		}
+	}
+
+	shell_print(ctx, "test: %d sent, %d ok, %d failed", count, ok, failed);
+	return 0;
+}
+
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_link_cmds,
 	SHELL_CMD(can, NULL, "Switch to CAN", cmd_link_can),
 	SHELL_CMD(rf24, NULL, "Switch to 2.4G (nRF24L01+)", cmd_link_rf24),
+	SHELL_CMD(test, NULL, "Test current link [count]", cmd_link_test),
 	SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(link, &sub_link_cmds, "Link switch commands", NULL);
