@@ -9,6 +9,7 @@
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/sys/byteorder.h>
 #include <zephyr/logging/log.h>
 #include <common.h>
 #include <display.h>
@@ -45,7 +46,23 @@ static void btn_display_work_handler(struct k_work *work)
 	LOG_INF("handler button: %d", global_params.h_button);
 	last_activity_time = k_uptime_get_32();
 
-	send_handler_state(&global_params);
+	uint8_t buf[8];
+	sys_put_be16((uint16_t)global_params.x_degree, &buf[0]);
+	sys_put_be16((uint16_t)global_params.y_degree, &buf[2]);
+	buf[4] = global_params.h_button;
+	uint8_t len;
+	if (global_params.connect_type == CAN_TYPE) {
+		buf[5] = buf[6] = buf[7] = 0xFF;
+		len = 8;
+	} else {
+		buf[5] = buf[6] = 0xFF;
+		len = 7;
+	}
+	if (global_params.log) {
+		LOG_INF("x: %d, y: %d, button: %d",
+			global_params.x_degree, global_params.y_degree, global_params.h_button);
+	}
+	send_handler_state(buf, len);
 }
 
 void connect_switch(uint8_t type)

@@ -9,6 +9,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/util.h>
+#include <zephyr/sys/byteorder.h>
 #include <zephyr/drivers/adc.h>
 #include <common.h>
 #include <display.h>
@@ -128,7 +129,23 @@ void adc_read_thread(void)
 		}
 
 		/* 上报 */
-		send_handler_state(&global_params);
+		uint8_t buf[8];
+		sys_put_be16((uint16_t)global_params.x_degree, &buf[0]);
+		sys_put_be16((uint16_t)global_params.y_degree, &buf[2]);
+		buf[4] = global_params.h_button;
+		uint8_t len;
+		if (global_params.connect_type == CAN_TYPE) {
+			buf[5] = buf[6] = buf[7] = 0xFF;
+			len = 8;
+		} else {
+			buf[5] = buf[6] = 0xFF;
+			len = 7;
+		}
+		if (global_params.log) {
+			LOG_INF("x: %d, y: %d, button: %d",
+				global_params.x_degree, global_params.y_degree, global_params.h_button);
+		}
+		send_handler_state(buf, len);
 		uint32_t diff = k_uptime_get_32() - t1;
 		uint32_t sleep_ms = global_params.connect_type == CAN_TYPE ? CAN_SLEEP_MS : RF24_SLEEP_MS;
 		if (diff < sleep_ms) {

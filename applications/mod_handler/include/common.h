@@ -48,8 +48,10 @@ typedef struct {
 
 extern global_params_t global_params;
 
-/* 按 connect_type 分派发送手柄状态帧 (CAN 0x1E3 / RF24 遥测)。返回 0 成功，<0 失败。*/
-int send_handler_state(const global_params_t *params);
+/* 按 connect_type 发送指定数据（CAN 帧 HANDLER_STATE / RF24 遥测）。
+ * data/len 由调用方组装（CAN 通常 8 字节，RF24 7 字节）。返回 0 成功，<0 失败。
+ */
+int send_handler_state(const uint8_t *data, uint8_t len);
 
 extern volatile uint32_t last_activity_time;
 

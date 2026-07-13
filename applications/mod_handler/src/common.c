@@ -9,6 +9,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/can.h>
 #include <zephyr/sys/byteorder.h>
+#include <string.h>
 #include <zephyr/logging/log.h>
 #include <common.h>
 #include <mod-can.h>
@@ -19,32 +20,17 @@ LOG_MODULE_REGISTER(common_link, LOG_LEVEL_INF);
 /* 手柄状态帧 (HANDLER_STATE=0x1E3)：[x 2B BE][y 2B BE][btn][0xFF...]
  * CAN 用 8 字节 dlc，RF24 用 7 字节 payload（无 CAN 的末字节 0xFF）。
  */
-int send_handler_state(const global_params_t *params)
+int send_handler_state(const uint8_t *data, uint8_t len)
 {
-	if (params->connect_type == CAN_TYPE) {
+	if (global_params.connect_type == CAN_TYPE) {
 		struct can_frame frame = {
 			.id = HANDLER_STATE,
-			.dlc = can_bytes_to_dlc(8),
+			.dlc = can_bytes_to_dlc(len),
 		};
-		sys_put_be16((uint16_t)params->x_degree, &frame.data[0]);
-		sys_put_be16((uint16_t)params->y_degree, &frame.data[2]);
-		frame.data[4] = params->h_button;
-		frame.data[5] = 0xFF;
-		frame.data[6] = 0xFF;
-		frame.data[7] = 0xFF;
-		if (params->log) {
-			LOG_INF("x: %d, y: %d, button: %d",
-				params->x_degree, params->y_degree, params->h_button);
-		}
+		memcpy(frame.data, data, len);
 		return mod_can_send(&frame);
 	} else {
-		uint8_t payload[7];
-		sys_put_be16((uint16_t)params->x_degree, &payload[0]);
-		sys_put_be16((uint16_t)params->y_degree, &payload[2]);
-		payload[4] = params->h_button;
-		payload[5] = 0xFF;
-		payload[6] = 0xFF;
-		return rf24_data_send(HANDLER_STATE, payload, sizeof(payload)) ? 0 : -EIO;
+		return rf24_data_send(HANDLER_STATE, data, len) ? 0 : -EIO;
 	}
 }
 
@@ -59,7 +45,23 @@ static void heart_thread(void)
 			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
 			continue;
 		}
-		send_handler_state(&global_params);
+		uint8_t buf[8];
+		sys_put_be16((uint16_t)global_params.x_degree, &buf[0]);
+		sys_put_be16((uint16_t)global_params.y_degree, &buf[2]);
+		buf[4] = global_params.h_button;
+		uint8_t len;
+		if (global_params.connect_type == CAN_TYPE) {
+			buf[5] = buf[6] = buf[7] = 0xFF;
+			len = 8;
+		} else {
+			buf[5] = buf[6] = 0xFF;
+			len = 7;
+		}
+		if (global_params.log) {
+			LOG_INF("x: %d, y: %d, button: %d",
+				global_params.x_degree, global_params.y_degree, global_params.h_button);
+		}
+		send_handler_state(buf, len);
 		k_sleep(K_MSEC(global_params.report_period));
 	}
 }
