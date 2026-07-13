@@ -59,6 +59,11 @@ rf24_send_telemetry()`，且都**不检查返回值**。
 
 ### 新建 `src/common.c`（通用发送逻辑模块）
 
+需 include：`<zephyr/kernel.h>`、`<zephyr/drivers/can.h>`（`struct can_frame` /
+`can_bytes_to_dlc`）、`<zephyr/sys/byteorder.h>`（`sys_put_be16`）、
+`<zephyr/logging/log.h>`（`LOG_INF`）、`<common.h>`、`<mod-can.h>`
+（`mod_can_send` / `HANDLER_STATE`）、`<rf24.h>`（`rf24_data_send`）。
+
 #### ① `send_handler_state`
 
 合并 `mod_can_send_handler_state` + `rf24_send_telemetry`，去掉 `heart_send_success`
@@ -115,7 +120,10 @@ K_THREAD_DEFINE(thread_heart, 1024, heart_thread, NULL, NULL, NULL, 11, 0, 0);
 
 ### `common.h` 变更
 - 新增声明：`int send_handler_state(const global_params_t *params);`
+- 新增宏 `#define REPORT_PERIOD_MS 800`（替代 `mod-can.h` 的 `CAN_HEART_TIME`，通道无关）。
 - 字段 `can_heart_time` → `report_period`（通用化，CAN/RF24 共用周期）。
+- 初始化点 `gpio.c:216`：`global_params.can_heart_time = CAN_HEART_TIME;`
+  → `global_params.report_period = REPORT_PERIOD_MS;`
 
 ### `CMakeLists.txt`
 - source list 加入 `src/common.c`。
@@ -150,6 +158,11 @@ K_THREAD_DEFINE(thread_heart, 1024, heart_thread, NULL, NULL, NULL, 11, 0, 0);
    `heart_send_success`，心跳=周期发手柄状态，CAN/RF24 完全对称。
 4. **去掉断连检测**：原 3 次失败停止逻辑移除。周期重发本身即容错，失败仅 log（YAGNI）。
 5. **心跳激活事件**：等 `CAN_EVENT | RF24_EVENT` 任一。
+6. **不再等首帧 CAN 数据确认**：原 `can_heart_thread` 用
+   `k_event_wait_all(CAN_EVENT | CAN_RX_EVENT)`，要求收到首帧 CAN 数据
+  （`CAN_RX_EVENT`，由 `mod_can_process_thread` 收首帧时 post）才开始心跳。新设计
+   去掉 `CAN_RX_EVENT` 依赖，`CAN_EVENT` 置位即周期上报——这是去掉断连检测的逻辑
+   延伸（主动周期探测，而非被动等待链路确认）。
 
 ## 风险与验证
 
@@ -157,6 +170,10 @@ K_THREAD_DEFINE(thread_heart, 1024, heart_thread, NULL, NULL, NULL, 11, 0, 0);
   验证：实现前与平台方确认 0x763 是否被依赖。
 - **断连无主动停止**：CAN 断连后仍周期重发 0x1E3（`can_send` 失败返回 <0，仅 log）。
   可接受——重连后自动恢复上报。
+- **RF24 模式新增并发**：原 RF24 无心跳线程，`rf24_tx_mutex` 只序列化 adc/gpio 事件
+  TX。新增 `heart_thread`（优先级 11）会周期与 adc(pri 7) / gpio 工作队列竞争同一
+  mutex。功能安全（mutex 保护），但高优先级心跳可能短暂延迟事件驱动 TX。验证项需
+  覆盖 RF24 模式下事件上报与周期心跳的交错。
 - **验证方式**：实现后 `west build -b nrf24_f103rct6 applications/mod_handler --sysbuild
   --pristine` 零警告；烧录后实测 CAN/RF24 两模式的事件驱动上报 + 周期心跳。
 ```
