@@ -9,6 +9,7 @@ target_include_directories(app PRIVATE include)
 target_sources(app PRIVATE
   src/adc.c
   src/can.c
+  src/common.c
   src/display.c
   src/firmware.c
   src/font_8x16.c
