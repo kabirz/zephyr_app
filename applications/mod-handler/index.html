@@ -2171,6 +2171,7 @@
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>link rf24      -- 切换到 2.4G (nRF24L01+) 模式
 </span></code></pre></div>
 <h2 id="ota">OTA 升级流程<a class="headerlink" href="#ota" title="Permanent link">&para;</a></h2>
+<p>使用 <code>libs/can_fw_upgrade</code> 共享库，协议与 gateway 一致。</p>
 <ol>
 <li>平台通过 CAN 帧 0x101 发送升级启动命令</li>
 <li>手柄初始化外部 SPI Flash 写入上下文</li>
@@ -2293,7 +2294,7 @@
 <h2 id="_9">目录结构<a class="headerlink" href="#_9" title="Permanent link">&para;</a></h2>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>include/
 </span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>  common.h          -- 全局状态类型 (global_params_t, scanner_data_t, 事件位定义)
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>  mod-can.h         -- CAN 协议定义 + OTA 接口
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>  mod-can.h         -- CAN 协议定义
 </span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>  rf24.h            -- 2.4G 无线接口 (nRF24L01+ 封装: telemetry/data_send/init/deinit)
 </span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>  display.h         -- 显示模块接口
 </span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>  mod-gpio.h        -- GPIO 电源控制 + 按键 + 电池状态 + CAN/2.4G 切换
@@ -2303,20 +2304,19 @@
 </span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>  signal_icons.h    -- 信号强度图标位图 (16x16, 0-4 级)
 </span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>src/
 </span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>  main.c            -- 入口 + 主循环 (休眠/唤醒事件驱动)
-</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>  can.c             -- CAN 收发 + 心跳线程 + 手柄状态上报 + 扫描仪数据解析
-</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a>  firmware.c        -- OTA 固件升级状态机
-</span><span id="__span-6-15"><a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a>  rf24.c            -- 2.4G 无线 (nRF24L01+) + msgq 驱动 RX 线程 + 遥测发送
-</span><span id="__span-6-16"><a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a>  font_8x16.c       -- 8x16 ASCII 字体位图 (95 字符)
-</span><span id="__span-6-17"><a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a>  font_5x8.c        -- 5x8 ASCII 字体位图
-</span><span id="__span-6-18"><a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a>  adc.c             -- ADC 操纵杆角度采集 + 电源电压采样
-</span><span id="__span-6-19"><a id="__codelineno-6-19" name="__codelineno-6-19" href="#__codelineno-6-19"></a>  gpio.c            -- GPIO 按键防抖 + 电源管理 + CAN/2.4G 切换 + 休眠/唤醒 + Shell
-</span><span id="__span-6-20"><a id="__codelineno-6-20" name="__codelineno-6-20" href="#__codelineno-6-20"></a>  display.c         -- SH1106 OLED 显示 (8x16 文本 + 位图图标, display_str_pad 防残留)
-</span><span id="__span-6-21"><a id="__codelineno-6-21" name="__codelineno-6-21" href="#__codelineno-6-21"></a>  persist.c         -- Settings 持久化 (connect_type)
-</span><span id="__span-6-22"><a id="__codelineno-6-22" name="__codelineno-6-22" href="#__codelineno-6-22"></a>boards/
-</span><span id="__span-6-23"><a id="__codelineno-6-23" name="__codelineno-6-23" href="#__codelineno-6-23"></a>  nrf24_f103rct6.overlay  -- 板级 Devicetree 覆盖
-</span><span id="__span-6-24"><a id="__codelineno-6-24" name="__codelineno-6-24" href="#__codelineno-6-24"></a>sysbuild.conf            -- MCUBoot sysbuild 配置
-</span><span id="__span-6-25"><a id="__codelineno-6-25" name="__codelineno-6-25" href="#__codelineno-6-25"></a>sysbuild/mcuboot.conf    -- MCUBoot 编译参数
-</span><span id="__span-6-26"><a id="__codelineno-6-26" name="__codelineno-6-26" href="#__codelineno-6-26"></a>VERSION                  -- 版本号定义 (0.1.4-release)
+</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>  can.c             -- CAN 收发 + 心跳线程 + 手柄状态上报 + 扫描仪数据解析 + 固件升级
+</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a>  rf24.c            -- 2.4G 无线 (nRF24L01+) + msgq 驱动 RX 线程 + 遥测发送
+</span><span id="__span-6-15"><a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a>  font_8x16.c       -- 8x16 ASCII 字体位图 (95 字符)
+</span><span id="__span-6-16"><a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a>  font_5x8.c        -- 5x8 ASCII 字体位图
+</span><span id="__span-6-17"><a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a>  adc.c             -- ADC 操纵杆角度采集 + 电源电压采样
+</span><span id="__span-6-18"><a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a>  gpio.c            -- GPIO 按键防抖 + 电源管理 + CAN/2.4G 切换 + 休眠/唤醒 + Shell
+</span><span id="__span-6-19"><a id="__codelineno-6-19" name="__codelineno-6-19" href="#__codelineno-6-19"></a>  display.c         -- SH1106 OLED 显示 (8x16 文本 + 位图图标, display_str_pad 防残留)
+</span><span id="__span-6-20"><a id="__codelineno-6-20" name="__codelineno-6-20" href="#__codelineno-6-20"></a>  persist.c         -- Settings 持久化 (connect_type)
+</span><span id="__span-6-21"><a id="__codelineno-6-21" name="__codelineno-6-21" href="#__codelineno-6-21"></a>boards/
+</span><span id="__span-6-22"><a id="__codelineno-6-22" name="__codelineno-6-22" href="#__codelineno-6-22"></a>  nrf24_f103rct6.overlay  -- 板级 Devicetree 覆盖
+</span><span id="__span-6-23"><a id="__codelineno-6-23" name="__codelineno-6-23" href="#__codelineno-6-23"></a>sysbuild.conf            -- MCUBoot sysbuild 配置
+</span><span id="__span-6-24"><a id="__codelineno-6-24" name="__codelineno-6-24" href="#__codelineno-6-24"></a>sysbuild/mcuboot.conf    -- MCUBoot 编译参数
+</span><span id="__span-6-25"><a id="__codelineno-6-25" name="__codelineno-6-25" href="#__codelineno-6-25"></a>VERSION                  -- 版本号定义 (0.1.4-release)
 </span></code></pre></div>
 
 
