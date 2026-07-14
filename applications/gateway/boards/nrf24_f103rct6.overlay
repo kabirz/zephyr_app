@@ -1,0 +1,72 @@
+/*
+ * Gateway board overlay for nrf24_f103rct6
+ * W5500 SPI Ethernet + nRF24L01P + CAN
+ *
+ * SPI2 共享: nRF24 (CS=PB12) + W5500 (CS=PA10)
+ */
+
+/ {
+	chosen {
+		zephyr,canbus = &can1;
+		zephyr,settings-partition = &cfg_partition;
+		zephyr,ethernet = &eth0;
+	};
+
+	zephyr,user {
+		canpower-gpios = <&gpioc 7 GPIO_ACTIVE_HIGH>;
+		rf24power-gpios = <&gpioc 9 GPIO_ACTIVE_HIGH>;
+		ethpower-gpios = <&gpioa 8 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+/* ================================================================
+ * SPI2: nRF24L01P + W5500 (共享总线, 不同 CS)
+ * ================================================================ */
+&spi2 {
+	pinctrl-0 = <&spi2_sck_master_pb13
+		     &spi2_miso_master_pb14
+		     &spi2_mosi_master_pb15>;
+	pinctrl-names = "default";
+	cs-gpios = <&gpiob 12 GPIO_ACTIVE_LOW>,    /* nRF24 CS */
+		   <&gpioa 10 GPIO_ACTIVE_LOW>;    /* W5500 CS */
+	status = "okay";
+
+	nrf24: nrf24l01p@0 {
+		compatible = "nordic,nrf24l01p";
+		reg = <0x0>;
+		spi-max-frequency = <8000000>;
+		ce-gpios = <&gpioa 9 GPIO_ACTIVE_HIGH>;
+		irq-gpios = <&gpioc 6 GPIO_ACTIVE_LOW>;
+		channel = <76>;
+		data-rate = "1m";
+		tx-power = "0dbm";
+	};
+
+	eth0: w5500@1 {
+		compatible = "wiznet,w5500";
+		reg = <0x1>;
+		spi-max-frequency = <8000000>;
+		int-gpios = <&gpioa 1 GPIO_ACTIVE_LOW>;
+		reset-gpios = <&gpiob 0 GPIO_ACTIVE_LOW>;
+		local-mac-address = [00 08 DC 01 02 03];
+		status = "okay";
+	};
+};
+
+/* ================================================================
+ * CAN1: 250Kbps
+ * ================================================================ */
+&can1 {
+	pinctrl-0 = <&can_rx_pa11 &can_tx_pa12>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+/* ================================================================
+ * RTC
+ * ================================================================ */
+&rtc {
+	clocks = <&rcc STM32_CLOCK_BUS_APB1 0x10000000>,
+		 <&rcc STM32_SRC_LSI RTC_SEL(2)>;
+	status = "okay";
+};

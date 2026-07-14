@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: Apache-2.0
+# Gateway application configuration
+
+mainmenu "gateway"
+
+source "Kconfig.zephyr"
+
+config GATEWAY_RF24_RX_STACK
+	int "RF24 RX thread stack size"
+	default 1024
+
+config GATEWAY_RF24_RX_PRIORITY
+	int "RF24 RX thread priority"
+	default 8
+
+config GATEWAY_CAN_FWD_STACK
+	int "CAN forward thread stack size"
+	default 1024
+
+config GATEWAY_CAN_FWD_PRIORITY
+	int "CAN forward thread priority"
+	default 9
+
+config GATEWAY_UDP_STACK
+	int "UDP forward thread stack size"
+	default 1024
+
+config GATEWAY_UDP_PRIORITY
+	int "UDP forward thread priority"
+	default 10
+
+config GATEWAY_WEB_STACK
+	int "Web server thread stack size"
+	default 2048
+
+config GATEWAY_WEB_PRIORITY
+	int "Web server thread priority"
+	default 11
