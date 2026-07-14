@@ -24,9 +24,6 @@
  * CAN 帧 ID (与 mod_handler 保持一致)
  * ================================================================ */
 enum can_ids {
-	PLATFORM_RX = 0x101,
-	PLATFORM_TX = 0x102,
-	FW_DATA_RX = 0x103,
 	RF24_CONFIG_CMD = 0x104,
 	RF24_CONFIG_RESP = 0x105,
 	NET_CONFIG_CMD = 0x106,   /* 平台→网关: 网络配置命令 */
@@ -63,9 +60,18 @@ enum net_config_cmd {
 #define GATEWAY_DEFAULT_UDP_PORT 9000
 
 /* ================================================================
+ * 连接模式
+ * ================================================================ */
+#define GW_MODE_CAN  1
+#define GW_MODE_UDP  2
+
+/* ================================================================
  * 全局状态
  * ================================================================ */
 typedef struct {
+	/* 连接模式 */
+	uint8_t connect_type;
+
 	/* RF24 配置 */
 	uint8_t rf24_channel;
 	uint8_t rf24_addr[RF24_ADDR_LEN];
@@ -94,9 +100,6 @@ bool gw_rf24_send(uint16_t can_id, const uint8_t *data, size_t len);
 
 /* udp_forward.c */
 void gw_udp_send(const uint8_t *data, size_t len);
-
-/* web_server.c */
-void gw_web_server_init(void);
 
 /* config.c */
 void gw_config_save(void);

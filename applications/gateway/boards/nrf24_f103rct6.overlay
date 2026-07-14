@@ -16,6 +16,7 @@
 		canpower-gpios = <&gpioc 7 GPIO_ACTIVE_HIGH>;
 		rf24power-gpios = <&gpioc 9 GPIO_ACTIVE_HIGH>;
 		ethpower-gpios = <&gpioa 8 GPIO_ACTIVE_HIGH>;
+		linksw-gpios = <&gpioa 2 GPIO_PULL_UP>;
 	};
 };
 

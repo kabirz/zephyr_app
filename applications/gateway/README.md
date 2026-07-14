@@ -7,9 +7,11 @@
 - **nRF24L01P 无线接收** — 从 mod_handler 接收遥测数据和扫描仪数据
 - **CAN 转发** — 双向转发 CAN 数据（与 mod_handler 相同协议）
 - **UDP 透传** — 通过 W5500 以太网与上位机进行双向 UDP 透传
-- **Web 配置** — HTTP 服务器提供 Web 页面配置网络参数和 nRF24 信道
+- **UDP 配置** — 通过 UDP 命令配置网络参数和 nRF24 信道
+- **UDP 固件升级** — 通过 UDP 传输固件数据升级
 - **CAN 配置** — 通过 CAN 总线配置网络参数和 nRF24 信道
-- **固件升级** — 支持 HTTP POST 和 CAN 两种方式升级固件
+- **CAN 固件升级** — 使用 libs/can_fw_upgrade 共享库
+- **模式切换** — PA2 按键切换 CAN/UDP 数据转发模式
 - **配置持久化** — 网络参数和 nRF24 配置掉电保存
 
 ## 硬件
@@ -33,19 +35,24 @@
 | W5500 INT | PA1 | W5500 中断 |
 | W5500 RESET | PB0 | W5500 复位 |
 | CAN_RX/TX | PA11/PA12 | CAN 250Kbps |
+| Link Switch | PA2 | 按键切换 CAN/UDP 模式 |
 
 ## 编译
 
 ```bash
-# 标准构建
 west build -b nrf24_f103rct6 applications/gateway --sysbuild --build-dir build/gateway
-
-# 烧录
 west flash
-
-# 清理重建
-west build -b nrf24_f103rct6 applications/gateway --sysbuild --build-dir build/gateway --pristine
 ```
+
+## 数据流
+
+**CAN 模式：**
+- 上行: mod_handler → nRF24 → Gateway → CAN → 上位机
+- 下行: 上位机 → CAN → Gateway → nRF24 → mod_handler
+
+**UDP 模式：**
+- 上行: mod_handler → nRF24 → Gateway → UDP → 上位机
+- 下行: 上位机 → UDP → Gateway → nRF24 → mod_handler
 
 ## CAN 协议
 
@@ -66,10 +73,6 @@ west build -b nrf24_f103rct6 applications/gateway --sysbuild --build-dir build/g
 | 0x104 | 平台→网关 | `[cmd 1B][param...]` |
 | 0x105 | 网关→平台 | `[cmd 1B][channel 1B][addr 5B][reserved 1B]` |
 
-命令类型：
-- `0x01` SET_CHANNEL: `[0x01][channel 1B][reserved 6B]`
-- `0x02` GET_CONFIG: `[0x02][reserved 7B]`
-
 ### 网络配置帧
 
 | 帧 ID | 方向 | 格式 |
@@ -77,62 +80,53 @@ west build -b nrf24_f103rct6 applications/gateway --sysbuild --build-dir build/g
 | 0x106 | 平台→网关 | `[cmd 1B][data...]` |
 | 0x107 | 网关→平台 | `[cmd 1B][ip 4B][reserved 3B]` |
 
-命令类型：
-- `0x01` SET_IP: `[0x01][ip0][ip1][ip2][ip3][reserved 3B]`
-- `0x02` SET_MASK: `[0x02][mask0][mask1][mask2][mask3][reserved 3B]`
-- `0x03` SET_GW: `[0x03][gw0][gw1][gw2][gw3][reserved 3B]`
-- `0x04` SET_PORT: `[0x04][port_hi][port_lo][reserved 5B]`
-- `0x05` GET_CONFIG: 查询全部配置
-
-### 固件升级帧 (使用 libs/can_fw_upgrade 共享库)
+### 固件升级帧 (使用 libs/can_fw_upgrade)
 
 | 帧 ID | 方向 | 用途 |
 |-------|------|------|
-| 0x101 | 平台→网关 | 控制命令 (本机字节序) |
+| 0x101 | 平台→网关 | 控制命令 |
 | 0x102 | 网关→平台 | 响应帧 |
 | 0x103 | 平台→网关 | 固件数据 |
 
-升级流程：
-1. 发送 `BOARD_START_UPDATE` + `total_size` → 收到 `FW_CODE_OFFSET(0)`
-2. 发送 `FW_DATA_RX` 数据帧 (每帧 8 字节) → 每 64 字节收到进度回复
-3. 发送 `BOARD_CONFIRM` → 收到 `FW_CODE_CONFIRM(0x55AA55AA)` → 自动重启
+## UDP 协议
 
-## UDP 透传
+数据包格式: `[CAN ID 2B BE][payload]` (透传扫描仪数据)
 
-数据包格式：`[CAN ID 2B BE][payload]`
+### 配置命令
 
-- 上行：网关 → 上位机（nRF24 接收的数据）
-- 下行：上位机 → 网关（通过 nRF24 发送到 mod_handler）
-
-## Web 配置
-
-浏览器访问网关 IP 地址（默认 `192.168.1.100`）。
-
-### API
-
-| 路由 | 方法 | 功能 |
+| 命令 | 格式 | 说明 |
 |------|------|------|
-| `/` | GET | Web 配置页面 |
-| `/api/config` | GET | 获取当前配置 |
-| `/api/config` | POST | 设置配置 (网络+RF24) |
-| `/api/firmware` | POST | 上传固件 |
-| `/api/reboot` | POST | 重启设备 |
+| 0x01 | `[0x01][ip 4B]` | 设置 IP |
+| 0x02 | `[0x02][mask 4B]` | 设置子网掩码 |
+| 0x03 | `[0x03][gw 4B]` | 设置网关 |
+| 0x04 | `[0x04][port 2B BE]` | 设置 UDP 端口 |
+| 0x05 | `[0x05]` | 查询配置 |
+| 0x06 | `[0x06][mode 1B]` | 设置模式 (1=CAN, 2=UDP) |
+| 0x07 | `[0x07][channel 1B]` | 设置 RF24 信道 |
+| 0x08 | `[0x08]` | 重启设备 |
 
-## 数据流
+### 固件升级命令
+
+| 命令 | 格式 | 说明 |
+|------|------|------|
+| 0x10 | `[0x10]` | 开始固件升级 |
+| 0x11 | `[0x11][data...]` | 固件数据 (每包最大 256B) |
+| 0x12 | `[0x12]` | 结束固件升级并重启 |
+
+## Shell 命令
 
 ```
-mod_handler --nRF24--> gateway --CAN--> 上位机 (CAN)
-                                  --UDP--> 上位机 (Network)
-上位机 --CAN--> gateway --nRF24--> mod_handler
-上位机 --UDP--> gateway --nRF24--> mod_handler
+link can       -- 切换到 CAN 模式
+link udp       -- 切换到 UDP 模式
+link status    -- 显示当前模式
 ```
 
 ## 资源占用
 
 | 区域 | 已用 | 总量 | 百分比 |
 |------|------|------|--------|
-| FLASH | 143KB | 195KB | 73.4% |
-| RAM | 36.6KB | 48KB | 74.5% |
+| FLASH | 144KB | 195KB | 73.7% |
+| RAM | 41.4KB | 48KB | 84.2% |
 
 ## 目录结构
 
@@ -141,17 +135,17 @@ gateway/
   boards/nrf24_f103rct6.overlay  -- 板级覆盖 (W5500 + nRF24 + CAN)
   boards/nrf24_f103rct6.conf     -- 板级配置 (ETH_W5500)
   include/gateway.h              -- 公共定义
-  src/main.c          -- 入口 + 网络初始化
-  src/rf24.c          -- nRF24L01P 收发
-  src/can_forward.c   -- CAN 转发 + 网络配置 + 固件升级
-  src/udp_forward.c   -- UDP 透传
-  src/web_server.c    -- HTTP 服务器
-  src/config.c        -- 配置管理
-  src/persist.c       -- Settings 持久化
-  src/web_page.html   -- Web 前端
+  src/
+    main.c          -- 入口 + 网络初始化 + link switch
+    rf24.c          -- nRF24L01P 收发
+    can_forward.c   -- CAN 转发 + 网络配置 + 固件升级
+    udp_forward.c   -- UDP 透传 + 配置 + 固件升级
+    config.c        -- 配置管理
+    persist.c       -- Settings 持久化
   CMakeLists.txt
   Kconfig
   prj.conf
   VERSION
   CLAUDE.md
+  README.md
 ```

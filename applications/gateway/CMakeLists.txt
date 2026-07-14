@@ -11,14 +11,6 @@ target_sources(app PRIVATE
   src/rf24.c
   src/can_forward.c
   src/udp_forward.c
-  src/web_server.c
   src/config.c
   src/persist.c
 )
-
-# HTTP server linker section for resource descriptors
-zephyr_linker_sources(SECTIONS src/gateway_http.ld)
-
-# Embed gzipped web page into firmware
-set(gen_dir ${ZEPHYR_BINARY_DIR}/include/generated/)
-generate_inc_file_for_target(app src/web_page.html ${gen_dir}/web_page.html.gz.inc --gzip)

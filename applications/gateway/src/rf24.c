@@ -22,6 +22,8 @@ LOG_MODULE_REGISTER(gw_rf24, LOG_LEVEL_INF);
 static const struct device *rf24_dev = DEVICE_DT_GET(DT_NODELABEL(nrf24));
 static K_MUTEX_DEFINE(rf24_tx_mutex);
 
+extern int gw_can_send(uint16_t id, const uint8_t *data, uint8_t len);
+
 /* RX 帧 msgq */
 K_MSGQ_DEFINE(rf24_rx_msgq, sizeof(struct nrf24_frame), 8, 4);
 
@@ -134,19 +136,20 @@ static void rf24_rx_thread(void)
 		uint8_t data_len = frame.len - RF24_ID_SIZE;
 		const uint8_t *data = frame.data + RF24_ID_SIZE;
 
-		/* 转发到 UDP (所有帧) */
-		gw_udp_send(frame.data, frame.len);
+		/* 只转发 HANDLER_STATE 和心跳帧 */
+		if (can_id != HANDLER_STATE && can_id != COBID_HEATBEAT) {
+			continue;
+		}
 
-		/* 转发到 CAN (非本地命令帧) */
-		if (can_id != RF24_CONFIG_CMD && can_id != RF24_CONFIG_RESP) {
-			struct can_frame cf = {
-				.id = can_id,
-				.dlc = can_bytes_to_dlc(data_len),
-			};
-			if (data_len > 0) {
-				memcpy(cf.data, data, data_len);
-			}
-			/* TODO: 通过 mod_can_send 发送 */
+		/* 根据模式转发数据 */
+		if (gw_params.connect_type == GW_MODE_UDP) {
+			/* UDP 模式: nRF24 数据通过 UDP 发送 */
+			gw_udp_send(frame.data, frame.len);
+			LOG_DBG("nRF24->UDP: id=0x%03x len=%d", can_id, frame.len);
+		} else {
+			/* CAN 模式: nRF24 数据通过 CAN 发送 */
+			gw_can_send(can_id, data, data_len);
+			LOG_DBG("nRF24->CAN: id=0x%03x dlc=%d", can_id, data_len);
 		}
 	}
 }

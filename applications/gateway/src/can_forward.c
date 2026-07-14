@@ -155,14 +155,12 @@ static void can_rx_handler(struct can_frame *frame)
 	}
 
 	switch (frame->id) {
-	case HANDLER_STATE:
 	case OVERBREAK_LASER:
 	case COORD_XY:
 	case COORD_Z:
-	case COBID_HEATBEAT:
-		/* 转发到 UDP */
-		gw_udp_send(frame->data, can_dlc_to_bytes(frame->dlc));
-		LOG_DBG("CAN->UDP: id=0x%03x dlc=%d", frame->id, frame->dlc);
+		/* 上位机通过 CAN 发送的扫描仪数据, 转发到 nRF24 给 mod_handler */
+		gw_rf24_send(frame->id, frame->data, can_dlc_to_bytes(frame->dlc));
+		LOG_DBG("CAN->nRF24: id=0x%03x dlc=%d", frame->id, frame->dlc);
 		break;
 
 	case RF24_CONFIG_CMD: {
@@ -223,9 +221,6 @@ static void can_rx_thread(void)
 	/* 注册其他接收过滤器 */
 	filter.mask = CAN_STD_ID_MASK;
 
-	filter.id = HANDLER_STATE;
-	can_add_rx_filter_msgq(can_dev, &gw_can_msgq, &filter);
-
 	filter.id = OVERBREAK_LASER;
 	can_add_rx_filter_msgq(can_dev, &gw_can_msgq, &filter);
 
@@ -233,9 +228,6 @@ static void can_rx_thread(void)
 	can_add_rx_filter_msgq(can_dev, &gw_can_msgq, &filter);
 
 	filter.id = COORD_Z;
-	can_add_rx_filter_msgq(can_dev, &gw_can_msgq, &filter);
-
-	filter.id = COBID_HEATBEAT;
 	can_add_rx_filter_msgq(can_dev, &gw_can_msgq, &filter);
 
 	filter.id = RF24_CONFIG_CMD;

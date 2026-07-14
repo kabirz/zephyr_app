@@ -67,11 +67,24 @@ static int gw_persist_set(const char *name, size_t len, settings_read_cb read_cb
 		return 0;
 	}
 
+	if (!next && !strncmp(name, "connect_type", name_len)) {
+		if (len == sizeof(uint8_t)) {
+			uint8_t type;
+
+			read_cb(cb_arg, &type, sizeof(type));
+			if (type == GW_MODE_CAN || type == GW_MODE_UDP) {
+				gw_params.connect_type = type;
+			}
+		}
+		return 0;
+	}
+
 	return -ENOENT;
 }
 
 static int gw_persist_export(int (*cb)(const char *name, const void *value, size_t val_len))
 {
+	(void)cb("gw/connect_type", &gw_params.connect_type, sizeof(gw_params.connect_type));
 	(void)cb("gw/rf24_channel", &gw_params.rf24_channel, sizeof(gw_params.rf24_channel));
 	(void)cb("gw/rf24_addr", gw_params.rf24_addr, RF24_ADDR_LEN);
 	(void)cb("gw/ip_addr", gw_params.ip_addr, strlen(gw_params.ip_addr));
@@ -105,11 +118,14 @@ void persist_save_rf24_config(void)
 
 void persist_save_network_config(void)
 {
+	settings_save_one("gw/connect_type", &gw_params.connect_type, sizeof(gw_params.connect_type));
 	settings_save_one("gw/ip_addr", gw_params.ip_addr, strlen(gw_params.ip_addr));
 	settings_save_one("gw/netmask", gw_params.netmask, strlen(gw_params.netmask));
 	settings_save_one("gw/gateway", gw_params.gateway, strlen(gw_params.gateway));
 	settings_save_one("gw/udp_port", &gw_params.udp_port, sizeof(gw_params.udp_port));
-	LOG_INF("Saved network: ip=%s port=%d", gw_params.ip_addr, gw_params.udp_port);
+	LOG_INF("Saved network: mode=%s ip=%s port=%d",
+		gw_params.connect_type == GW_MODE_CAN ? "CAN" : "UDP",
+		gw_params.ip_addr, gw_params.udp_port);
 }
 
 SYS_INIT(settings_backend_init, APPLICATION, 10);

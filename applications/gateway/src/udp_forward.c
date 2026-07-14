@@ -3,23 +3,63 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * UDP 透传模块 - nRF24/CAN 与上位机之间的双向 UDP 转发
+ * + 网络配置 + 固件升级 (通过 UDP)
  */
 
+#include <string.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/posix/unistd.h>
 #include <zephyr/posix/arpa/inet.h>
 #include <zephyr/sys/byteorder.h>
+#include <zephyr/drivers/flash.h>
+#include <zephyr/storage/flash_map.h>
+#include <zephyr/dfu/flash_img.h>
+#include <zephyr/dfu/mcuboot.h>
+#include <zephyr/sys/reboot.h>
+#include <errno.h>
 #include <gateway.h>
 
 LOG_MODULE_REGISTER(gw_udp, LOG_LEVEL_INF);
+
+#define SLOT1_PARTITION_ID PARTITION_ID(slot1_partition)
+
+/* UDP 命令协议 */
+enum udp_cmd {
+	UDP_CMD_SET_IP = 0x01,
+	UDP_CMD_SET_MASK = 0x02,
+	UDP_CMD_SET_GW = 0x03,
+	UDP_CMD_SET_PORT = 0x04,
+	UDP_CMD_GET_CONFIG = 0x05,
+	UDP_CMD_SET_MODE = 0x06,
+	UDP_CMD_SET_RF24_CH = 0x07,
+	UDP_CMD_REBOOT = 0x08,
+	UDP_CMD_FW_START = 0x10,
+	UDP_CMD_FW_DATA = 0x11,
+	UDP_CMD_FW_END = 0x12,
+};
 
 static int udp_sock = -1;
 static struct sockaddr_in remote_addr;
 
 /* ================================================================
- * UDP 发送 (nRF24/CAN 数据 → 上位机)
+ * 固件升级状态
+ * ================================================================ */
+static struct flash_img_context flash_img_ctx;
+static bool fw_started = false;
+
+static void fw_reset(void)
+{
+	if (fw_started) {
+		flash_img_buffered_write(&flash_img_ctx, NULL, 0, true);
+		fw_started = false;
+		LOG_INF("FW upgrade complete");
+	}
+}
+
+/* ================================================================
+ * UDP 发送
  * ================================================================ */
 void gw_udp_send(const uint8_t *data, size_t len)
 {
@@ -27,15 +67,181 @@ void gw_udp_send(const uint8_t *data, size_t len)
 		return;
 	}
 
-	ssize_t sent = sendto(udp_sock, data, len, 0, (struct sockaddr *)&remote_addr,
-			      sizeof(remote_addr));
-	if (sent < 0) {
-		LOG_DBG("UDP send failed: %d", errno);
+	sendto(udp_sock, data, len, 0, (struct sockaddr *)&remote_addr, sizeof(remote_addr));
+}
+
+static void udp_send_resp(uint8_t cmd, const uint8_t *data, uint8_t len)
+{
+	uint8_t buf[64] = {0};
+
+	buf[0] = cmd;
+	if (len > 0 && len < sizeof(buf) - 1) {
+		memcpy(buf + 1, data, len);
+	}
+	gw_udp_send(buf, len + 1);
+}
+
+/* ================================================================
+ * UDP 命令处理
+ * ================================================================ */
+static void udp_cmd_handler(const uint8_t *data, size_t len)
+{
+	if (len < 1) {
+		return;
+	}
+
+	uint8_t cmd = data[0];
+
+	switch (cmd) {
+	case UDP_CMD_SET_IP:
+		if (len >= 5) {
+			struct in_addr addr;
+
+			addr.s4_addr[0] = data[1];
+			addr.s4_addr[1] = data[2];
+			addr.s4_addr[2] = data[3];
+			addr.s4_addr[3] = data[4];
+			inet_ntop(AF_INET, &addr, gw_params.ip_addr, sizeof(gw_params.ip_addr));
+			LOG_INF("UDP set IP: %s", gw_params.ip_addr);
+			persist_save_network_config();
+			udp_send_resp(cmd, (uint8_t *)gw_params.ip_addr, strlen(gw_params.ip_addr));
+		}
+		break;
+
+	case UDP_CMD_SET_MASK:
+		if (len >= 5) {
+			struct in_addr mask;
+
+			mask.s4_addr[0] = data[1];
+			mask.s4_addr[1] = data[2];
+			mask.s4_addr[2] = data[3];
+			mask.s4_addr[3] = data[4];
+			inet_ntop(AF_INET, &mask, gw_params.netmask, sizeof(gw_params.netmask));
+			LOG_INF("UDP set mask: %s", gw_params.netmask);
+			persist_save_network_config();
+			udp_send_resp(cmd, (uint8_t *)gw_params.netmask, strlen(gw_params.netmask));
+		}
+		break;
+
+	case UDP_CMD_SET_GW:
+		if (len >= 5) {
+			struct in_addr gw;
+
+			gw.s4_addr[0] = data[1];
+			gw.s4_addr[1] = data[2];
+			gw.s4_addr[2] = data[3];
+			gw.s4_addr[3] = data[4];
+			inet_ntop(AF_INET, &gw, gw_params.gateway, sizeof(gw_params.gateway));
+			LOG_INF("UDP set gw: %s", gw_params.gateway);
+			persist_save_network_config();
+			udp_send_resp(cmd, (uint8_t *)gw_params.gateway, strlen(gw_params.gateway));
+		}
+		break;
+
+	case UDP_CMD_SET_PORT:
+		if (len >= 3) {
+			gw_params.udp_port = sys_get_be16(&data[1]);
+			LOG_INF("UDP set port: %d", gw_params.udp_port);
+			persist_save_network_config();
+			udp_send_resp(cmd, data + 1, 2);
+		}
+		break;
+
+	case UDP_CMD_GET_CONFIG: {
+		uint8_t buf[32] = {0};
+		int offset = 0;
+
+		buf[offset++] = gw_params.connect_type;
+		buf[offset++] = gw_params.rf24_channel;
+		memcpy(buf + offset, gw_params.rf24_addr, RF24_ADDR_LEN);
+		offset += RF24_ADDR_LEN;
+		sys_put_be16(gw_params.udp_port, buf + offset);
+		offset += 2;
+		udp_send_resp(cmd, buf, offset);
+		break;
+	}
+
+	case UDP_CMD_SET_MODE:
+		if (len >= 2) {
+			if (data[1] == GW_MODE_CAN || data[1] == GW_MODE_UDP) {
+				gw_params.connect_type = data[1];
+				LOG_INF("UDP set mode: %s", gw_params.connect_type == GW_MODE_CAN ? "CAN" : "UDP");
+				persist_save_network_config();
+			}
+			udp_send_resp(cmd, &gw_params.connect_type, 1);
+		}
+		break;
+
+	case UDP_CMD_SET_RF24_CH:
+		if (len >= 2 && data[1] <= RF24_ADDR_MAX_CH) {
+			gw_params.rf24_channel = data[1];
+			persist_save_rf24_config();
+			gw_rf24_set_config(gw_params.rf24_channel, gw_params.rf24_addr);
+			LOG_INF("UDP set rf24 ch: %d", gw_params.rf24_channel);
+		}
+		udp_send_resp(cmd, &gw_params.rf24_channel, 1);
+		break;
+
+	case UDP_CMD_REBOOT:
+		LOG_INF("UDP reboot requested");
+		udp_send_resp(cmd, NULL, 0);
+		k_msleep(100);
+		sys_reboot(SYS_REBOOT_COLD);
+		break;
+
+	case UDP_CMD_FW_START:
+		if (!fw_started) {
+			const struct flash_area *fa;
+
+			if (flash_area_open(SLOT1_PARTITION_ID, &fa) != 0) {
+				LOG_ERR("flash_area_open failed");
+				udp_send_resp(cmd, (uint8_t *)"error", 5);
+				return;
+			}
+			flash_area_erase(fa, 0, fa->fa_size);
+			flash_area_close(fa);
+
+			if (flash_img_init(&flash_img_ctx) != 0) {
+				LOG_ERR("flash_img_init failed");
+				udp_send_resp(cmd, (uint8_t *)"error", 5);
+				return;
+			}
+			fw_started = true;
+			LOG_INF("FW upgrade started");
+		}
+		udp_send_resp(cmd, (uint8_t *)"ok", 2);
+		break;
+
+	case UDP_CMD_FW_DATA:
+		if (fw_started && len > 1) {
+			if (flash_img_buffered_write(&flash_img_ctx, data + 1, len - 1, false) != 0) {
+				LOG_ERR("flash write failed");
+				fw_started = false;
+				udp_send_resp(cmd, (uint8_t *)"error", 5);
+			} else {
+				udp_send_resp(cmd, (uint8_t *)"ok", 2);
+			}
+		}
+		break;
+
+	case UDP_CMD_FW_END:
+		if (fw_started) {
+			fw_reset();
+			udp_send_resp(cmd, (uint8_t *)"ok", 2);
+			LOG_INF("FW upgrade complete, rebooting...");
+			k_msleep(500);
+			sys_reboot(SYS_REBOOT_COLD);
+		}
+		break;
+
+	default:
+		LOG_DBG("Unknown UDP cmd: 0x%02x", cmd);
+		break;
 	}
 }
 
 /* ================================================================
- * UDP 接收线程 (上位机 → nRF24/CAN)
+ * UDP 接收线程
  * ================================================================ */
 static void udp_rx_thread(void)
 {
@@ -59,12 +265,11 @@ static void udp_rx_thread(void)
 
 	LOG_INF("UDP listening on port %d", gw_params.udp_port);
 
-	/* 默认远程地址: 广播 */
 	remote_addr.sin_family = AF_INET;
 	remote_addr.sin_port = htons(gw_params.udp_port);
 	inet_pton(AF_INET, "255.255.255.255", &remote_addr.sin_addr);
 
-	uint8_t buf[256];
+	uint8_t buf[512];
 
 	while (1) {
 		struct sockaddr_in src_addr;
@@ -76,16 +281,19 @@ static void udp_rx_thread(void)
 			continue;
 		}
 
-		/* 记住发送方地址, 后续回复用 */
 		remote_addr = src_addr;
 
-		LOG_DBG("UDP recv %zd bytes from %s:%d", received, inet_ntoa(src_addr.sin_addr),
-			ntohs(src_addr.sin_port));
-
-		/* 透传到 nRF24 (假设前 2 字节是 CAN ID) */
-		if (received >= 2) {
+		if ((buf[0] >= UDP_CMD_SET_IP && buf[0] <= UDP_CMD_REBOOT) ||
+		    (buf[0] >= UDP_CMD_FW_START && buf[0] <= UDP_CMD_FW_END)) {
+			udp_cmd_handler(buf, received);
+		} else if (received >= 2) {
+			/* 透传扫描仪数据到 nRF24 */
 			uint16_t can_id = sys_get_be16(buf);
-			gw_rf24_send(can_id, buf + 2, received - 2);
+
+			if (can_id == OVERBREAK_LASER || can_id == COORD_XY || can_id == COORD_Z) {
+				gw_rf24_send(can_id, buf + 2, received - 2);
+				LOG_DBG("UDP->nRF24: id=0x%03x len=%zd", can_id, received - 2);
+			}
 		}
 	}
 }
