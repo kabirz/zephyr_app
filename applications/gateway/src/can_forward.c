@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * CAN 转发模块 - CAN 总线与 nRF24/UDP 之间的数据中转
- * + 网络配置 + 固件升级 (本地处理)
+ * + 网络配置 + 固件升级 (使用 can_fw_upgrade 库)
  */
 
 #include <string.h>
@@ -13,12 +13,21 @@
 #include <zephyr/drivers/can.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/logging/log.h>
+#include <can_fw_upgrade.h>
 #include <gateway.h>
 
 LOG_MODULE_REGISTER(gw_can, LOG_LEVEL_INF);
 
 const struct device *can_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_canbus));
 CAN_MSGQ_DEFINE(gw_can_msgq, 16);
+
+/* 固件升级上下文 */
+static struct can_fw_ctx fw_ctx;
+
+static int fw_can_send(struct can_frame *frame)
+{
+	return can_send(can_dev, frame, K_MSEC(100), NULL, NULL);
+}
 
 /* ================================================================
  * CAN 发送
@@ -46,12 +55,6 @@ int gw_can_send(uint16_t id, const uint8_t *data, uint8_t len)
 
 /* ================================================================
  * 网络配置命令处理 (0x106)
- *
- * SET_IP:    [0x01][ip0][ip1][ip2][ip3][reserved 3B]
- * SET_MASK:  [0x02][m0][m1][m2][m3][reserved 3B]
- * SET_GW:    [0x03][g0][g1][g2][g3][reserved 3B]
- * SET_PORT:  [0x04][port_hi][port_lo][reserved 5B]
- * GET:       [0x05][reserved 7B]
  * ================================================================ */
 static void handle_net_config(struct can_frame *frame)
 {
@@ -106,8 +109,7 @@ static void handle_net_config(struct can_frame *frame)
 		return;
 	}
 
-	/* 回复当前配置: [cmd][ip 4B][mask 4B] — 分两帧发送 */
-	/* 第一帧: ip */
+	/* 回复当前配置: ip + mask + gw + port, 分三帧 */
 	uint8_t buf[8] = {0};
 
 	buf[0] = cmd;
@@ -120,7 +122,6 @@ static void handle_net_config(struct can_frame *frame)
 	}
 	gw_can_send(NET_CONFIG_RESP, buf, 8);
 
-	/* 第二帧: mask + gw + port */
 	buf[0] = 0;
 	{
 		struct in_addr m;
@@ -132,7 +133,6 @@ static void handle_net_config(struct can_frame *frame)
 	sys_put_be16(gw_params.udp_port, &buf[5]);
 	gw_can_send(NET_CONFIG_RESP, buf, 8);
 
-	/* 第三帧: gw */
 	buf[0] = 0;
 	{
 		struct in_addr g;
@@ -149,6 +149,11 @@ static void handle_net_config(struct can_frame *frame)
  * ================================================================ */
 static void can_rx_handler(struct can_frame *frame)
 {
+	/* 优先交给固件升级库处理 */
+	if (can_fw_rx_handler(&fw_ctx, frame)) {
+		return;
+	}
+
 	switch (frame->id) {
 	case HANDLER_STATE:
 	case OVERBREAK_LASER:
@@ -184,12 +189,6 @@ static void can_rx_handler(struct can_frame *frame)
 		handle_net_config(frame);
 		break;
 
-	case PLATFORM_RX:
-	case FW_DATA_RX:
-		/* 固件升级帧, 本地处理 */
-		fw_update(frame);
-		break;
-
 	default:
 		LOG_DBG("Unknown CAN id: 0x%03x", frame->id);
 		break;
@@ -218,7 +217,10 @@ static void can_rx_thread(void)
 		return;
 	}
 
-	/* 注册接收过滤器 */
+	/* 初始化固件升级 (内部注册过滤器) */
+	can_fw_init(&fw_ctx, can_dev, fw_can_send);
+
+	/* 注册其他接收过滤器 */
 	filter.mask = CAN_STD_ID_MASK;
 
 	filter.id = HANDLER_STATE;
@@ -240,12 +242,6 @@ static void can_rx_thread(void)
 	can_add_rx_filter_msgq(can_dev, &gw_can_msgq, &filter);
 
 	filter.id = NET_CONFIG_CMD;
-	can_add_rx_filter_msgq(can_dev, &gw_can_msgq, &filter);
-
-	filter.id = PLATFORM_RX;
-	can_add_rx_filter_msgq(can_dev, &gw_can_msgq, &filter);
-
-	filter.id = FW_DATA_RX;
 	can_add_rx_filter_msgq(can_dev, &gw_can_msgq, &filter);
 
 	LOG_INF("CAN ready (250Kbps)");

@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config CAN_FW_UPGRADE
+	bool "CAN firmware upgrade support"
+	default n
+	depends on FLASH && IMG_MANAGER
+	help
+	  Enable CAN-based firmware upgrade functionality.
+	  Uses the same protocol as mod_handler:
+	  - PLATFORM_RX (0x101): control commands
+	  - PLATFORM_TX (0x102): response frames
+	  - FW_DATA_RX (0x103): firmware data

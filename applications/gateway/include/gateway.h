@@ -102,9 +102,6 @@ void gw_web_server_init(void);
 void gw_config_save(void);
 void gw_config_load(void);
 
-/* fw_upgrade.c */
-int fw_update(struct can_frame *frame);
-
 /* persist.c */
 void persist_save_rf24_config(void);
 void persist_save_network_config(void);

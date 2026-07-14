@@ -4,6 +4,7 @@
  *
  * CAN 总线收发 + 心跳线程 + 手柄状态上报 (0x1E3 BE)
  * + 扫描仪数据解析 (0x263/0x363/0x463)
+ * + 固件升级 (使用 can_fw_upgrade 库)
  */
 
 #include <zephyr/kernel.h>
@@ -14,18 +15,23 @@
 #include <rf24.h>
 #include <common.h>
 #include <persist.h>
+#include <can_fw_upgrade.h>
 LOG_MODULE_REGISTER(mod_can, LOG_LEVEL_INF);
 
 static const struct device *can_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_canbus));
 CAN_MSGQ_DEFINE(mod_can_msgq, 8);
 
+/* 固件升级上下文 */
+static struct can_fw_ctx fw_ctx;
+
 static void mod_canrx_msg_handler(struct can_frame *frame)
 {
+	/* 优先交给固件升级库处理 */
+	if (can_fw_rx_handler(&fw_ctx, frame)) {
+		return;
+	}
+
 	switch (frame->id) {
-	case PLATFORM_RX:
-	case FW_DATA_RX:
-		fw_update(frame);
-		break;
 	case OVERBREAK_LASER:
 	case COORD_XY:
 	case COORD_Z:
@@ -89,13 +95,10 @@ int mod_can_init(void)
 		goto end;
 	}
 
+	/* 初始化固件升级 (内部注册过滤器) */
+	can_fw_init(&fw_ctx, can_dev, mod_can_send);
+
 	struct can_filter filter = {.mask = CAN_STD_ID_MASK};
-
-	filter.id = PLATFORM_RX;
-	can_add_rx_filter_msgq(can_dev, &mod_can_msgq, &filter);
-
-	filter.id = FW_DATA_RX;
-	can_add_rx_filter_msgq(can_dev, &mod_can_msgq, &filter);
 
 	filter.id = OVERBREAK_LASER;
 	can_add_rx_filter_msgq(can_dev, &mod_can_msgq, &filter);

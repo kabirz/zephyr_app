@@ -218,6 +218,8 @@ link rf24      -- 切换到 2.4G (nRF24L01+) 模式
 
 ## OTA 升级流程
 
+使用 `libs/can_fw_upgrade` 共享库，协议与 gateway 一致。
+
 1. 平台通过 CAN 帧 0x101 发送升级启动命令
 2. 手柄初始化外部 SPI Flash 写入上下文
 3. 平台通过 CAN 帧 0x103 分片传输固件数据
@@ -254,7 +256,7 @@ link rf24      -- 切换到 2.4G (nRF24L01+) 模式
 ```
 include/
   common.h          -- 全局状态类型 (global_params_t, scanner_data_t, 事件位定义)
-  mod-can.h         -- CAN 协议定义 + OTA 接口
+  mod-can.h         -- CAN 协议定义
   rf24.h            -- 2.4G 无线接口 (nRF24L01+ 封装: telemetry/data_send/init/deinit)
   display.h         -- 显示模块接口
   mod-gpio.h        -- GPIO 电源控制 + 按键 + 电池状态 + CAN/2.4G 切换
@@ -264,8 +266,7 @@ include/
   signal_icons.h    -- 信号强度图标位图 (16x16, 0-4 级)
 src/
   main.c            -- 入口 + 主循环 (休眠/唤醒事件驱动)
-  can.c             -- CAN 收发 + 心跳线程 + 手柄状态上报 + 扫描仪数据解析
-  firmware.c        -- OTA 固件升级状态机
+  can.c             -- CAN 收发 + 心跳线程 + 手柄状态上报 + 扫描仪数据解析 + 固件升级
   rf24.c            -- 2.4G 无线 (nRF24L01+) + msgq 驱动 RX 线程 + 遥测发送
   font_8x16.c       -- 8x16 ASCII 字体位图 (95 字符)
   font_5x8.c        -- 5x8 ASCII 字体位图

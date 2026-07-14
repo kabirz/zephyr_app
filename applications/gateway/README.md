@@ -84,7 +84,7 @@ west build -b nrf24_f103rct6 applications/gateway --sysbuild --build-dir build/g
 - `0x04` SET_PORT: `[0x04][port_hi][port_lo][reserved 5B]`
 - `0x05` GET_CONFIG: 查询全部配置
 
-### 固件升级帧 (与 mod_handler 协议一致)
+### 固件升级帧 (使用 libs/can_fw_upgrade 共享库)
 
 | 帧 ID | 方向 | 用途 |
 |-------|------|------|
@@ -143,10 +143,9 @@ gateway/
   include/gateway.h              -- 公共定义
   src/main.c          -- 入口 + 网络初始化
   src/rf24.c          -- nRF24L01P 收发
-  src/can_forward.c   -- CAN 转发 + 网络配置
+  src/can_forward.c   -- CAN 转发 + 网络配置 + 固件升级
   src/udp_forward.c   -- UDP 透传
   src/web_server.c    -- HTTP 服务器
-  src/fw_upgrade.c    -- CAN 固件升级
   src/config.c        -- 配置管理
   src/persist.c       -- Settings 持久化
   src/web_page.html   -- Web 前端

@@ -14,7 +14,6 @@ target_sources(app PRIVATE
   src/web_server.c
   src/config.c
   src/persist.c
-  src/fw_upgrade.c
 )
 
 # HTTP server linker section for resource descriptors

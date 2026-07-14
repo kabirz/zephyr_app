@@ -11,7 +11,6 @@ target_sources(app PRIVATE
   src/can.c
   src/common.c
   src/display.c
-  src/firmware.c
   src/font_8x16.c
   src/font_5x8.c
   src/gpio.c
