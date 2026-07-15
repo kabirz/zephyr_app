@@ -12,7 +12,7 @@
 - **CAN 手柄状态上报** — 帧 ID 0x1E3，8 字节 payload (X/Y 角度 BE + 按键 + 保留)，心跳成功时周期发送，角度/按键变化时即时发送
 - **CAN 扫描仪数据接收** — 帧 ID 0x263/0x363/0x463，接收超欠挖、激光测距、X/Y/Z 坐标，即时显示
 - **2.4G 遥测** — 帧格式 `[CAN ID 2B BE][payload]`，复用 CAN 帧内容，角度/按键变化时即时发送 (仅 CAN 断开时)
-- **2.4G 数据接收** — 网关下发的扫描仪数据按 CAN ID 分发，复用 `mod_can_parse_scanner` 解析
+- **2.4G 数据接收** — 无线接收器下发的扫描仪数据按 CAN ID 分发，复用 `mod_can_parse_scanner` 解析
 - **中断驱动无线收发** — nRF24L01+ 驱动内置 IRQ 线程，收到数据自动投递到 msgq；发送等待硬件 ACK 返回结果 (成功/失败 + 耗时 + 重传次数)
 - **心跳保活** — CAN 心跳帧 (800ms 周期)，连续 3 次失败停止心跳循环
 - **电池管理** — 充电状态 GPIO 检测、电源电压 ADC 采集，毫伏阈值映射电量图标
@@ -198,8 +198,8 @@ Row 0 图标说明:
 [CAN ID 2B BE][payload 0~30B]
 ```
 
-- **发送** (手柄→网关): ID = 0x1E3 (HANDLER_STATE)，payload = `[x 2B BE][y 2B BE][btn][0xFF 3B]`，与 CAN 帧内容一致
-- **接收** (网关→手柄): 按 CAN ID 分发，支持 0x263 / 0x363 / 0x463，剥离 ID 后构造临时 `can_frame` 复用 `mod_can_parse_scanner()` 解析
+- **发送** (手柄→无线接收器): ID = 0x1E3 (HANDLER_STATE)，payload = `[x 2B BE][y 2B BE][btn][0xFF 3B]`，与 CAN 帧内容一致
+- **接收** (无线接收器→手柄): 按 CAN ID 分发，支持 0x263 / 0x363 / 0x463，剥离 ID 后构造临时 `can_frame` 复用 `mod_can_parse_scanner()` 解析
 
 ### nRF24L01+ 中断驱动收发
 

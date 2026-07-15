@@ -94,6 +94,7 @@ nav:
       - data_collect 数据采集: applications/data-collect.md
       - laser_ctrl 激光控制: applications/laser-ctrl.md
       - mod_handler 手持控制器: applications/mod-handler.md
+      - gateway 无线接收器: applications/gateway.md
       - ZephyrLink 调试探针: applications/zephyrlink.md
       - canopen_demo CANopen: applications/canopen-demo.md
       - spi_demo SPI 示例: applications/spi-demo.md

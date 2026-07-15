@@ -46,7 +46,7 @@ flowchart LR
     end
 
     PLATFORM["平台 / 上位机"]
-    GW["2.4G 网关 (nRF24L01+)"]
+    GW["2.4G 无线接收器 (nRF24L01+)"]
     SCANNER["激光扫描仪"]
 
     CTRL <-->|"CAN 250Kbps"| PLATFORM
