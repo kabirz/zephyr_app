@@ -1415,7 +1415,7 @@
 
 
 <h1 id="zephyr-app">Zephyr App<a class="headerlink" href="#zephyr-app" title="Permanent link">&para;</a></h1>
-<p>基于 <a href="https://docs.zephyrproject.org/latest/">Zephyr RTOS</a> 的嵌入式应用集合，覆盖<strong>数据采集、激光测距控制、手持无线控制器、CMSIS-DAP 调试探针</strong>等场景，运行于 STM32 系列 MCU，集成 MCUboot 安全启动与 OTA 固件升级。</p>
+<p>基于 <a href="https://docs.zephyrproject.org/latest/">Zephyr RTOS</a> 的嵌入式应用集合，覆盖<strong>数据采集、激光测距控制、手持无线控制器、无线接收器、CMSIS-DAP 调试探针</strong>等场景，运行于 STM32 系列 MCU，集成 MCUboot 安全启动与 OTA 固件升级。</p>
 <div class="grid cards">
 <ul>
 <li>
@@ -1435,6 +1435,12 @@
 <hr />
 <p>操纵杆采集 + OLED 显示 + CAN/2.4G 双链路 + OTA 升级，激光测距远程操控。</p>
 <p><a href="applications/mod-handler/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> 查看文档</a></p>
+</li>
+<li>
+<p><span class="twemoji lg middle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m12 21 3.6-4.8c-1-.75-2.25-1.2-3.6-1.2s-2.6.45-3.6 1.2zm0-18C7.95 3 4.21 4.34 1.2 6.6L3 9c2.5-1.88 5.62-3 9-3s6.5 1.12 9 3l1.8-2.4C19.79 4.34 16.05 3 12 3m0 6c-2.7 0-5.19.89-7.2 2.4l1.8 2.4C8.1 12.67 9.97 12 12 12s3.9.67 5.4 1.8l1.8-2.4C17.19 9.89 14.7 9 12 9"/></svg></span> <strong>gateway 无线接收器</strong></p>
+<hr />
+<p>2.4G 无线接收 + CAN/UDP 双模式转发 + W5500 以太网 + Web 配置，手持控制器数据中转网关。</p>
+<p><a href="applications/gateway/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> 查看文档</a></p>
 </li>
 <li>
 <p><span class="twemoji lg middle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M15 7v4h1v2h-3V5h2l-3-4-3 4h2v8H8v-2.07c.7-.37 1.2-1.08 1.2-1.93A2.2 2.2 0 0 0 7 6.8c-1.22 0-2.2.98-2.2 2.2 0 .85.5 1.56 1.2 1.93V13a2 2 0 0 0 2 2h3v3.05c-.71.36-1.2 1.1-1.2 1.95a2.2 2.2 0 0 0 2.2 2.2 2.2 2.2 0 0 0 2.2-2.2c0-.85-.49-1.59-1.2-1.95V15h3a2 2 0 0 0 2-2v-2h1V7z"/></svg></span> <strong>ZephyrLink 调试探针</strong></p>
