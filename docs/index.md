@@ -1,6 +1,6 @@
 # Zephyr App
 
-基于 [Zephyr RTOS](https://docs.zephyrproject.org/latest/) 的嵌入式应用集合，覆盖**数据采集、激光测距控制、手持无线控制器、CMSIS-DAP 调试探针**等场景，运行于 STM32 系列 MCU，集成 MCUboot 安全启动与 OTA 固件升级。
+基于 [Zephyr RTOS](https://docs.zephyrproject.org/latest/) 的嵌入式应用集合，覆盖**数据采集、激光测距控制、手持无线控制器、无线接收器、CMSIS-DAP 调试探针**等场景，运行于 STM32 系列 MCU，集成 MCUboot 安全启动与 OTA 固件升级。
 
 <div class="grid cards" markdown>
 
@@ -27,6 +27,14 @@
     操纵杆采集 + OLED 显示 + CAN/2.4G 双链路 + OTA 升级，激光测距远程操控。
 
     [:octicons-arrow-right-24: 查看文档](applications/mod-handler.md)
+
+- :material-wifi:{ .lg .middle } **gateway 无线接收器**
+
+    ---
+
+    2.4G 无线接收 + CAN/UDP 双模式转发 + W5500 以太网 + Web 配置，手持控制器数据中转网关。
+
+    [:octicons-arrow-right-24: 查看文档](applications/gateway.md)
 
 - :material-usb:{ .lg .middle } **ZephyrLink 调试探针**
 
