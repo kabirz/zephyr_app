@@ -40,6 +40,7 @@ enum can_ids {
 enum rf24_config_cmd {
 	RF24_CMD_SET_CHANNEL = 0x01,
 	RF24_CMD_GET_CONFIG = 0x02,
+	RF24_CMD_SET_ADDR = 0x03,    /* 设置地址: [0x03][addr 5B][reserved 2B] */
 };
 
 /* NET_CONFIG_CMD 命令类型 */
@@ -49,6 +50,7 @@ enum net_config_cmd {
 	NET_CMD_SET_GW = 0x03,       /* [0x03][gw 4B] */
 	NET_CMD_SET_PORT = 0x04,     /* [0x04][port 2B BE] */
 	NET_CMD_GET_CONFIG = 0x05,   /* [0x05] 查询全部配置 */
+	NET_CMD_SET_MODE = 0x06,     /* [0x06][mode 1B] 1=CAN, 2=UDP */
 };
 
 /* ================================================================

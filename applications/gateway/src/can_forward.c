@@ -102,6 +102,13 @@ static void handle_net_config(struct can_frame *frame)
 		LOG_INF("CAN set port: %d", gw_params.udp_port);
 		persist_save_network_config();
 		break;
+	case NET_CMD_SET_MODE:
+		if (frame->data[1] == GW_MODE_CAN || frame->data[1] == GW_MODE_UDP) {
+			gw_params.connect_type = frame->data[1];
+			LOG_INF("CAN set mode: %s", gw_params.connect_type == GW_MODE_CAN ? "CAN" : "UDP");
+			persist_save_network_config();
+		}
+		break;
 	case NET_CMD_GET_CONFIG:
 		break;
 	default:
@@ -169,6 +176,10 @@ static void can_rx_handler(struct can_frame *frame)
 
 		if (cmd == RF24_CMD_SET_CHANNEL && frame->dlc >= 2) {
 			gw_params.rf24_channel = frame->data[1];
+			persist_save_rf24_config();
+			gw_rf24_set_config(gw_params.rf24_channel, gw_params.rf24_addr);
+		} else if (cmd == RF24_CMD_SET_ADDR && frame->dlc >= 7) {
+			memcpy(gw_params.rf24_addr, &frame->data[1], RF24_ADDR_LEN);
 			persist_save_rf24_config();
 			gw_rf24_set_config(gw_params.rf24_channel, gw_params.rf24_addr);
 		}

@@ -24,24 +24,6 @@ LOG_MODULE_REGISTER(gateway, LOG_LEVEL_INF);
 
 gateway_params_t gw_params;
 
-static void gw_sn_init(void)
-{
-	const uint8_t *uid = (const uint8_t *)UID_BASE;
-	uint32_t crc = 0xFFFFFFFF;
-
-	for (int i = 0; i < 12; i++) {
-		crc ^= uid[i];
-		for (int j = 0; j < 8; j++) {
-			crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1));
-		}
-	}
-	gw_params.rf24_addr[0] = crc & 0xFF;
-	gw_params.rf24_addr[1] = (crc >> 8) & 0xFF;
-	gw_params.rf24_addr[2] = (crc >> 16) & 0xFF;
-	gw_params.rf24_addr[3] = (crc >> 24) & 0xFF;
-	gw_params.rf24_addr[4] = gw_params.rf24_addr[0] ^ gw_params.rf24_addr[1] ^
-				 gw_params.rf24_addr[2] ^ gw_params.rf24_addr[3];
-}
 
 /* ================================================================
  * Link Switch GPIO (PA2) - 切换 CAN/UDP 模式
@@ -137,18 +119,16 @@ int main(void)
 	/* 初始化默认配置 */
 	gw_params.connect_type = GW_MODE_CAN;
 	gw_params.rf24_channel = RF24_DEFAULT_CH;
-	gw_params.rf24_addr[0] = 0xe7;
-	gw_params.rf24_addr[1] = 0xe7;
-	gw_params.rf24_addr[2] = 0xe7;
-	gw_params.rf24_addr[3] = 0xe7;
-	gw_params.rf24_addr[4] = 0xe7;
+	gw_params.rf24_addr[0] = 0;
+	gw_params.rf24_addr[1] = 0;
+	gw_params.rf24_addr[2] = 0;
+	gw_params.rf24_addr[3] = 0;
+	gw_params.rf24_addr[4] = 0;
 	strncpy(gw_params.ip_addr, GATEWAY_DEFAULT_IP, sizeof(gw_params.ip_addr) - 1);
 	strncpy(gw_params.netmask, GATEWAY_DEFAULT_MASK, sizeof(gw_params.netmask) - 1);
 	strncpy(gw_params.gateway, GATEWAY_DEFAULT_GW, sizeof(gw_params.gateway) - 1);
 	gw_params.udp_port = GATEWAY_DEFAULT_UDP_PORT;
 
-	/* 芯片唯一码生成默认地址 */
-	gw_sn_init();
 
 	/* 加载持久化配置 (覆盖默认值) */
 	gw_config_load();
@@ -156,8 +136,6 @@ int main(void)
 	/* 初始化链路切换按键 */
 	linksw_init();
 
-	LOG_INF("SN: %02x%02x%02x%02x%02x", gw_params.rf24_addr[0], gw_params.rf24_addr[1],
-		gw_params.rf24_addr[2], gw_params.rf24_addr[3], gw_params.rf24_addr[4]);
 
 	/* 初始化各模块 */
 	gw_rf24_init();

@@ -41,7 +41,8 @@ enum udp_cmd {
 	UDP_CMD_GET_CONFIG = 0x05,
 	UDP_CMD_SET_MODE = 0x06,
 	UDP_CMD_SET_RF24_CH = 0x07,
-	UDP_CMD_REBOOT = 0x08,
+	UDP_CMD_SET_RF24_ADDR = 0x08,
+	UDP_CMD_REBOOT = 0x09,
 	UDP_CMD_FW_START = 0x10,
 	UDP_CMD_FW_DATA = 0x11,
 	UDP_CMD_FW_END = 0x12,
@@ -191,6 +192,16 @@ static void udp_cmd_handler(const uint8_t *data, size_t len)
 			LOG_INF("UDP set rf24 ch: %d", gw_params.rf24_channel);
 		}
 		udp_send_resp(cmd, &gw_params.rf24_channel, 1);
+		break;
+
+	case UDP_CMD_SET_RF24_ADDR:
+		if (cmd_len >= RF24_ADDR_LEN) {
+			memcpy(gw_params.rf24_addr, cmd_data, RF24_ADDR_LEN);
+			persist_save_rf24_config();
+			gw_rf24_set_config(gw_params.rf24_channel, gw_params.rf24_addr);
+			LOG_INF("UDP set rf24 addr");
+		}
+		udp_send_resp(cmd, gw_params.rf24_addr, RF24_ADDR_LEN);
 		break;
 
 	case UDP_CMD_REBOOT:
