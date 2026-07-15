@@ -6,7 +6,7 @@ on:
     paths:
       - boards/laser_f103ret7
       - applications/laser_ctrl
-      - zephyr4_3.yml
+      - zephyr4_4.yml
   workflow_dispatch:
 
 permissions:
