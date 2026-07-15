@@ -83,12 +83,14 @@ static void laser_canrx_msg_handler(struct can_frame *frame)
 			cob_msg_send(SystemStatus, CANREADSYSTEMSTATUS, COB_ID1_TX);
 			break;
 		case CANWRITESYSTEMSTATUS:
+		case CANWRITESYSTEMSTATUS_NEW:
 			SystemStatus = SYSTEMSTATUSEEPROM;
 			LOG_DBG("mem write mode");
 			laser_flash_write_mode();
 			cob_msg_send(SystemStatus, CANWRITESYSTEMSTATUS, COB_ID1_TX);
 			break;
 		case CANCMD_LASER_CTRL:
+		case CANCMD_LASER_CTRL_NEW:
 			ack_cmd = (CANCMD_LASER_CTRL & CAN_HOST_MASK)|CAN_HOST_NOACK_ID;
 			if (sys_be32_to_cpu(frame->data_32[1]) == CANCMD_LASER_CTRL_ENABLE) {
 				LOG_DBG("laser on and measure");
@@ -113,6 +115,7 @@ static void laser_canrx_msg_handler(struct can_frame *frame)
 			cob_msg_send(ack_cmd, sys_be32_to_cpu(frame->data_32[1]), COB_ID1_TX);
 			break;
 		case CANCMD_LASER_PEROID_CONF:
+		case CANCMD_LASER_PEROID_CONFN:
 			ack_cmd = (CANCMD_LASER_PEROID_CONF & CAN_HOST_MASK)|CAN_HOST_ACK_ID;
 			LaserPeriod = sys_be32_to_cpu(frame->data_32[1]);
 			LOG_DBG("set period: %d", LaserPeriod);

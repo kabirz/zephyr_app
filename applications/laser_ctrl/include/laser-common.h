@@ -10,6 +10,7 @@ enum fw_error_code {
 	FW_CODE_CONFIRM,
 	FW_CODE_FLASH_ERROR,
 	FW_CODE_TRANFER_ERROR,
+	FW_CODE_FPGA_VERSION,
 };
 
 enum board_option {
@@ -17,6 +18,7 @@ enum board_option {
 	BOARD_CONFIRM,
 	BOARD_VERSION,
 	BOARD_REBOOT,
+	FPGA_VERSION,
 };
 
 enum {

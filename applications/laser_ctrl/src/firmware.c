@@ -3,7 +3,18 @@
 #include <zephyr/app_version.h>
 #include <zephyr/sys/reboot.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/devicetree.h>
 LOG_MODULE_REGISTER(firmware_up, LOG_LEVEL_INF);
+
+#if DT_NODE_EXISTS(DT_NODELABEL(spi_laser_fpga))
+extern uint32_t fpga_uint32_version(void);
+#else
+static inline uint32_t fpga_uint32_version(void)
+{
+	LOG_WRN("fpga not present on this board");
+	return 0;
+}
+#endif
 
 static void fw_can_recevie(uint32_t code, uint32_t offset)
 {
@@ -61,6 +72,8 @@ int fw_update(struct can_frame *frame)
 			fw_can_recevie(FW_CODE_CONFIRM, 0x55AA55AA);
 		} else if (frame->data_32[0] == BOARD_VERSION) {
 			fw_can_recevie(FW_CODE_VERSION, APPVERSION);
+		} else if (frame->data_32[0] == FPGA_VERSION) {
+			fw_can_recevie(FW_CODE_FPGA_VERSION, fpga_uint32_version());
 		} else if (frame->data_32[0] == BOARD_REBOOT) {
 			sys_reboot(SYS_REBOOT_WARM);
 		}

@@ -6,7 +6,7 @@ on:
     paths:
       - boards/laser_f103ret7
       - applications/laser_ctrl
-      - zephyr4_3.yml
+      - zephyr4_4.yml
   workflow_dispatch:
 
 permissions:
@@ -36,7 +36,7 @@ jobs:
           base-path: workspace
           app-path: apps
           toolchains: arm-zephyr-eabi
-          manifest-file-name: zephyr4_3.yml
+          manifest-file-name: zephyr4_4.yml
 
       - name: Build Firmware
         working-directory: workspace

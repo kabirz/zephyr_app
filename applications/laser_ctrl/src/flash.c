@@ -9,7 +9,7 @@ LOG_MODULE_REGISTER(laser_flash, LOG_LEVEL_INF);
 #else
 #define CFG_PARTITION    cfg_partition
 #endif
-#define CFG_PARTITION_ID FIXED_PARTITION_ID(CFG_PARTITION)
+#define CFG_PARTITION_ID PARTITION_ID(CFG_PARTITION)
 
 static const struct flash_area *fa;
 static uint32_t laser_regs[50];

@@ -1,7 +1,7 @@
-From 636d65827e82c87ef50bafec5aac1866b5781c65 Mon Sep 17 00:00:00 2001
+From 097aa7058f5f8b948097ce8cb6b75489db12399d Mon Sep 17 00:00:00 2001
 From: kabirz <jxwazxzhp@126.com>
-Date: Mon, 11 Aug 2025 12:44:21 +0800
-Subject: [PATCH 1/2] serail: databit 7 stopbit 1 parity even
+Date: Wed, 15 Jul 2026 21:41:10 +0800
+Subject: [PATCH] serail: databit 7 stopbit 1 parity event
 
 Signed-off-by: kabirz <jxwazxzhp@126.com>
 ---
@@ -9,19 +9,19 @@ Signed-off-by: kabirz <jxwazxzhp@126.com>
  1 file changed, 4 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/serial/uart_stm32.c b/drivers/serial/uart_stm32.c
-index f5f62635cc6..fb4891fbba2 100644
+index 39c3810354b..4153f298bf9 100644
 --- a/drivers/serial/uart_stm32.c
 +++ b/drivers/serial/uart_stm32.c
-@@ -462,7 +462,7 @@ static inline uint32_t uart_stm32_cfg2ll_databits(enum uart_config_data_bits db,
+@@ -505,7 +505,7 @@ static inline uint32_t uart_stm32_cfg2ll_databits(enum uart_config_data_bits db,
  	case UART_CFG_DATA_BITS_8:
  	default:
- #ifdef LL_USART_DATAWIDTH_9B
+ #ifdef STM32_USART_DATAWIDTH_9_BIT
 -		if (p != UART_CFG_PARITY_NONE) {
 +		if (p != UART_CFG_PARITY_NONE && db != UART_CFG_DATA_BITS_7) {
- 			return LL_USART_DATAWIDTH_9B;
+ 			return STM32_USART_DATAWIDTH_9_BIT;
  		}
  #endif
-@@ -967,6 +967,9 @@ static void fifo_read_with_u8(USART_TypeDef *usart, void *rx_data, const int off
+@@ -1002,6 +1002,9 @@ static void fifo_read_with_u8(USART_TypeDef *usart, void *rx_data, const int off
  	uint8_t *data = (uint8_t *)rx_data;
  
  	data[offset] = LL_USART_ReceiveData8(usart);
@@ -32,4 +32,5 @@ index f5f62635cc6..fb4891fbba2 100644
  
  static int uart_stm32_fifo_read(const struct device *dev, uint8_t *rx_data, const int size)
 -- 
-2.43.0
+2.55.0.windows.2
+
