@@ -47,10 +47,11 @@ struct error_msg {
 static char *get_error_desc(uint16_t code)
 {
 	for (size_t i = 0; i < ARRAY_SIZE(error_msg_list); i++) {
-		if (error_msg_list[i].code == code)
+		if (error_msg_list[i].code == code) {
 			return error_msg_list[i].code_desc;
+		}
 	}
-	return "Unkown error";
+	return "Unknown error";
 }
 
 static void laser_msg_process_thread(void)
@@ -60,34 +61,36 @@ static void laser_msg_process_thread(void)
 
 	while (true) {
 		if (k_msgq_get(&laser_serial_msgq, &buf, K_FOREVER) == 0) {
-			int i = 0;
-			for (int j = 0; j < buf.len; j++) {
-				if (buf.data[j] == 'g') {
+			int i = -1;
+			for (int j = 0; j + 1 < buf.len; j++) {
+				if (buf.data[j] == 'g' && buf.data[j + 1] == id) {
 					i = j;
 					break;
-				} else if (j == (buf.len - 1)) {
-					LOG_ERR("Invalid uart frame!");
-					continue;
 				}
 			}
-			if (buf.data[i] != 'g' && buf.data[i+1] != id) continue;
-			if (buf.data[i+2] == 'h') { // Distance
-				buf.data[buf.len-2] = '\0';
-				distance = strtol(buf.data+3+i, NULL, 10);
+			if (i < 0 || i + 2 >= buf.len) {
+				LOG_ERR("Invalid uart frame!");
+				continue;
+			}
+			if (buf.data[i + 2] == 'h') { // Distance
+				buf.data[buf.len - 2] = '\0';
+				distance = strtol(buf.data + 3 + i, NULL, 10);
 				if (enable_log)
 					LOG_INF("distance: %d", distance);
 				if (first_on) {
 					first_on = false;
 					k_event_set(&laser_event, EVENT_LASER_MSG);
 				}
-			} else if (buf.data[i+2] == '@' && buf.data[i+3] == 'E') { // Error code
-				buf.data[buf.len-2] = '\0';
-				uint16_t err_code = strtol(buf.data+4+i, NULL, 10);
-				LOG_ERR("laser error code: %s(%d)", get_error_desc(err_code), err_code);
+			} else if (buf.data[i + 2] == '@' && i + 3 < buf.len &&
+				   buf.data[i + 3] == 'E') { // Error code
+				buf.data[buf.len - 2] = '\0';
+				uint16_t err_code = strtol(buf.data + 4 + i, NULL, 10);
+				LOG_ERR("laser error code: %s(%d)", get_error_desc(err_code),
+					err_code);
 				distance = 0;
 				if (!atomic_test_bit(&laser_status, LASER_CON_MESURE))
 					k_event_set(&laser_event, EVENT_LASER_ERROR);
-			} else if (buf.data[i+2] == '?') { // stop/clear
+			} else if (buf.data[i + 2] == '?') { // stop/clear
 				if (!atomic_test_bit(&laser_status, LASER_CON_MESURE)) {
 					first_on = true;
 					LOG_INF("laser on reply");
@@ -101,7 +104,7 @@ static void laser_msg_process_thread(void)
 				k_event_set(&laser_event, EVENT_LASER_OTHER);
 				continue;
 			};
-			if (true) {
+			if (!atomic_test_bit(&laser_status, LASER_FW_UPDATE)) {
 				struct laser_encode_data laser_data;
 				struct can_frame frame = {
 					.id = 0x2E4,
@@ -116,11 +119,9 @@ static void laser_msg_process_thread(void)
 				laser_data.laser_val = distance;
 				memcpy(frame.data, &laser_data, 8);
 				laser_can_send(&frame);
-			} else if (atomic_test_bit(&laser_status, LASER_FW_UPDATE)) {
-				if (k_uptime_get() - latest_fw_up_times > 10000) {
-					atomic_clear_bit(&laser_status, LASER_FW_UPDATE);
-					LOG_INF("Cancel Firmware upgrade status due to timeout 10s");
-				}
+			} else if (k_uptime_get() - latest_fw_up_times > 10000) {
+				atomic_clear_bit(&laser_status, LASER_FW_UPDATE);
+				LOG_INF("Cancel Firmware upgrade status due to timeout 10s");
 			}
 		}
 	}
@@ -135,13 +136,14 @@ static void uart_cb(const struct device *dev, void *user_data)
 	while (uart_irq_update(dev) && uart_irq_rx_ready(dev)) {
 		buf.len += uart_fifo_read(dev, buf.data + buf.len, sizeof(buf.data) - buf.len);
 		if (buf.len >= sizeof(buf.data)) {
-			LOG_WRN("too more laser data");
+			LOG_WRN("too much laser data");
 			LOG_HEXDUMP_INF(buf.data, buf.len, "RX:");
 			memset(&buf, 0, sizeof(buf));
 		} else if (buf.len > 2) {
-			if (buf.data[buf.len-1] == 0x0A && buf.data[buf.len-2] == 0x0D) {
-			if (enable_log)
-				LOG_HEXDUMP_INF(buf.data, buf.len, "RX:");
+			if (buf.data[buf.len - 1] == 0x0A && buf.data[buf.len - 2] == 0x0D) {
+				if (enable_log) {
+					LOG_HEXDUMP_INF(buf.data, buf.len, "RX:");
+				}
 
 #if DT_NODE_HAS_PROP(USER_NODE, rs485_tx_gpios)
 				if (atomic_test_and_clear_bit(&laser_status, LASER_NEED_CLOSE)) {
@@ -151,6 +153,8 @@ static void uart_cb(const struct device *dev, void *user_data)
 				{
 					k_msgq_put(&laser_serial_msgq, &buf, K_NO_WAIT);
 				}
+				memset(&buf, 0, sizeof(buf));
+			} else if (buf.data[0] == 0xea) {
 				memset(&buf, 0, sizeof(buf));
 			}
 		}
@@ -170,7 +174,7 @@ static void laser_uart_process_thread(void)
 		}
 		buf.len += 1;
 		if (buf.len >= sizeof(buf.data)) {
-			LOG_WRN("too more laser data");
+			LOG_WRN("too much laser data");
 			LOG_HEXDUMP_INF(buf.data, buf.len, "RX:");
 			memset(&buf, 0, sizeof(buf));
 		} else if (buf.len > 2) {
@@ -209,8 +213,10 @@ static bool serial_send(const uint8_t *data, size_t len, uint32_t event)
 		LOG_HEXDUMP_INF(data, len, "TX:");
 
 	ret = k_event_wait(&laser_event, event, true, K_MSEC(1000));
-	if (ret == 0) LOG_ERR("serial without receive ack");
-	return ret == event;
+	if ((ret & event) == 0) {
+		LOG_ERR("serial without receive ack");
+	}
+	return (ret & event) == event;
 }
 
 int laser_stopclear(void)
@@ -239,14 +245,14 @@ static bool laser_read_error(void)
 {
 	int len = snprintf(tx_buf, sizeof(tx_buf), "s%dre\r\n", id);
 
-	return serial_send(tx_buf, len, EVENT_LASER_OTHER);
+	return serial_send(tx_buf, len, EVENT_LASER_ERROR);
 }
 
 static bool laser_clear_error(void)
 {
 	int len = snprintf(tx_buf, sizeof(tx_buf), "s%dce\r\n", id);
 
-	return serial_send(tx_buf, len, EVENT_LASER_OTHER);
+	return serial_send(tx_buf, len, EVENT_LASER_ERROR);
 }
 
 int laser_con_measure(uint32_t val)
@@ -370,6 +376,17 @@ static int cmd_laser_setup(const struct shell *ctx, size_t argc, char **argv)
 	return 0;
 }
 
+static int cmd_laser_id(const struct shell *ctx, size_t argc, char **argv)
+{
+	if (argc == 1) {
+		shell_print(ctx, "laser id: %d", id);
+		return 0;
+	}
+	id = (uint8_t)strtoul(argv[1], NULL, 0);
+	shell_print(ctx, "set laser id: %d", id);
+	return 0;
+}
+
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_serial_cmds,
 			       SHELL_CMD_ARG(status, NULL,
 					     "laser status\n"
@@ -399,6 +416,10 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_serial_cmds,
 					     "setup\n"
 					     "Usage: setup <period>",
 					     cmd_laser_setup, 2, 0),
+			       SHELL_CMD_ARG(id, NULL,
+					     "get/set laser id\n"
+					     "Usage: id [<id>]",
+					     cmd_laser_id, 1, 1),
 			       SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(laser, &sub_serial_cmds, "laser commands", NULL);

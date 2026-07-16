@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <string.h>
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/spi.h>
 #include <zephyr/sys/util.h>
@@ -45,7 +46,9 @@ uint32_t fpga_uint32_version(void)
 		return -1;
 	}
 
-	return *(uint32_t *)(rx_buf+1);
+	uint32_t version;
+	memcpy(&version, &rx_buf[1], sizeof(version));
+	return version;
 }
 
 uint32_t fpga_uint32_set(uint8_t reg, uint32_t val)
@@ -53,7 +56,7 @@ uint32_t fpga_uint32_set(uint8_t reg, uint32_t val)
 	uint8_t rx_buf[5] = {0}, tx_buf[5] = {0};
 
 	tx_buf[0] = reg;
-	*(uint32_t *)(tx_buf+1) = val;
+	memcpy(&tx_buf[1], &val, sizeof(val));
 
 	if (spi_tranfer(tx_buf, rx_buf, sizeof(rx_buf))) {
 		LOG_ERR("spi tranfer error");
@@ -85,40 +88,44 @@ int laser_get_encode_data(struct laser_encode_data *encode)
 	int postion;
 	uint64_t timestamp = k_uptime_get();
 
-	// get encode data
+	/* get encode data */
 	encode_data_get(ENCODE1_GET_REG, &msg1);
 	encode_data_get(ENCODE2_GET_REG, &msg2);
 
-	// local time
-	if (local_previous_time == 0)
+	/* local time delta since last call */
+	if (local_previous_time == 0) {
 		diff_l = 0;
-	else if (timestamp  < local_previous_time)
-		diff_l = timestamp + (UINT64_MAX - local_previous_time);
-	else
+	} else if (timestamp < local_previous_time) {
+		diff_l = timestamp + (UINT64_MAX - local_previous_time) + 1;
+	} else {
 		diff_l = timestamp - local_previous_time;
+	}
 
-	// encode1 time
-	if (fpga_previous_time1 == 0)
+	/* encode1: compare against msg1's own timestamp */
+	if (fpga_previous_time1 == 0) {
 		diff_f = 0;
-	else if (msg2.timecount < fpga_previous_time1)
-		diff_f = msg2.timecount + (BIT(31) - 1 - fpga_previous_time1);
-	else
-		diff_f = msg2.timecount - fpga_previous_time1;
+	} else if (msg1.timecount < fpga_previous_time1) {
+		diff_f = msg1.timecount + (BIT(31) - fpga_previous_time1);
+	} else {
+		diff_f = msg1.timecount - fpga_previous_time1;
+	}
 
 	postion = msg1.mutli_num * BIT(17) + msg1.single_num;
 
 	if (diff_l > diff_f && (diff_l - diff_f) > 1000)
 		encode->encode1 = 0;
-	else
+	else {
 		encode->encode1 = postion;
+	}
 
-	// encode2 time
-	if (fpga_previous_time2 == 0)
+	/* encode2: compare against msg2's own timestamp */
+	if (fpga_previous_time2 == 0) {
 		diff_f = 0;
-	else if (msg2.timecount < fpga_previous_time2)
-		diff_f = msg2.timecount + (BIT(31) - 1 - fpga_previous_time2);
-	else
+	} else if (msg2.timecount < fpga_previous_time2) {
+		diff_f = msg2.timecount + (BIT(31) - fpga_previous_time2);
+	} else {
 		diff_f = msg2.timecount - fpga_previous_time2;
+	}
 
 	postion = msg2.mutli_num * BIT(17) + msg2.single_num;
 
@@ -136,7 +143,7 @@ int laser_get_encode_data(struct laser_encode_data *encode)
 
 static int fpga_spi_init(void)
 {
-	LOG_INF("fpge version: 0x%x", fpga_uint32_version());
+	LOG_INF("fpga version: 0x%x", fpga_uint32_version());
 
 	return 0;
 }
@@ -148,7 +155,7 @@ SYS_INIT(fpga_spi_init, APPLICATION, 10);
 #include <stdlib.h>
 static int shell_version_get(const struct shell *ctx, size_t argc, char **argv)
 {
-	shell_print(ctx, "fpge version: 0x%x", fpga_uint32_version());
+	shell_print(ctx, "fpga version: 0x%x", fpga_uint32_version());
 
 	return 0;
 }
