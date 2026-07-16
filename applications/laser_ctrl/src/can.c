@@ -127,11 +127,10 @@ static void laser_canrx_msg_handler(struct can_frame *frame)
 			cob_msg_send(ack_cmd, LaserPeriod, COB_ID1_TX);
 			break;
 		default:
-			LOG_ERR("Unkown command: 0x%x", sys_be32_to_cpu(frame->data_32[0]));
+			LOG_ERR("Unknown command: 0x%x", sys_be32_to_cpu(frame->data_32[0]));
 			break;
 		}
-	}
-		break;
+	} break;
 	case COB_ID2_RX : {
 		if (frame->data[0] == 0x22) {
 			uint32_t address = frame->data[1] + frame->data[2] * 10;
@@ -168,16 +167,17 @@ static void laser_canrx_msg_handler(struct can_frame *frame)
 		fw_update(frame);
 		break;
 	default:
-		LOG_ERR("can frame id (0x%x) is not support", frame->id);
+		LOG_ERR("can frame id (0x%x) is not supported", frame->id);
 	}
 }
 
 static void laser_cantx_callback(const struct device *dev, int error, void *user_data)
 {
-	uint32_t count = *(uint32_t *)user_data;
+	uint32_t count = (uint32_t)(uintptr_t)user_data;
 	if (error == 0) {
-		if (!atomic_test_bit(&laser_status, LASER_FW_UPDATE))
+		if (!atomic_test_bit(&laser_status, LASER_FW_UPDATE)) {
 			LOG_DBG("CAN frame #%u successfully sent", count);
+		}
 	} else {
 		LOG_ERR("failed to send CAN frame #%u (err %d)", count, error);
 	}
@@ -192,13 +192,13 @@ static void laser_stop_work_handler(struct k_work *work)
 }
 #endif
 
+static atomic_t laser_can_tx_seq;
+
 int laser_can_send(struct can_frame *frame)
 {
-	static uint32_t frame_count = 0;
+	uint32_t seq = atomic_inc(&laser_can_tx_seq) + 1;
 
-	frame_count++;
-
-	return can_send(can_dev, frame, K_MSEC(100), laser_cantx_callback, &frame_count);
+	return can_send(can_dev, frame, K_MSEC(100), laser_cantx_callback, (void *)(uintptr_t)seq);
 }
 
 bool check_can_device_ready(void)
