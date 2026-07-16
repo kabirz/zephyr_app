@@ -5,6 +5,28 @@ mainmenu "gateway"
 
 source "Kconfig.zephyr"
 
+# ================================================================
+# 网络开关: 控制 W5500 UDP 透传层的编译
+#   y -> 需要 W5500 网关板 (ETH_W5500 + overlay eth0 节点)
+#   n -> 纯 nRF24 <-> CAN 桥, 可运行于无 W5500 的手柄板 (默认)
+# ================================================================
+config GW_NETWORKING
+	bool "Enable W5500 UDP networking"
+	default n
+	select NETWORKING
+	select NET_IPV4
+	select NET_UDP
+	select NET_SOCKETS
+	select POSIX_API
+	select NET_L2_ETHERNET
+	select NET_ARP
+	select ETH_DRIVER
+	select ETH_W5500
+	help
+	  Enable W5500 SPI Ethernet and UDP forwarding. When disabled, the
+	  gateway runs as a pure nRF24 <-> CAN bridge with no network
+	  interface, suitable for controller hardware without W5500.
+
 config GATEWAY_RF24_RX_STACK
 	int "RF24 RX thread stack size"
 	default 1024
@@ -28,11 +50,3 @@ config GATEWAY_UDP_STACK
 config GATEWAY_UDP_PRIORITY
 	int "UDP forward thread priority"
 	default 10
-
-config GATEWAY_WEB_STACK
-	int "Web server thread stack size"
-	default 2048
-
-config GATEWAY_WEB_PRIORITY
-	int "Web server thread priority"
-	default 11

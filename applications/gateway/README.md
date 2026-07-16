@@ -1,58 +1,64 @@
 # Gateway - 数据中转网关
 
-运行在 STM32F103RCT6 上的 Zephyr RTOS 嵌入式应用，作为 mod_handler（手持控制器）与上位机之间的数据中转网关。
+运行在 STM32F103RCT6 上的 Zephyr RTOS 嵌入式应用，作为 mod_handler（手持控制器）与上位机之间的数据中转网关。**同一份代码支持两种板级配置**，通过 snippet 切换。
 
-## 功能
+## 两种配置
 
-- **nRF24L01P 无线接收** — 从 mod_handler 接收遥测数据和扫描仪数据
-- **CAN 转发** — 双向转发 CAN 数据（与 mod_handler 相同协议）
-- **UDP 透传** — 通过 W5500 以太网与上位机进行双向 UDP 透传
-- **UDP 配置** — 通过 UDP 命令配置网络参数和 nRF24 信道
-- **UDP 固件升级** — 通过 UDP 传输固件数据升级
-- **CAN 配置** — 通过 CAN 总线配置网络参数和 nRF24 信道
-- **CAN 固件升级** — 使用 libs/can_fw_upgrade 共享库
-- **模式切换** — PA2 按键切换 CAN/UDP 数据转发模式
-- **配置持久化** — 网络参数和 nRF24 配置掉电保存
+| 配置 | 硬件 | 网络 | 用途 |
+|------|------|------|------|
+| **基线（默认）** | 手柄板（无 W5500） | 无 | 用手柄硬件充当无线接收端做功能测试，纯 nRF24 ↔ CAN 桥 |
+| **网关板** | 网关板（带 W5500） | W5500 UDP | 完整网关，nRF24 ↔ CAN/UDP 双链路 |
+
+两种配置共用同一份主干代码（nRF24 接收 + CAN 转发），差异由 Kconfig 开关 `CONFIG_GW_NETWORKING` 与 snippet `gateway_eth` 注入。
+
+## 编译
+
+```bash
+# 手柄板（默认，无网络）—— 当前功能测试用
+west build -b nrf24_f103rct6 applications/gateway --sysbuild
+
+# 网关板（带 W5500 网络）
+WITH_GATEWAY_ETH=1 west build -b nrf24_f103rct6 applications/gateway --sysbuild
+```
+
+> `WITH_GATEWAY_ETH` 是**环境变量**而非 `-D` 参数：sysbuild 不转发命令行 `-D` 给子镜像 app，故 snippet 启用通过环境变量在 app `CMakeLists.txt` 内追加（`if(DEFINED ENV{WITH_GATEWAY_ETH})`）。
+
+烧录：`west flash`
 
 ## 硬件
+
+### 共用（两种配置）
 
 | 组件 | 型号 | 接口 |
 |------|------|------|
 | MCU | STM32F103RCT6 | - |
 | 无线 | nRF24L01+ | SPI2 (8MHz) |
-| 以太网 | W5500 | SPI2 (8MHz, 共享) |
-| Flash | GD25Q80 (8MB) | SPI1 (30MHz) |
 
 ### 引脚分配
 
-| 功能 | 引脚 | 说明 |
-|------|------|------|
-| SPI2_SCK/MISO/MOSI | PB13/PB14/PB15 | SPI 共享总线 |
-| nRF24 CS | PB12 | nRF24 片选 |
-| nRF24 CE | PA9 | nRF24 使能 |
-| nRF24 IRQ | PC6 | nRF24 中断 |
-| W5500 CS | PA10 | W5500 片选 |
-| W5500 INT | PA1 | W5500 中断 |
-| W5500 RESET | PB0 | W5500 复位 |
-| CAN_RX/TX | PA11/PA12 | CAN 250Kbps |
-| Link Switch | PA2 | 按键切换 CAN/UDP 模式 |
+| 功能 | 手柄板（基线） | 网关板（+snippet） | 说明 |
+|------|---------------|-------------------|------|
+| SPI2 SCK/MISO/MOSI | PB13/PB14/PB15 | 同 | SPI 共享总线 |
+| nRF24 CS / CE / IRQ | PB12 / PA9 / PC6 | 同 | - |
+| CAN RX/TX | PA11/PA12 | 同 | 250Kbps |
+| 主电源 (5V) | PA8 | PA8 | `mainpower`，软件使能 |
+| CAN 电源 | PC7 | PC7 | `canpower`，软件使能 |
+| nRF24 电源 | PC9 | PC9 | `rf24power`，软件使能 |
+| Link Switch | PA10 | PA2 | 切换 CAN/UDP（网关板） |
+| W5500 CS | — | PA10 | 仅网关板 |
+| W5500 INT / RESET | — | PA1 / PB0 | 仅网关板 |
 
-## 编译
-
-```bash
-west build -b nrf24_f103rct6 applications/gateway --sysbuild --build-dir build/gateway
-west flash
-```
+手柄板需软件使能三路电源（mainpower/canpower/rf24power），由 `main.c::gw_power_init()` 在 `PRE_KERNEL_2` 阶段拉高，确保 nRF24/CAN 芯片在驱动初始化前上电。
 
 ## 数据流
 
-**CAN 模式：**
+**手柄板（基线，仅 CAN）：**
 - 上行: mod_handler → nRF24 → Gateway → CAN → 上位机
 - 下行: 上位机 → CAN → Gateway → nRF24 → mod_handler
 
-**UDP 模式：**
-- 上行: mod_handler → nRF24 → Gateway → UDP → 上位机
-- 下行: 上位机 → UDP → Gateway → nRF24 → mod_handler
+**网关板（+UDP，Link Switch 切换）：**
+- CAN 模式: 同上
+- UDP 模式: mod_handler → nRF24 → Gateway → UDP → 上位机（反向亦然）
 
 ## CAN 协议
 
@@ -73,14 +79,14 @@ west flash
 | 0x104 | 平台→网关 | `[cmd 1B][param...]` |
 | 0x105 | 网关→平台 | `[cmd 1B][channel 1B][addr 5B][reserved 1B]` |
 
-### 网络配置帧
+### 网络配置帧（仅网关板）
 
 | 帧 ID | 方向 | 格式 |
 |-------|------|------|
 | 0x106 | 平台→网关 | `[cmd 1B][data...]` |
 | 0x107 | 网关→平台 | `[cmd 1B][ip 4B][reserved 3B]` |
 
-### 固件升级帧 (使用 libs/can_fw_upgrade)
+### 固件升级帧（使用 libs/can_fw_upgrade）
 
 | 帧 ID | 方向 | 用途 |
 |-------|------|------|
@@ -88,7 +94,7 @@ west flash
 | 0x102 | 网关→平台 | 响应帧 |
 | 0x103 | 平台→网关 | 固件数据 |
 
-## UDP 协议
+## UDP 协议（仅网关板 snippet 启用时）
 
 ### 数据帧格式
 `[CAN ID 2B BE][payload]` (透传扫描仪数据)
@@ -121,33 +127,46 @@ west flash
 
 ```
 link can       -- 切换到 CAN 模式
-link udp       -- 切换到 UDP 模式
+link udp       -- 切换到 UDP 模式（仅网关板，基线无此命令）
 link status    -- 显示当前模式
 ```
 
 ## 资源占用
 
-| 区域 | 已用 | 总量 | 百分比 |
-|------|------|------|--------|
-| FLASH | 144KB | 195KB | 73.7% |
-| RAM | 41.4KB | 48KB | 84.2% |
+| 配置 | FLASH | RAM |
+|------|-------|-----|
+| 手柄板（基线） | 85 KB / 194 KB (43.9%) | 17.7 KB / 48 KB (36.0%) |
+| 网关板（snippet） | 150 KB / 194 KB (77.4%) | 45.5 KB / 48 KB (92.7%) |
+
+## 配置架构
+
+- **Kconfig `CONFIG_GW_NETWORKING`**（`Kconfig`，默认 `n`）：C 代码编译开关。启用时 `select` 整套网络栈（`NETWORKING`/`NET_SOCKETS`/`POSIX_API`/`ETH_W5500`...），`udp_forward.c` 参与编译；关闭时网络相关代码全部经 `#ifdef` 排除。
+- **snippet `gateway_eth`**（`snippets/gateway_eth/`）：启用网关板配置的"配方"。注入 `CONFIG_GW_NETWORKING=y`（conf）+ W5500 devicetree 节点 / PA10 CS / `chosen ethernet` / `linksw→PA2`（overlay），叠加在基线 board overlay 之上。
+- **基线**（`prj.conf` + `boards/nrf24_f103rct6.overlay`）：手柄板最小集，无网络，默认编译即此配置。
+
+主干转发代码（`rf24.c` / `can_forward.c`）两种配置零差异共享，网络分支全部由 `#ifdef CONFIG_GW_NETWORKING` 守卫。
 
 ## 目录结构
 
 ```
 gateway/
-  boards/nrf24_f103rct6.overlay  -- 板级覆盖 (W5500 + nRF24 + CAN)
-  boards/nrf24_f103rct6.conf     -- 板级配置 (ETH_W5500)
-  include/gateway.h              -- 公共定义
+  boards/
+    nrf24_f103rct6.overlay  -- 基线板级覆盖 (手柄板: nRF24+CAN+电源, 无 W5500)
+    nrf24_f103rct6.conf     -- 配对占位 (不可删, 内容可空)
+  snippets/gateway_eth/      -- 网关板 snippet (W5500 网络)
+    snippet.yml              -- append EXTRA_CONF_FILE + EXTRA_DTC_OVERLAY_FILE
+    gateway_eth.conf         -- CONFIG_GW_NETWORKING=y + 随机源
+    gateway_eth.overlay      -- W5500 节点 + PA10 CS + chosen ethernet + linksw PA2
+  include/gateway.h          -- 公共定义
   src/
-    main.c          -- 入口 + 网络初始化 + link switch
-    rf24.c          -- nRF24L01P 收发
-    can_forward.c   -- CAN 转发 + 网络配置 + 固件升级
-    udp_forward.c   -- UDP 透传 + 配置 + 固件升级
-    config.c        -- 配置管理
-    persist.c       -- Settings 持久化
-  CMakeLists.txt
-  Kconfig
+    main.c                   -- 入口 + 电源使能 + 链路切换 + (网络初始化)
+    rf24.c                   -- nRF24L01P 收发
+    can_forward.c            -- CAN 转发 + (网络配置命令)
+    udp_forward.c            -- UDP 透传 + 配置 + 固件升级 (仅 CONFIG_GW_NETWORKING)
+    config.c                 -- 配置管理
+    persist.c                -- Settings 持久化
+  CMakeLists.txt             -- SNIPPET_ROOT 注册 + WITH_GATEWAY_ETH 条件追加 snippet
+  Kconfig                    -- CONFIG_GW_NETWORKING 开关
   prj.conf
   VERSION
   CLAUDE.md

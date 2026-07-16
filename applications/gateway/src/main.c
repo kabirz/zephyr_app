@@ -11,10 +11,12 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/settings/settings.h>
-#include <zephyr/net/net_if.h>
-#include <zephyr/net/socket.h>
 #include <gateway.h>
 #include <zephyr/app_version.h>
+#ifdef CONFIG_GW_NETWORKING
+#include <zephyr/net/net_if.h>
+#include <zephyr/net/socket.h>
+#endif
 #ifndef CONFIG_FLASH_SIZE
 #define CONFIG_FLASH_SIZE 0x1000
 #endif
@@ -24,11 +26,40 @@ LOG_MODULE_REGISTER(gateway, LOG_LEVEL_INF);
 
 gateway_params_t gw_params;
 
+#define USER_NODE DT_PATH(zephyr_user)
 
 /* ================================================================
- * Link Switch GPIO (PA2) - 切换 CAN/UDP 模式
+ * 外设电源使能 (手柄板: CAN/nRF24/5V 主电源 GPIO 独立控制)
+ * Zephyr 设备驱动初始化前上电, 确保 nRF24/CAN 芯片就绪
  * ================================================================ */
-#define USER_NODE DT_PATH(zephyr_user)
+static const struct gpio_dt_spec can_power = GPIO_DT_SPEC_GET(USER_NODE, canpower_gpios);
+static const struct gpio_dt_spec rf24_power = GPIO_DT_SPEC_GET(USER_NODE, rf24power_gpios);
+static const struct gpio_dt_spec main_power = GPIO_DT_SPEC_GET(USER_NODE, mainpower_gpios);
+
+static int gw_power_init(void)
+{
+	if (!gpio_is_ready_dt(&can_power) || !gpio_is_ready_dt(&rf24_power) ||
+	    !gpio_is_ready_dt(&main_power)) {
+		LOG_ERR("Power GPIO not ready");
+		return -ENODEV;
+	}
+
+	gpio_pin_configure_dt(&can_power, GPIO_OUTPUT);
+	gpio_pin_configure_dt(&rf24_power, GPIO_OUTPUT);
+	gpio_pin_configure_dt(&main_power, GPIO_OUTPUT);
+
+	gpio_pin_set_dt(&main_power, 1);  /* 系统主电源 (5V) */
+	gpio_pin_set_dt(&can_power, 1);   /* CAN 收发器 */
+	gpio_pin_set_dt(&rf24_power, 1);  /* nRF24 模块 */
+
+	LOG_INF("Power rails enabled (CAN/RF24/5V)");
+	return 0;
+}
+SYS_INIT(gw_power_init, PRE_KERNEL_2, 1);
+
+/* ================================================================
+ * Link Switch GPIO - 切换 CAN/UDP 模式 (需 CONFIG_GW_NETWORKING)
+ * ================================================================ */
 static const struct gpio_dt_spec link_switch = GPIO_DT_SPEC_GET(USER_NODE, linksw_gpios);
 static struct gpio_callback linksw_cb_data;
 static struct k_work_delayable linksw_work;
@@ -36,10 +67,14 @@ static struct k_work_delayable linksw_work;
 static void linksw_work_handler(struct k_work *work)
 {
 	if (gpio_pin_get_dt(&link_switch) == 0) {
+#ifdef CONFIG_GW_NETWORKING
 		gw_params.connect_type = (gw_params.connect_type == GW_MODE_CAN) ? GW_MODE_UDP
-								       : GW_MODE_CAN;
+									       : GW_MODE_CAN;
 		LOG_INF("Link mode: %s", gw_params.connect_type == GW_MODE_CAN ? "CAN" : "UDP");
 		persist_save_network_config();
+#else
+		LOG_INF("Link switch ignored (networking disabled, CAN-only)");
+#endif
 	}
 }
 
@@ -73,10 +108,14 @@ static int linksw_init(void)
 	gpio_add_callback(link_switch.port, &linksw_cb_data);
 	k_work_init_delayable(&linksw_work, linksw_work_handler);
 
-	LOG_INF("Link switch initialized (PA2)");
+	LOG_INF("Link switch initialized");
 	return 0;
 }
 
+#ifdef CONFIG_GW_NETWORKING
+/* ================================================================
+ * 网络初始化 (W5500 静态 IP)
+ * ================================================================ */
 static int net_init(void)
 {
 	struct net_if *iface = net_if_get_default();
@@ -107,6 +146,7 @@ static int net_init(void)
 	LOG_INF("Network: %s/%s gw %s", gw_params.ip_addr, gw_params.netmask, gw_params.gateway);
 	return 0;
 }
+#endif
 
 int main(void)
 {
@@ -115,6 +155,7 @@ int main(void)
 		CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC / MHZ(1));
 	LOG_INF("flash size: %dKB, ram size: %dKB", CONFIG_FLASH_SIZE, CONFIG_SRAM_SIZE);
 	LOG_INF("version: %s", APP_VERSION_STRING);
+	LOG_INF("networking: %s", IS_ENABLED(CONFIG_GW_NETWORKING) ? "enabled" : "disabled");
 
 	/* 初始化默认配置 */
 	gw_params.connect_type = GW_MODE_CAN;
@@ -124,10 +165,12 @@ int main(void)
 	gw_params.rf24_addr[2] = 0;
 	gw_params.rf24_addr[3] = 0;
 	gw_params.rf24_addr[4] = 0;
+#ifdef CONFIG_GW_NETWORKING
 	strncpy(gw_params.ip_addr, GATEWAY_DEFAULT_IP, sizeof(gw_params.ip_addr) - 1);
 	strncpy(gw_params.netmask, GATEWAY_DEFAULT_MASK, sizeof(gw_params.netmask) - 1);
 	strncpy(gw_params.gateway, GATEWAY_DEFAULT_GW, sizeof(gw_params.gateway) - 1);
 	gw_params.udp_port = GATEWAY_DEFAULT_UDP_PORT;
+#endif
 
 
 	/* 加载持久化配置 (覆盖默认值) */
@@ -140,9 +183,11 @@ int main(void)
 	/* 初始化各模块 */
 	gw_rf24_init();
 
+#ifdef CONFIG_GW_NETWORKING
 	/* 等待网络就绪后初始化 */
 	k_msleep(500);
 	net_init();
+#endif
 
 	gw_params.running = true;
 	LOG_INF("Gateway ready");
@@ -170,6 +215,7 @@ static int cmd_link_can(const struct shell *ctx, size_t argc, char **argv)
 	return 0;
 }
 
+#ifdef CONFIG_GW_NETWORKING
 static int cmd_link_udp(const struct shell *ctx, size_t argc, char **argv)
 {
 	ARG_UNUSED(argc);
@@ -179,6 +225,7 @@ static int cmd_link_udp(const struct shell *ctx, size_t argc, char **argv)
 	shell_print(ctx, "mode: UDP");
 	return 0;
 }
+#endif
 
 static int cmd_link_status(const struct shell *ctx, size_t argc, char **argv)
 {
@@ -190,7 +237,9 @@ static int cmd_link_status(const struct shell *ctx, size_t argc, char **argv)
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_link_cmds,
 	SHELL_CMD_ARG(can, NULL, "Switch to CAN mode", cmd_link_can, 1, 0),
+#ifdef CONFIG_GW_NETWORKING
 	SHELL_CMD_ARG(udp, NULL, "Switch to UDP mode", cmd_link_udp, 1, 0),
+#endif
 	SHELL_CMD_ARG(status, NULL, "Show current mode", cmd_link_status, 1, 0),
 	SHELL_SUBCMD_SET_END);
 

@@ -1,35 +1,37 @@
 /*
- * Gateway board overlay for nrf24_f103rct6
- * W5500 SPI Ethernet + nRF24L01P + CAN
+ * Gateway board overlay for nrf24_f103rct6 — 基线 (手柄板, 无网络)
  *
- * SPI2 共享: nRF24 (CS=PB12) + W5500 (CS=PA10)
+ * 默认编译即此配置 (CONFIG_GW_NETWORKING=n): 纯 nRF24 <-> CAN 桥。
+ * nRF24 与 CAN 引脚与 mod_handler 完全一致, 电源由 main.c 的
+ * gw_power_init() 使能 (canpower/rf24power/mainpower)。
+ *
+ * 网关板 (带 W5500) 配置由 snippet `gateway_eth` 注入:
+ *   WITH_GATEWAY_ETH=1 west build -b nrf24_f103rct6 gateway --sysbuild
  */
 
 / {
 	chosen {
 		zephyr,canbus = &can1;
 		zephyr,settings-partition = &cfg_partition;
-		zephyr,ethernet = &eth0;
 	};
 
 	zephyr,user {
 		canpower-gpios = <&gpioc 7 GPIO_ACTIVE_HIGH>;
 		rf24power-gpios = <&gpioc 9 GPIO_ACTIVE_HIGH>;
-		ethpower-gpios = <&gpioa 8 GPIO_ACTIVE_HIGH>;
-		linksw-gpios = <&gpioa 2 GPIO_PULL_UP>;
+		mainpower-gpios = <&gpioa 8 GPIO_ACTIVE_HIGH>;   /* 系统主电源 (5V) */
+		linksw-gpios = <&gpioa 10 GPIO_PULL_UP>;          /* 手柄板 link 按键 */
 	};
 };
 
 /* ================================================================
- * SPI2: nRF24L01P + W5500 (共享总线, 不同 CS)
+ * SPI2: nRF24L01P (基线仅 nRF24, W5500 由 snippet 注入)
  * ================================================================ */
 &spi2 {
 	pinctrl-0 = <&spi2_sck_master_pb13
 		     &spi2_miso_master_pb14
 		     &spi2_mosi_master_pb15>;
 	pinctrl-names = "default";
-	cs-gpios = <&gpiob 12 GPIO_ACTIVE_LOW>,    /* nRF24 CS */
-		   <&gpioa 10 GPIO_ACTIVE_LOW>;    /* W5500 CS */
+	cs-gpios = <&gpiob 12 GPIO_ACTIVE_LOW>;    /* nRF24 CS */
 	status = "okay";
 
 	nrf24: nrf24l01p@0 {
@@ -41,16 +43,6 @@
 		channel = <76>;
 		data-rate = "1m";
 		tx-power = "0dbm";
-	};
-
-	eth0: w5500@1 {
-		compatible = "wiznet,w5500";
-		reg = <0x1>;
-		spi-max-frequency = <8000000>;
-		int-gpios = <&gpioa 1 GPIO_ACTIVE_LOW>;
-		reset-gpios = <&gpiob 0 GPIO_ACTIVE_LOW>;
-		local-mac-address = [00 08 DC 01 02 03];
-		status = "okay";
 	};
 };
 

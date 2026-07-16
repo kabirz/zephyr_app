@@ -142,11 +142,14 @@ static void rf24_rx_thread(void)
 		}
 
 		/* 根据模式转发数据 */
+#ifdef CONFIG_GW_NETWORKING
 		if (gw_params.connect_type == GW_MODE_UDP) {
 			/* UDP 模式: nRF24 数据通过 UDP 发送 */
 			gw_udp_send(frame.data, frame.len);
 			LOG_DBG("nRF24->UDP: id=0x%03x len=%d", can_id, frame.len);
-		} else {
+		} else
+#endif
+		{
 			/* CAN 模式: nRF24 数据通过 CAN 发送 */
 			gw_can_send(can_id, data, data_len);
 			LOG_DBG("nRF24->CAN: id=0x%03x dlc=%d", can_id, data_len);

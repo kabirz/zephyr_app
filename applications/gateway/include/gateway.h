@@ -100,8 +100,10 @@ void gw_rf24_init(void);
 void gw_rf24_set_config(uint8_t channel, const uint8_t *addr);
 bool gw_rf24_send(uint16_t can_id, const uint8_t *data, size_t len);
 
-/* udp_forward.c */
+/* udp_forward.c (仅 CONFIG_GW_NETWORKING 启用时编译) */
+#ifdef CONFIG_GW_NETWORKING
 void gw_udp_send(const uint8_t *data, size_t len);
+#endif
 
 /* config.c */
 void gw_config_save(void);

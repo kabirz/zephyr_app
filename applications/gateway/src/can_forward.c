@@ -7,7 +7,9 @@
  */
 
 #include <string.h>
+#ifdef CONFIG_GW_NETWORKING
 #include <arpa/inet.h>
+#endif
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/can.h>
@@ -53,6 +55,7 @@ int gw_can_send(uint16_t id, const uint8_t *data, uint8_t len)
 	return can_send(can_dev, &frame, K_MSEC(100), can_tx_callback, NULL);
 }
 
+#ifdef CONFIG_GW_NETWORKING
 /* ================================================================
  * 网络配置命令处理 (0x106)
  * ================================================================ */
@@ -150,6 +153,7 @@ static void handle_net_config(struct can_frame *frame)
 	}
 	gw_can_send(NET_CONFIG_RESP, buf, 8);
 }
+#endif /* CONFIG_GW_NETWORKING */
 
 /* ================================================================
  * CAN 接收处理
@@ -193,10 +197,12 @@ static void can_rx_handler(struct can_frame *frame)
 		break;
 	}
 
+#ifdef CONFIG_GW_NETWORKING
 	case NET_CONFIG_CMD:
 		/* 网络配置命令 */
 		handle_net_config(frame);
 		break;
+#endif
 
 	default:
 		LOG_DBG("Unknown CAN id: 0x%03x", frame->id);
@@ -244,8 +250,10 @@ static void can_rx_thread(void)
 	filter.id = RF24_CONFIG_CMD;
 	can_add_rx_filter_msgq(can_dev, &gw_can_msgq, &filter);
 
+#ifdef CONFIG_GW_NETWORKING
 	filter.id = NET_CONFIG_CMD;
 	can_add_rx_filter_msgq(can_dev, &gw_can_msgq, &filter);
+#endif
 
 	LOG_INF("CAN ready (250Kbps)");
 
