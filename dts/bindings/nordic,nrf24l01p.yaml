@@ -13,6 +13,12 @@ properties:
     type: phandle-array
     required: true
     description: IRQ output GPIO (active-low, falling edge).
+  power-gpios:
+    type: phandle-array
+    required: false
+    description: Optional power-enable GPIO for the module regulator/switch.
+      When present, the driver powers the chip on during init (after a POR
+      stabilization delay) and exposes nrf24_power_enable() for sleep/wake.
   channel:
     type: int
     default: 76

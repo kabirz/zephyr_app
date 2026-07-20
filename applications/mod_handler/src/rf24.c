@@ -40,6 +40,9 @@ void rf24_init(void)
 		return;
 	}
 
+	/* 上电 + 等 POR + 重新配置 + 进 PRX (电源由驱动按 power-gpios 管理) */
+	nrf24_power_enable(rf24_dev, true);
+
 	/* 应用持久化的地址和信道配置 */
 	if (global_params.rf24_channel <= RF24_ADDR_MAX_CH) {
 		struct nrf24_cfg cfg = {
@@ -73,7 +76,8 @@ void rf24_deinit(void)
 	if (!device_is_ready(rf24_dev)) {
 		return;
 	}
-	nrf24_set_mode(rf24_dev, NRF24_MODE_POWER_DOWN);
+	/* 软关机 (POWER_DOWN) + 断电, 保护 SPI 引脚 (驱动管理电源) */
+	nrf24_power_enable(rf24_dev, false);
 	LOG_INF("nRF24L01+ powered down");
 }
 

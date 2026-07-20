@@ -17,7 +17,6 @@
 
 	zephyr,user {
 		canpower-gpios = <&gpioc 7 GPIO_ACTIVE_HIGH>;
-		rf24power-gpios = <&gpioc 9 GPIO_ACTIVE_HIGH>;
 		mainpower-gpios = <&gpioa 8 GPIO_ACTIVE_HIGH>;   /* 系统主电源 (5V) */
 		linksw-gpios = <&gpioa 10 GPIO_PULL_UP>;          /* 手柄板 link 按键 */
 	};
@@ -40,6 +39,7 @@
 		spi-max-frequency = <8000000>;
 		ce-gpios = <&gpioa 9 GPIO_ACTIVE_HIGH>;
 		irq-gpios = <&gpioc 6 GPIO_ACTIVE_LOW>;
+		power-gpios = <&gpioc 9 GPIO_ACTIVE_HIGH>;   /* 模块电源 (驱动管理 + POR 延时) */
 		channel = <76>;
 		data-rate = "1m";
 		tx-power = "0dbm";

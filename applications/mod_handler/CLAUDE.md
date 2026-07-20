@@ -104,7 +104,7 @@ west build -b nrf24_f103rct6 . --sysbuild --pristine
 |------|------|------|
 | CAN 电源 | PC7 | GPIO 输出 |
 | 显示电源 | PC8 | GPIO 输出 |
-| nRF24 电源 | PC9 | GPIO 输出 |
+| nRF24 电源 | PC9 | 驱动 `power-gpios` 管理（init 上电 + POR 延时） |
 | 5V 使能 | PA8 | GPIO 输出 |
 | 操纵手柄按键 | PB0 | GPIO 输入 |
 | 充电满 | PA3 | GPIO 输入上拉 (低有效) |
@@ -256,9 +256,9 @@ VERSION                  -- 版本号 (0.1.4-release)
 - nRF24 驱动中断模型: ISR 仅 `k_sem_give(&irq_sem)`；`nrf24_irq` 线程读 STATUS 分发 TX_DS/MAX_RT→give `tx_done_sem` (通知 send)，RX_DR→循环读 FIFO→投递 `nrf24_frame` 到用户 msgq/callback/兜底 msgq
 - `btn_display_work`、`sleep_work`、`linksw_work` 为 `gpio.c` 内部 static 变量，ISR 中 `k_work_reschedule`/`k_work_submit`，工作队列线程执行
 - 按键防抖: `btn_display_work` 和 `sleep_work` 使用 `k_work_delayable`，ISR 中 reschedule，work handler 中 `gpio_pin_get_dt()` 确认
-- 电源控制函数定义在 `gpio.c`，声明在 `mod-gpio.h`: `can_power_enable()`, `rf24_power_enable()`, `dis_power_enable()`, `handler_power_enable()`, `handler_get_btn()`
+- 电源控制函数定义在 `gpio.c`，声明在 `mod-gpio.h`: `can_power_enable()`, `dis_power_enable()`, `handler_power_enable()`, `handler_get_btn()`（nRF24 电源由驱动 `nrf24_power_enable()` 按 `power-gpios` 管理）
 - 电池状态读取: `read_battery_status()` 定义在 `gpio.c`，声明在 `mod-gpio.h`，返回 `battery_status_t` 枚举
-- 系统休眠: `system_sleep()` 关闭所有外设电源 (can/rf24/dis/handler_power_enable + rf24_deinit)，设置 `sleeping = true`，clear WAKE_EVENT
+- 系统休眠: `system_sleep()` 关闭所有外设电源 (can/dis/handler_power_enable + rf24_deinit)，设置 `sleeping = true`，clear WAKE_EVENT（rf24_deinit 内部 `nrf24_power_enable(false)` 断电 nRF24）
 - 系统唤醒: `system_wake()` 重新上电所有外设，2.4G 模式下调用 `rf24_init()`，等待 200ms 后 `mod_display_reinit()` + `mod_display_all()`，设置 `sleeping = false`
-- nRF24 电源时序封装在 `rf24_init/deinit` 内: init = `rf24_power_enable(true)` + 等 10ms + `nrf24_start_rx`；deinit = `nrf24_set_mode(POWER_DOWN)` + `rf24_power_enable(false)`（先软关机再断电，避免 SPI 引脚悬空）
+- nRF24 电源时序封装在 `rf24_init/deinit` 内: init = `nrf24_power_enable(true)`（上电 + POR + 重配 + 进 PRX）后应用持久化配置；deinit = `nrf24_power_enable(false)`（软关机 + 断电）。电源由驱动按 `power-gpios` 管理，POR 延时 `CONFIG_NRF24L01P_POWER_ON_DELAY_MS`
 - 命名说明: 板名 `nrf24_f103rct6` 取自 nRF24L01+ 射频芯片；代码中无线相关符号统一为 RF24 前缀 (RF24_TYPE/RF24_EVENT/mod_display_rf24/label_rf24/connect_switch/link rf24)

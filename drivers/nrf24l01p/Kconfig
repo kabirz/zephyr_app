@@ -16,6 +16,15 @@ config NRF24L01P_INIT_PRIORITY
 	  nRF24L01P device initialization priority. Must run after the
 	  SPI and GPIO controllers (within POST_KERNEL).
 
+config NRF24L01P_POWER_ON_DELAY_MS
+	int "Power-on stabilization delay (ms)"
+	default 100
+	depends on NRF24L01P
+	help
+	  Delay after asserting the power-gpios before any SPI access, to let
+	  the chip complete Power-On-Reset. Only used when the devicetree node
+	  has a power-gpios property.
+
 config NRF24L01P_LOG_LEVEL
 	int "Log level"
 	default 3

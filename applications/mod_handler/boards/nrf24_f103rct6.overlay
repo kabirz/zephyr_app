@@ -7,7 +7,6 @@
 	zephyr,user {
 		canpower-gpios = <&gpioc 7 GPIO_ACTIVE_HIGH>;
 		dispower-gpios = <&gpioc 8 GPIO_ACTIVE_HIGH>;
-		rf24power-gpios = <&gpioc 9 GPIO_ACTIVE_HIGH>;
 		handlerpower-gpios = <&gpioa 8 GPIO_ACTIVE_HIGH>;
 
 		handlebt-gpios = <&gpiob 0 GPIO_ACTIVE_HIGH>;
@@ -36,6 +35,7 @@
 		spi-max-frequency = <8000000>;
 		ce-gpios = <&gpioa 9 GPIO_ACTIVE_HIGH>;
 		irq-gpios = <&gpioc 6 GPIO_ACTIVE_LOW>;
+		power-gpios = <&gpioc 9 GPIO_ACTIVE_HIGH>;
 		channel = <76>;
 		data-rate = "1m";
 		tx-power = "0dbm";

@@ -62,7 +62,6 @@ static const struct gpio_dt_spec handler_button = GPIO_DT_SPEC_GET(USER_NODE, ha
 static const struct gpio_dt_spec link_switch = GPIO_DT_SPEC_GET(USER_NODE, linksw_gpios);
 
 static const struct gpio_dt_spec can_power_gpio = GPIO_DT_SPEC_GET(USER_NODE, canpower_gpios);
-static const struct gpio_dt_spec rf24_power_gpio = GPIO_DT_SPEC_GET(USER_NODE, rf24power_gpios);
 static const struct gpio_dt_spec dis_power_gpio = GPIO_DT_SPEC_GET(USER_NODE, dispower_gpios);
 static const struct gpio_dt_spec handler_power_gpio = GPIO_DT_SPEC_GET(USER_NODE, handlerpower_gpios);
 
@@ -129,11 +128,6 @@ int handler_get_btn(void)
 void can_power_enable(bool up)
 {
 	gpio_pin_set_dt(&can_power_gpio, up);
-}
-
-void rf24_power_enable(bool up)
-{
-	gpio_pin_set_dt(&rf24_power_gpio, up);
 }
 
 void dis_power_enable(bool up)
@@ -233,12 +227,6 @@ static int power_init(void)
 	ret = gpio_pin_configure_dt(&can_power_gpio, GPIO_OUTPUT);
 	if (ret < 0) {
 		LOG_ERR("Failed to configure can power pin: %d", ret);
-		return ret;
-	}
-
-	ret = gpio_pin_configure_dt(&rf24_power_gpio, GPIO_OUTPUT);
-	if (ret < 0) {
-		LOG_ERR("Failed to configure rf24 power pin: %d", ret);
 		return ret;
 	}
 

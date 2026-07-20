@@ -33,26 +33,23 @@ gateway_params_t gw_params;
  * Zephyr 设备驱动初始化前上电, 确保 nRF24/CAN 芯片就绪
  * ================================================================ */
 static const struct gpio_dt_spec can_power = GPIO_DT_SPEC_GET(USER_NODE, canpower_gpios);
-static const struct gpio_dt_spec rf24_power = GPIO_DT_SPEC_GET(USER_NODE, rf24power_gpios);
 static const struct gpio_dt_spec main_power = GPIO_DT_SPEC_GET(USER_NODE, mainpower_gpios);
 
 static int gw_power_init(void)
 {
-	if (!gpio_is_ready_dt(&can_power) || !gpio_is_ready_dt(&rf24_power) ||
-	    !gpio_is_ready_dt(&main_power)) {
+	if (!gpio_is_ready_dt(&can_power) || !gpio_is_ready_dt(&main_power)) {
 		LOG_ERR("Power GPIO not ready");
 		return -ENODEV;
 	}
 
 	gpio_pin_configure_dt(&can_power, GPIO_OUTPUT);
-	gpio_pin_configure_dt(&rf24_power, GPIO_OUTPUT);
 	gpio_pin_configure_dt(&main_power, GPIO_OUTPUT);
 
 	gpio_pin_set_dt(&main_power, 1);  /* 系统主电源 (5V) */
 	gpio_pin_set_dt(&can_power, 1);   /* CAN 收发器 */
-	gpio_pin_set_dt(&rf24_power, 1);  /* nRF24 模块 */
 
-	LOG_INF("Power rails enabled (CAN/RF24/5V)");
+	/* nRF24 模块电源 (PC9) 由驱动按 power-gpios 管理: init 时上电 + POR 延时 */
+	LOG_INF("Power rails enabled (CAN/5V)");
 	return 0;
 }
 SYS_INIT(gw_power_init, PRE_KERNEL_2, 1);

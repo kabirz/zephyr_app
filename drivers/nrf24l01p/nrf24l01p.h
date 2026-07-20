@@ -114,6 +114,15 @@ int nrf24_recv(const struct device *dev, void *buf, size_t max_len, k_timeout_t 
 /** 切换 RF 模式。*/
 int nrf24_set_mode(const struct device *dev, enum nrf24_mode mode);
 
+/** 控制芯片电源 (需 devicetree 配置 power-gpios; 未配置时空操作)。
+ *  - enable=true:  上电 + 等待 POR + 重新应用配置并进入 PRX
+ *  - enable=false: 先置 POWER_DOWN 软关机 (保护 SPI 引脚), 再断电
+ *  驱动 init 时若配置了 power-gpios 会自动上电, 应用通常无需手动调用;
+ *  典型用途为系统休眠/唤醒时关闭/恢复射频。
+ *  @return 0 成功, 负值错误码
+ */
+int nrf24_power_enable(const struct device *dev, bool enable);
+
 /** 便捷：进入 PRX 并拉高 CE 开始接收。*/
 int nrf24_start_rx(const struct device *dev);
 

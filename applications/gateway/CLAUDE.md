@@ -62,7 +62,7 @@ west flash
 | CAN RX/TX | PA11/PA12 | CAN1 250Kbps |
 | 主电源 (5V) | PA8 | `mainpower`，软件使能 |
 | CAN 电源 | PC7 | `canpower`，软件使能 |
-| nRF24 电源 | PC9 | `rf24power`，软件使能 |
+| nRF24 电源 | PC9 | 驱动 `power-gpios` 管理（init 上电 + POR 延时） |
 
 ### 配置差异
 
@@ -126,7 +126,7 @@ west flash
 - **Kconfig select 链**：`GW_NETWORKING` 一个 bool `select` 整套网络栈，启用/关闭网络一行配置切换（C 代码层）。
 - **snippet 叠加 overlay**：网关板 W5500 节点、SPI2 第二路 CS(PA10)、`linksw` 引脚(PA10→PA2)、`chosen ethernet` 经 snippet overlay 覆盖基线（DT 后置 overlay 覆盖前置属性）。
 - **环境变量启用 snippet**：sysbuild 不转发命令行 `-D` 给子镜像，故用 `WITH_GATEWAY_ETH` 环境变量在 app `CMakeLists.txt` 内 `list(APPEND SNIPPET gateway_eth)`。
-- **电源软件使能**：手柄板外设 GPIO 独立供电（与 mod_handler 一致），`gw_power_init` 在 `PRE_KERNEL_2` 拉高 mainpower/canpower/rf24power，先于设备驱动初始化。
+- **电源软件使能**：手柄板外设 GPIO 独立供电。`gw_power_init` 在 `PRE_KERNEL_2` 拉高 mainpower(5V)/canpower；**nRF24 模块电源 (PC9) 由驱动管理**——devicetree 配置 `power-gpios` 后，驱动 `nrf24_init` 时上电 + POR 延时 (`CONFIG_NRF24L01P_POWER_ON_DELAY_MS`) 再 SPI 访问，并通过 `nrf24_power_enable()` 提供休眠/唤醒开关。
 - **mainpower 命名统一**：PA8 在手柄板(`handlerpower`)/网关板(`ethpower`)物理同引脚、同为主电源角色，基线统一为 `mainpower`，消除歧义。
 - **STM32F103 无硬件 RNG**：网络栈随机源用 `CONFIG_TEST_RANDOM_GENERATOR`，放在 `gateway_eth.conf`（仅网络需要，基线不需要）。
 - **SPI2 共享**：nRF24 与 W5500 共享 SPI2，不同 CS 区分（网关板 PB12 + PA10）。

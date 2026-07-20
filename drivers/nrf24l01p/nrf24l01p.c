@@ -26,6 +26,7 @@ struct nrf24_config {
 	struct spi_dt_spec bus;
 	struct gpio_dt_spec ce;
 	struct gpio_dt_spec irq;
+	struct gpio_dt_spec power; /* 可选电源使能 (power-gpios); port==NULL 表示电源常通 */
 
 	uint8_t channel;
 	const char *data_rate;      /* DT 字符串，运行时 parse */
@@ -219,6 +220,30 @@ static int write_tx_payload_locked(const struct device *dev, const uint8_t *buf,
 static inline void ce_set(const struct device *dev, int val)
 {
 	gpio_pin_set_dt(&get_cfg(dev)->ce, val);
+}
+
+/* 配置并控制电源使能引脚 (可选; power-gpios 未配置时空操作)。
+ * 调用方须自行持 data->lock — 本函数仅操作 GPIO, 不访问 SPI。*/
+static int nrf24_power_apply(const struct device *dev, bool enable)
+{
+	const struct nrf24_config *cfg = get_cfg(dev);
+
+	if (cfg->power.port == NULL) {
+		return 0;
+	}
+
+	int ret = gpio_pin_configure_dt(&cfg->power, GPIO_OUTPUT);
+
+	if (ret < 0) {
+		LOG_ERR("power GPIO config failed: %d", ret);
+		return ret;
+	}
+	gpio_pin_set_dt(&cfg->power, enable ? 1 : 0);
+	if (enable) {
+		/* 等待芯片完成 Power-On-Reset, 再进行 SPI 访问 */
+		k_msleep(CONFIG_NRF24L01P_POWER_ON_DELAY_MS);
+	}
+	return 0;
 }
 
 static void nrf24_irq_handler(const struct device *port, struct gpio_callback *cb,
@@ -505,7 +530,9 @@ static int apply_config_with(const struct device *dev, const struct nrf24_config
 static const struct nrf24_config nrf24_cfg_##idx = {                            \
 	.bus = SPI_DT_SPEC_INST_GET(idx, NRF24_SPI_OPERATION),                      \
 	.ce  = GPIO_DT_SPEC_INST_GET(idx, ce_gpios),                                \
-	.irq = GPIO_DT_SPEC_INST_GET(idx, irq_gpios),                               \
+	.irq = GPIO_DT_SPEC_INST_GET(idx, irq_gpios),                                       \
+	.power = COND_CODE_1(DT_INST_NODE_HAS_PROP(idx, power_gpios),              \
+			     (GPIO_DT_SPEC_INST_GET(idx, power_gpios)), ({0})),                               \
 	.channel = DT_INST_PROP(idx, channel),                                      \
 	.data_rate = DT_INST_PROP(idx, data_rate),                                  \
 	.tx_power = DT_INST_PROP(idx, tx_power),                                    \
@@ -607,6 +634,42 @@ int nrf24_set_mode(const struct device *dev, enum nrf24_mode mode)
 
 	k_mutex_lock(&d->lock, K_FOREVER);
 	ret = set_mode_locked(dev, mode);
+	k_mutex_unlock(&d->lock);
+	return ret;
+}
+
+int nrf24_power_enable(const struct device *dev, bool enable)
+{
+	struct nrf24_data *d = get_data(dev);
+	const struct nrf24_config *cfg = get_cfg(dev);
+	int ret = 0;
+
+	/* 无 power-gpios 时空操作 (兼容电源常通的设计) */
+	if (cfg->power.port == NULL) {
+		return 0;
+	}
+
+	k_mutex_lock(&d->lock, K_FOREVER);
+	if (enable) {
+		ret = nrf24_power_apply(dev, true);
+		if (ret == 0) {
+			/* 断电后寄存器丢失, 重新应用配置并进入 PRX */
+			ret = apply_config_with(dev, cfg, true);
+		}
+		if (ret == 0) {
+			d->ready = true;
+			d->mode = NRF24_MODE_PRX;
+			ce_set(dev, 1);
+		} else {
+			d->ready = false;
+			LOG_ERR("power enable failed: %d", ret);
+		}
+	} else {
+		/* 先软关机 (寄存器置 powerdown, SPI 引脚进入定义状态) 再断电 */
+		set_mode_locked(dev, NRF24_MODE_POWER_DOWN);
+		d->ready = false;
+		(void)nrf24_power_apply(dev, false);
+	}
 	k_mutex_unlock(&d->lock);
 	return ret;
 }
@@ -837,6 +900,12 @@ static int nrf24_init(const struct device *dev)
 	k_mutex_init(&d->lock);
 	d->mode = NRF24_MODE_STANDBY;
 	d->ready = false;
+
+	/* 上电 + 等待 POR 稳定 (若配置了 power-gpios), 再进行 SPI 访问 */
+	ret = nrf24_power_apply(dev, true);
+	if (ret < 0) {
+		return ret;
+	}
 
 	ret = nrf24_bus_init(dev);
 	if (ret < 0) {

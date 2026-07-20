@@ -43,7 +43,7 @@ WITH_GATEWAY_ETH=1 west build -b nrf24_f103rct6 applications/gateway --sysbuild
 | CAN RX/TX | PA11/PA12 | 同 | 250Kbps |
 | 主电源 (5V) | PA8 | PA8 | `mainpower`，软件使能 |
 | CAN 电源 | PC7 | PC7 | `canpower`，软件使能 |
-| nRF24 电源 | PC9 | PC9 | `rf24power`，软件使能 |
+| nRF24 电源 | PC9 | PC9 | 驱动 `power-gpios` 管理 |
 | Link Switch | PA10 | PA2 | 切换 CAN/UDP（网关板） |
 | W5500 CS | — | PA10 | 仅网关板 |
 | W5500 INT / RESET | — | PA1 / PB0 | 仅网关板 |
