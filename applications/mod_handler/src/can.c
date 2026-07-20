@@ -4,7 +4,8 @@
  *
  * CAN 总线收发 + 心跳线程 + 手柄状态上报 (0x1E3 BE)
  * + 扫描仪数据解析 (0x263/0x363/0x463)
- * + 固件升级 (使用 can_fw_upgrade 库)
+ * CAN 接收与固件升级由 can_fw_upgrade 库自包含管理;
+ * 本模块仅注册业务帧 callback 并提供业务帧发送。
  */
 
 #include <zephyr/kernel.h>
@@ -18,120 +19,29 @@
 #include <can_fw_upgrade.h>
 LOG_MODULE_REGISTER(mod_can, LOG_LEVEL_INF);
 
-static const struct device *can_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_canbus));
-CAN_MSGQ_DEFINE(mod_can_msgq, 8);
+static const struct device *can_dev;	/* 由 mod_can_init() 从 can_fw_set_app_handler() 获取 */
 
-/* 固件升级上下文 */
-static struct can_fw_ctx fw_ctx;
-
-static void mod_canrx_msg_handler(struct can_frame *frame)
-{
-	/* 优先交给固件升级库处理 */
-	if (can_fw_rx_handler(&fw_ctx, frame)) {
-		return;
-	}
-
-	switch (frame->id) {
-	case OVERBREAK_LASER:
-	case COORD_XY:
-	case COORD_Z:
-		mod_can_parse_scanner(frame);
-		break;
-	case RF24_CONFIG_CMD:
-		mod_can_rf24_config(frame);
-		break;
-	default:
-		LOG_ERR("can frame id (0x%x) is not support", frame->id);
-	}
-}
-
+/* ================================================================
+ * CAN 发送
+ * ================================================================ */
 static void mod_cantx_callback(const struct device *dev, int error, void *user_data)
 {
-	uint32_t count = *(uint32_t *)user_data;
-	if (error == 0) {
-		LOG_DBG("CAN frame #%u successfully sent", count);
-	} else {
-		LOG_ERR("failed to send CAN frame #%u (err %d)", count, error);
+	ARG_UNUSED(dev);
+	ARG_UNUSED(user_data);
+
+	if (error) {
+		LOG_ERR("CAN tx error: %d", error);
 	}
 }
 
 int mod_can_send(struct can_frame *frame)
 {
-	static uint32_t frame_count = 0;
+	if (!can_dev) {
+		return -ENODEV;
+	}
 
-	frame_count++;
-
-	return can_send(can_dev, frame, K_MSEC(100), mod_cantx_callback, &frame_count);
+	return can_send(can_dev, frame, K_MSEC(100), mod_cantx_callback, NULL);
 }
-
-bool check_can_device_ready(void)
-{
-	return DEVICE_API_IS(can, can_dev) && device_is_ready(can_dev);
-}
-
-int mod_can_init(void)
-{
-	int err = -1;
-	uint8_t can_check_time = 0;
-
-	while (can_check_time++ < 10) {
-		if (check_can_device_ready()) {
-			break;
-		}
-		k_msleep(10);
-	}
-	if (can_check_time >= 10) {
-		LOG_ERR("can device is not ready");
-		goto end;
-	}
-
-	if ((err = can_set_bitrate(can_dev, 250000)) != 0) {
-		LOG_ERR("failed to set bitrate (err %d)", err);
-		goto end;
-	}
-
-	if ((err = can_start(can_dev)) != 0) {
-		LOG_ERR("failed to start CAN controller (err %d)", err);
-		goto end;
-	}
-
-	/* 初始化固件升级 (内部注册过滤器) */
-	can_fw_init(&fw_ctx, can_dev, mod_can_send);
-
-	struct can_filter filter = {.mask = CAN_STD_ID_MASK};
-
-	filter.id = OVERBREAK_LASER;
-	can_add_rx_filter_msgq(can_dev, &mod_can_msgq, &filter);
-
-	filter.id = COORD_XY;
-	can_add_rx_filter_msgq(can_dev, &mod_can_msgq, &filter);
-
-	filter.id = COORD_Z;
-	can_add_rx_filter_msgq(can_dev, &mod_can_msgq, &filter);
-
-	filter.id = RF24_CONFIG_CMD;
-	can_add_rx_filter_msgq(can_dev, &mod_can_msgq, &filter);
-end:
-	return err;
-}
-
-void mod_can_process_thread(void)
-{
-	struct can_frame frame;
-
-	if (mod_can_init() != 0) {
-		LOG_ERR("can init failed");
-		return;
-	}
-
-	while (true) {
-		if (k_msgq_get(&mod_can_msgq, &frame, K_FOREVER) == 0) {
-			mod_canrx_msg_handler(&frame);
-		}
-	}
-}
-
-K_THREAD_DEFINE(thread_can_rx, 2048, mod_can_process_thread, NULL, NULL, NULL, 8, 0, 0);
 
 /* ================================================================
  * 扫描仪 CAN 数据解析 — 0x263/0x363/0x463, 大端序
@@ -227,7 +137,7 @@ static void rf24_send_config_resp(uint8_t cmd)
 	}
 }
 
-void mod_can_rf24_config(struct can_frame *frame)
+static void mod_can_rf24_config(struct can_frame *frame)
 {
 	if (frame->dlc < 1) {
 		return;
@@ -261,3 +171,33 @@ void mod_can_rf24_config(struct can_frame *frame)
 		break;
 	}
 }
+
+/* ================================================================
+ * 业务帧 handler (注入 can_fw_upgrade 库)
+ * 库 RX 线程收到非固件升级帧时调用。
+ * ================================================================ */
+static bool mod_can_app_rx(struct can_frame *frame, void *user_data)
+{
+	ARG_UNUSED(user_data);
+
+	switch (frame->id) {
+	case OVERBREAK_LASER:
+	case COORD_XY:
+	case COORD_Z:
+		mod_can_parse_scanner(frame);
+		return true;
+	case RF24_CONFIG_CMD:
+		mod_can_rf24_config(frame);
+		return true;
+	default:
+		return false;
+	}
+}
+
+static int mod_can_init(void)
+{
+	can_dev = can_fw_set_app_handler(mod_can_app_rx, NULL);
+	return 0;
+}
+
+SYS_INIT(mod_can_init, APPLICATION, 10);

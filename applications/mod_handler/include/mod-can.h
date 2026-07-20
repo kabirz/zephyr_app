@@ -34,12 +34,4 @@ int mod_can_send(struct can_frame *frame);
  */
 void mod_can_parse_scanner(struct can_frame *frame);
 
-/**
- * @brief 处理 nRF24 配置命令 (CAN 0x104)
- *
- * @param frame CAN 接收帧 [cmd 1B][param...]
- *   RF24_CMD_SET_CHANNEL: [0x01][channel 1B][reserved 6B]
- *   RF24_CMD_GET_CONFIG:  [0x02][reserved 7B]
- */
-void mod_can_rf24_config(struct can_frame *frame);
 #endif

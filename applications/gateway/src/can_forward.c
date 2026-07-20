@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * CAN 转发模块 - CAN 总线与 nRF24/UDP 之间的数据中转
- * + 网络配置 + 固件升级 (使用 can_fw_upgrade 库)
+ * CAN 接收与固件升级由 can_fw_upgrade 库自包含管理;
+ * 本模块仅注册业务帧 callback 并提供业务帧发送。
  */
 
 #include <string.h>
@@ -20,19 +21,10 @@
 
 LOG_MODULE_REGISTER(gw_can, LOG_LEVEL_INF);
 
-const struct device *can_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_canbus));
-CAN_MSGQ_DEFINE(gw_can_msgq, 16);
-
-/* 固件升级上下文 */
-static struct can_fw_ctx fw_ctx;
-
-static int fw_can_send(struct can_frame *frame)
-{
-	return can_send(can_dev, frame, K_MSEC(100), NULL, NULL);
-}
+const struct device *can_dev;	/* 由 gw_can_init() 从 can_fw_set_app_handler() 获取 */
 
 /* ================================================================
- * CAN 发送
+ * CAN 发送 (业务帧响应)
  * ================================================================ */
 static void can_tx_callback(const struct device *dev, int error, void *user_data)
 {
@@ -43,6 +35,10 @@ static void can_tx_callback(const struct device *dev, int error, void *user_data
 
 int gw_can_send(uint16_t id, const uint8_t *data, uint8_t len)
 {
+	if (!can_dev) {
+		return -ENODEV;
+	}
+
 	struct can_frame frame = {
 		.id = id,
 		.dlc = can_bytes_to_dlc(len),
@@ -59,47 +55,44 @@ int gw_can_send(uint16_t id, const uint8_t *data, uint8_t len)
 /* ================================================================
  * 网络配置命令处理 (0x106)
  * ================================================================ */
+
+/* 从 CAN 帧 4 字节 (src[0..3]) 设置 IPv4 字符串字段并持久化 */
+static void net_set_ipv4(char *dst, size_t dstlen, const uint8_t *src, const char *label)
+{
+	struct in_addr a = { .s4_addr = {src[0], src[1], src[2], src[3]} };
+
+	inet_ntop(AF_INET, &a, dst, dstlen);
+	LOG_INF("CAN set %s: %s", label, dst);
+	persist_save_network_config();
+}
+
+/* 回复一帧 NET_CONFIG_RESP: [cmd 1B][ipv4 4B][reserved 3B] */
+static void net_send_ipv4_resp(uint8_t cmd, const char *src_str)
+{
+	uint8_t buf[8] = {0};
+	struct in_addr a;
+
+	buf[0] = cmd;
+	if (inet_pton(AF_INET, src_str, &a) == 1) {
+		memcpy(&buf[1], a.s4_addr, 4);
+	}
+	gw_can_send(NET_CONFIG_RESP, buf, 8);
+}
+
 static void handle_net_config(struct can_frame *frame)
 {
 	uint8_t cmd = frame->data[0];
 
 	switch (cmd) {
-	case NET_CMD_SET_IP: {
-		struct in_addr addr;
-
-		addr.s4_addr[0] = frame->data[1];
-		addr.s4_addr[1] = frame->data[2];
-		addr.s4_addr[2] = frame->data[3];
-		addr.s4_addr[3] = frame->data[4];
-		inet_ntop(AF_INET, &addr, gw_params.ip_addr, sizeof(gw_params.ip_addr));
-		LOG_INF("CAN set IP: %s", gw_params.ip_addr);
-		persist_save_network_config();
+	case NET_CMD_SET_IP:
+		net_set_ipv4(gw_params.ip_addr, sizeof(gw_params.ip_addr), &frame->data[1], "IP");
 		break;
-	}
-	case NET_CMD_SET_MASK: {
-		struct in_addr mask;
-
-		mask.s4_addr[0] = frame->data[1];
-		mask.s4_addr[1] = frame->data[2];
-		mask.s4_addr[2] = frame->data[3];
-		mask.s4_addr[3] = frame->data[4];
-		inet_ntop(AF_INET, &mask, gw_params.netmask, sizeof(gw_params.netmask));
-		LOG_INF("CAN set mask: %s", gw_params.netmask);
-		persist_save_network_config();
+	case NET_CMD_SET_MASK:
+		net_set_ipv4(gw_params.netmask, sizeof(gw_params.netmask), &frame->data[1], "mask");
 		break;
-	}
-	case NET_CMD_SET_GW: {
-		struct in_addr gw;
-
-		gw.s4_addr[0] = frame->data[1];
-		gw.s4_addr[1] = frame->data[2];
-		gw.s4_addr[2] = frame->data[3];
-		gw.s4_addr[3] = frame->data[4];
-		inet_ntop(AF_INET, &gw, gw_params.gateway, sizeof(gw_params.gateway));
-		LOG_INF("CAN set gw: %s", gw_params.gateway);
-		persist_save_network_config();
+	case NET_CMD_SET_GW:
+		net_set_ipv4(gw_params.gateway, sizeof(gw_params.gateway), &frame->data[1], "gw");
 		break;
-	}
 	case NET_CMD_SET_PORT:
 		gw_params.udp_port = sys_get_be16(&frame->data[1]);
 		LOG_INF("CAN set port: %d", gw_params.udp_port);
@@ -119,51 +112,29 @@ static void handle_net_config(struct can_frame *frame)
 		return;
 	}
 
-	/* 回复当前配置: ip + mask + gw + port, 分三帧 */
+	/* 回复当前配置三帧: [ip] [mask+port] [gw] */
+	net_send_ipv4_resp(cmd, gw_params.ip_addr);
+
 	uint8_t buf[8] = {0};
+	struct in_addr m;
 
-	buf[0] = cmd;
-	{
-		struct in_addr a;
-
-		if (inet_pton(AF_INET, gw_params.ip_addr, &a) == 1) {
-			memcpy(&buf[1], a.s4_addr, 4);
-		}
-	}
-	gw_can_send(NET_CONFIG_RESP, buf, 8);
-
-	buf[0] = 0;
-	{
-		struct in_addr m;
-
-		if (inet_pton(AF_INET, gw_params.netmask, &m) == 1) {
-			memcpy(&buf[1], m.s4_addr, 4);
-		}
+	if (inet_pton(AF_INET, gw_params.netmask, &m) == 1) {
+		memcpy(&buf[1], m.s4_addr, 4);
 	}
 	sys_put_be16(gw_params.udp_port, &buf[5]);
 	gw_can_send(NET_CONFIG_RESP, buf, 8);
 
-	buf[0] = 0;
-	{
-		struct in_addr g;
-
-		if (inet_pton(AF_INET, gw_params.gateway, &g) == 1) {
-			memcpy(&buf[1], g.s4_addr, 4);
-		}
-	}
-	gw_can_send(NET_CONFIG_RESP, buf, 8);
+	net_send_ipv4_resp(0, gw_params.gateway);
 }
 #endif /* CONFIG_GW_NETWORKING */
 
 /* ================================================================
- * CAN 接收处理
+ * 业务帧 handler (注入 can_fw_upgrade 库)
+ * 库 RX 线程收到非固件升级帧时调用。
  * ================================================================ */
-static void can_rx_handler(struct can_frame *frame)
+static bool gw_can_app_rx(struct can_frame *frame, void *user_data)
 {
-	/* 优先交给固件升级库处理 */
-	if (can_fw_rx_handler(&fw_ctx, frame)) {
-		return;
-	}
+	ARG_UNUSED(user_data);
 
 	switch (frame->id) {
 	case OVERBREAK_LASER:
@@ -172,7 +143,7 @@ static void can_rx_handler(struct can_frame *frame)
 		/* 上位机通过 CAN 发送的扫描仪数据, 转发到 nRF24 给 mod_handler */
 		gw_rf24_send(frame->id, frame->data, can_dlc_to_bytes(frame->dlc));
 		LOG_DBG("CAN->nRF24: id=0x%03x dlc=%d", frame->id, frame->dlc);
-		break;
+		return true;
 
 	case RF24_CONFIG_CMD: {
 		/* 本地 nRF24 配置命令 */
@@ -194,77 +165,25 @@ static void can_rx_handler(struct can_frame *frame)
 		buf[1] = gw_params.rf24_channel;
 		memcpy(&buf[2], gw_params.rf24_addr, RF24_ADDR_LEN);
 		gw_can_send(RF24_CONFIG_RESP, buf, 8);
-		break;
+		return true;
 	}
 
 #ifdef CONFIG_GW_NETWORKING
 	case NET_CONFIG_CMD:
 		/* 网络配置命令 */
 		handle_net_config(frame);
-		break;
+		return true;
 #endif
 
 	default:
-		LOG_DBG("Unknown CAN id: 0x%03x", frame->id);
-		break;
+		return false;
 	}
 }
 
-/* ================================================================
- * CAN 接收线程
- * ================================================================ */
-static void can_rx_thread(void)
+static int gw_can_init(void)
 {
-	int err;
-	struct can_filter filter;
-
-	if (!device_is_ready(can_dev)) {
-		LOG_ERR("CAN device not ready");
-		return;
-	}
-
-	if ((err = can_set_bitrate(can_dev, 250000)) != 0) {
-		LOG_ERR("CAN set bitrate failed: %d", err);
-		return;
-	}
-	if ((err = can_start(can_dev)) != 0) {
-		LOG_ERR("CAN start failed: %d", err);
-		return;
-	}
-
-	/* 初始化固件升级 (内部注册过滤器) */
-	can_fw_init(&fw_ctx, can_dev, fw_can_send);
-
-	/* 注册其他接收过滤器 */
-	filter.mask = CAN_STD_ID_MASK;
-
-	filter.id = OVERBREAK_LASER;
-	can_add_rx_filter_msgq(can_dev, &gw_can_msgq, &filter);
-
-	filter.id = COORD_XY;
-	can_add_rx_filter_msgq(can_dev, &gw_can_msgq, &filter);
-
-	filter.id = COORD_Z;
-	can_add_rx_filter_msgq(can_dev, &gw_can_msgq, &filter);
-
-	filter.id = RF24_CONFIG_CMD;
-	can_add_rx_filter_msgq(can_dev, &gw_can_msgq, &filter);
-
-#ifdef CONFIG_GW_NETWORKING
-	filter.id = NET_CONFIG_CMD;
-	can_add_rx_filter_msgq(can_dev, &gw_can_msgq, &filter);
-#endif
-
-	LOG_INF("CAN ready (250Kbps)");
-
-	struct can_frame frame;
-
-	while (1) {
-		if (k_msgq_get(&gw_can_msgq, &frame, K_FOREVER) == 0) {
-			can_rx_handler(&frame);
-		}
-	}
+	can_dev = can_fw_set_app_handler(gw_can_app_rx, NULL);
+	LOG_INF("CAN forward ready");
+	return 0;
 }
-
-K_THREAD_DEFINE(thread_can_rx, CONFIG_GATEWAY_CAN_FWD_STACK, can_rx_thread, NULL, NULL, NULL,
-		CONFIG_GATEWAY_CAN_FWD_PRIORITY, 0, 0);
+SYS_INIT(gw_can_init, APPLICATION, 10);

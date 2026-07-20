@@ -113,8 +113,6 @@ bool gw_rf24_send(uint16_t can_id, const uint8_t *data, size_t len)
 /* ================================================================
  * RF24 接收线程
  * ================================================================ */
-extern const struct device *can_dev;
-
 static void rf24_rx_thread(void)
 {
 	if (!device_is_ready(rf24_dev)) {
