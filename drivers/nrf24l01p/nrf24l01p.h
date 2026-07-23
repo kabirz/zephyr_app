@@ -147,6 +147,9 @@ int nrf24_write_reg(const struct device *dev, uint8_t reg, uint8_t val);
 int nrf24_read_reg_multi(const struct device *dev, uint8_t reg, uint8_t *buf, size_t len);
 int nrf24_write_reg_multi(const struct device *dev, uint8_t reg, const uint8_t *buf, size_t len);
 
+/** 通过 LOG_INF 打印一份完整寄存器快照 (调试用). */
+void nrf24_dump_regs(const struct device *dev);
+
 #ifdef __cplusplus
 }
 #endif

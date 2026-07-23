@@ -296,7 +296,11 @@ static void nrf24_irq_thread(void *p1, void *p2, void *p3)
 	struct nrf24_data *d = get_data(dev);
 
 	while (1) {
-		k_sem_take(&d->irq_sem, K_FOREVER);
+		/* [BUGFIX] STM32F1 EXTI 仅边沿触发, RX 紧接 TX (收 PING 后回 ECHO) 时,
+		 * 两个 IRQ 下降沿间隔太近会丢边沿, 导致 TX_DS/MAX_RT 永不被处理
+		 * (nrf24_send 等 tx_done_sem 超时 ret=-11). 改用 50ms 超时轮询兜底,
+		 * 丢边沿时最多 50ms 后补查 STATUS; TX 超时 100ms, 不会误判. */
+		k_sem_take(&d->irq_sem, K_MSEC(50));
 		if (!d->ready) {
 			continue;
 		}
@@ -341,6 +345,18 @@ static void nrf24_irq_thread(void *p1, void *p2, void *p3)
 				k_mutex_lock(&d->lock, K_FOREVER);
 			}
 			reg_read_locked(dev, L01REG_STATUS, &status);
+		}
+
+		/* [BUGFIX] 重新检查 TX_DS/MAX_RT: 在 RX 处理期间 (释放锁让 RX 线程/
+		 * workqueue 切 PTX 发 ECHO), 可能有 TX 完成 IRQ 到达, 但 GPIO 边沿
+		 * 中断可能被 RX 的 IRQ 边沿"吞掉"(STM32F1 EXTI 仅边沿触发, 连续两个
+		 * 下降沿间隔太近会丢). 末尾再查一次 STATUS, 补偿丢失的边沿. */
+		if (status & (BIT(TX_DS) | BIT(MAX_RT))) {
+			d->last_status = status;
+			reg_read_locked(dev, L01REG_OBSERVE_TX,
+					(uint8_t *)&d->last_observe_tx);
+			reg_write_locked(dev, L01REG_STATUS, BIT(TX_DS) | BIT(MAX_RT));
+			k_sem_give(&d->tx_done_sem);
 		}
 		k_mutex_unlock(&d->lock);
 	}
@@ -890,6 +906,51 @@ int nrf24_write_reg_multi(const struct device *dev, uint8_t reg, const uint8_t *
 	return ret;
 }
 
+/* 打印一份完整寄存器快照 (调试用, 在锁内读取) */
+void nrf24_dump_regs(const struct device *dev)
+{
+	struct nrf24_data *d = get_data(dev);
+	uint8_t status = 0, cfg = 0, rfsetup = 0, rfch = 0;
+	uint8_t obs = 0, fifo = 0, feature = 0, dynpd = 0;
+	uint8_t enaa = 0, enrx = 0, setupretr = 0, setupaw = 0;
+	uint8_t txaddr[5] = {0};
+	uint8_t rxaddr[5] = {0};
+
+	k_mutex_lock(&d->lock, K_FOREVER);
+	reg_read_locked(dev, L01REG_STATUS, &status);
+	reg_read_locked(dev, L01REG_CONFIG, &cfg);
+	reg_read_locked(dev, L01REG_RF_SETUP, &rfsetup);
+	reg_read_locked(dev, L01REG_RF_CH, &rfch);
+	reg_read_locked(dev, L01REG_OBSERVE_TX, &obs);
+	reg_read_locked(dev, L01REG_FIFO_STATUS, &fifo);
+	reg_read_locked(dev, L01REG_FEATURE, &feature);
+	reg_read_locked(dev, L01REG_DYNPD, &dynpd);
+	reg_read_locked(dev, L01REG_ENAA, &enaa);
+	reg_read_locked(dev, L01REG_EN_RXADDR, &enrx);
+	reg_read_locked(dev, L01REG_SETUP_RETR, &setupretr);
+	reg_read_locked(dev, L01REG_SETUP_AW, &setupaw);
+	reg_read_multi_locked(dev, L01REG_TX_ADDR, txaddr, 5);
+	reg_read_multi_locked(dev, L01REG_RX_ADDR_P0, rxaddr, 5);
+	k_mutex_unlock(&d->lock);
+
+	LOG_INF("nRF24 dump (mode=%d):", d->mode);
+	LOG_INF("  STATUS=0x%02x RX_DR=%d TX_DS=%d MAX_RT=%d", status, (status >> RX_DR) & 1,
+		(status >> TX_DS) & 1, (status >> MAX_RT) & 1);
+	LOG_INF("  CONFIG=0x%02x PWR_UP=%d PRIM_RX=%d EN_CRC=%d CRCO=%d", cfg, (cfg >> PWR_UP) & 1,
+		(cfg >> PRIM_RX) & 1, (cfg >> EN_CRC) & 1, (cfg >> CRCO) & 1);
+	LOG_INF("  RF_SETUP=0x%02x RF_CH=%d OBSERVE_TX=0x%02x(ARC=%d PLOS=%d)", rfsetup, rfch, obs,
+		obs & 0x0F, (obs >> 4) & 0x0F);
+	LOG_INF("  FIFO_ST=0x%02x TX_EMPTY=%d TX_FULL=%d RX_EMPTY=%d", fifo, (fifo >> 5) & 1,
+		(fifo >> 5) & 1, fifo & 1);
+	LOG_INF("  FEATURE=0x%02x DYNPD=0x%02x ENAA=0x%02x EN_RXADDR=0x%02x", feature, dynpd, enaa,
+		enrx);
+	LOG_INF("  SETUP_RETR=0x%02x SETUP_AW=0x%02x", setupretr, setupaw);
+	LOG_INF("  TX_ADDR=%02x %02x %02x %02x %02x", txaddr[0], txaddr[1], txaddr[2], txaddr[3],
+		txaddr[4]);
+	LOG_INF("  RX_ADDR_P0=%02x %02x %02x %02x %02x", rxaddr[0], rxaddr[1], rxaddr[2], rxaddr[3],
+		rxaddr[4]);
+}
+
 static int nrf24_init(const struct device *dev)
 {
 	struct nrf24_data *d = get_data(dev);
@@ -934,7 +995,7 @@ static int nrf24_init(const struct device *dev)
 
 	/* 启动中断底半部线程 */
 	k_thread_create(&d->irq_thread, d->irq_stack,
-			K_THREAD_STACK_SIZEOF(d->irq_stack),
+			CONFIG_NRF24L01P_INT_THREAD_STACK_SIZE,
 			nrf24_irq_thread, (void *)dev, NULL, NULL,
 			K_PRIO_COOP(CONFIG_NRF24L01P_INT_THREAD_PRIORITY), 0, K_NO_WAIT);
 	k_thread_name_set(&d->irq_thread, "nrf24_irq");

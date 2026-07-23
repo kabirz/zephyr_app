@@ -156,6 +156,12 @@ static void rf24_rx_thread(void)
 		uint16_t can_id = sys_get_be16(frame.data);
 		uint8_t data_len = frame.len - RF24_ID_SIZE;
 
+		/* 测试帧 (TEST_FRAME): 交给 rf24_shell 处理 (ping/echo/data) */
+		if (can_id == TEST_FRAME) {
+			rf24_test_handle_rx(frame.data + RF24_ID_SIZE, data_len);
+			continue;
+		}
+
 		/* 仅处理扫描仪数据帧, 其它 ID 忽略 */
 		if (can_id != OVERBREAK_LASER && can_id != COORD_XY && can_id != COORD_Z) {
 			LOG_DBG("Ignore 2.4G frame id=0x%03x", can_id);

@@ -134,6 +134,12 @@ static void rf24_rx_thread(void)
 		uint8_t data_len = frame.len - RF24_ID_SIZE;
 		const uint8_t *data = frame.data + RF24_ID_SIZE;
 
+		/* 测试帧 (TEST_FRAME): 交给 rf24_shell 处理 (ping/echo/data) */
+		if (can_id == TEST_FRAME) {
+			rf24_test_handle_rx(data, data_len);
+			continue;
+		}
+
 		/* 只转发 HANDLER_STATE 和心跳帧 */
 		if (can_id != HANDLER_STATE && can_id != COBID_HEATBEAT) {
 			continue;

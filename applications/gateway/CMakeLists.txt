@@ -19,6 +19,7 @@ target_include_directories(app PRIVATE include)
 target_sources(app PRIVATE
   src/main.c
   src/rf24.c
+  src/rf24_shell.c
   src/can_forward.c
   src/config.c
   src/persist.c

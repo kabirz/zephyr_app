@@ -53,4 +53,11 @@ bool rf24_data_send(uint16_t can_id, const uint8_t *data, size_t len);
  */
 bool rf24_get_link_status(void);
 
+/**
+ * @brief 测试帧 (TEST_FRAME 0x777) 接收回调 (rf24_shell.c 实现)
+ *
+ * 由 rf24.c RX 线程在收到 TEST_FRAME 时调用. 载荷为 [sub_cmd 1B][...].
+ */
+void rf24_test_handle_rx(const uint8_t *data, uint8_t len);
+
 #endif /* __RF24_H__ */
