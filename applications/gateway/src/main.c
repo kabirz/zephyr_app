@@ -3,20 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Gateway 主入口 - 数据中转网关
- * 接收 mod_handler 的 nRF24 数据，通过 CAN 或 UDP 转发给上位机
+ * 接收 mod_handler 的 nRF24 数据，通过 W5500 UDP 转发给上位机
  */
 
 #include <string.h>
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
-#include <zephyr/drivers/gpio.h>
 #include <zephyr/settings/settings.h>
 #include <gateway.h>
 #include <zephyr/app_version.h>
-#ifdef CONFIG_GW_NETWORKING
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/socket.h>
-#endif
 #ifndef CONFIG_FLASH_SIZE
 #define CONFIG_FLASH_SIZE 0x1000
 #endif
@@ -26,90 +23,23 @@ LOG_MODULE_REGISTER(gateway, LOG_LEVEL_INF);
 
 gateway_params_t gw_params;
 
-#define USER_NODE DT_PATH(zephyr_user)
-
 /* ================================================================
- * 外设电源使能 (手柄板: CAN/nRF24/5V 主电源 GPIO 独立控制)
- * Zephyr 设备驱动初始化前上电, 确保 nRF24/CAN 芯片就绪
+ * SWD 恢复: SPI3 引脚 (PB3/PB4/PA15) 复用 JTAG 引脚, Zephyr pinctrl 在
+ * 应用 SPI3_REMAP0 时把 AFIO_MAPR.SWJ_CFG 设成 111 (JTAG+SWD 全关) 以释放
+ * 这些引脚。但 SWJ_CFG=111 也会关闭 SWD, 导致 ST-Link 无法再通过 SWD 烧写。
+ * 此处在所有驱动初始化 (POST_KERNEL) 之后, 把 SWJ_CFG 改回 010
+ * (AFIO_MAPR_SWJ_CFG_JTAGDISABLE = 0x02000000): 关 JTAG 保留 SWD, 既不
+ * 影响已配置的 SPI3 引脚, 又恢复 SWD 烧写能力。
  * ================================================================ */
-static const struct gpio_dt_spec can_power = GPIO_DT_SPEC_GET(USER_NODE, canpower_gpios);
-static const struct gpio_dt_spec main_power = GPIO_DT_SPEC_GET(USER_NODE, mainpower_gpios);
-
-static int gw_power_init(void)
+static int swd_recover(void)
 {
-	if (!gpio_is_ready_dt(&can_power) || !gpio_is_ready_dt(&main_power)) {
-		LOG_ERR("Power GPIO not ready");
-		return -ENODEV;
-	}
+	uint32_t mapr = AFIO->MAPR & ~AFIO_MAPR_SWJ_CFG;
 
-	gpio_pin_configure_dt(&can_power, GPIO_OUTPUT);
-	gpio_pin_configure_dt(&main_power, GPIO_OUTPUT);
-
-	gpio_pin_set_dt(&main_power, 1);  /* 系统主电源 (5V) */
-	gpio_pin_set_dt(&can_power, 1);   /* CAN 收发器 */
-
-	/* nRF24 模块电源 (PC9) 由驱动按 power-gpios 管理: init 时上电 + POR 延时 */
-	LOG_INF("Power rails enabled (CAN/5V)");
+	AFIO->MAPR = mapr | AFIO_MAPR_SWJ_CFG_JTAGDISABLE;
 	return 0;
 }
-SYS_INIT(gw_power_init, PRE_KERNEL_2, 1);
+SYS_INIT(swd_recover, APPLICATION, 0);
 
-/* ================================================================
- * Link Switch GPIO - 切换 CAN/UDP 模式 (需 CONFIG_GW_NETWORKING)
- * ================================================================ */
-static const struct gpio_dt_spec link_switch = GPIO_DT_SPEC_GET(USER_NODE, linksw_gpios);
-static struct gpio_callback linksw_cb_data;
-static struct k_work_delayable linksw_work;
-
-static void linksw_work_handler(struct k_work *work)
-{
-	if (gpio_pin_get_dt(&link_switch) == 0) {
-#ifdef CONFIG_GW_NETWORKING
-		gw_params.connect_type = (gw_params.connect_type == GW_MODE_CAN) ? GW_MODE_UDP
-									       : GW_MODE_CAN;
-		LOG_INF("Link mode: %s", gw_params.connect_type == GW_MODE_CAN ? "CAN" : "UDP");
-		persist_save_network_config();
-#else
-		LOG_INF("Link switch ignored (networking disabled, CAN-only)");
-#endif
-	}
-}
-
-static void linksw_irq(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
-{
-	k_work_reschedule(&linksw_work, K_MSEC(20));
-}
-
-static int linksw_init(void)
-{
-	int ret;
-
-	if (!gpio_is_ready_dt(&link_switch)) {
-		LOG_ERR("Link switch GPIO not ready");
-		return -ENODEV;
-	}
-
-	ret = gpio_pin_configure_dt(&link_switch, GPIO_INPUT);
-	if (ret < 0) {
-		LOG_ERR("Failed to configure link switch pin: %d", ret);
-		return ret;
-	}
-
-	ret = gpio_pin_interrupt_configure_dt(&link_switch, GPIO_INT_EDGE_FALLING);
-	if (ret < 0) {
-		LOG_ERR("Failed to configure link switch interrupt: %d", ret);
-		return ret;
-	}
-
-	gpio_init_callback(&linksw_cb_data, linksw_irq, BIT(link_switch.pin));
-	gpio_add_callback(link_switch.port, &linksw_cb_data);
-	k_work_init_delayable(&linksw_work, linksw_work_handler);
-
-	LOG_INF("Link switch initialized");
-	return 0;
-}
-
-#ifdef CONFIG_GW_NETWORKING
 /* ================================================================
  * 网络初始化 (W5500 静态 IP)
  * ================================================================ */
@@ -143,7 +73,6 @@ static int net_init(void)
 	LOG_INF("Network: %s/%s gw %s", gw_params.ip_addr, gw_params.netmask, gw_params.gateway);
 	return 0;
 }
-#endif
 
 int main(void)
 {
@@ -152,39 +81,28 @@ int main(void)
 		CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC / MHZ(1));
 	LOG_INF("flash size: %dKB, ram size: %dKB", CONFIG_FLASH_SIZE, CONFIG_SRAM_SIZE);
 	LOG_INF("version: %s", APP_VERSION_STRING);
-	LOG_INF("networking: %s", IS_ENABLED(CONFIG_GW_NETWORKING) ? "enabled" : "disabled");
 
 	/* 初始化默认配置 */
-	gw_params.connect_type = GW_MODE_CAN;
 	gw_params.rf24_channel = RF24_DEFAULT_CH;
 	gw_params.rf24_addr[0] = 0;
 	gw_params.rf24_addr[1] = 0;
 	gw_params.rf24_addr[2] = 0;
 	gw_params.rf24_addr[3] = 0;
 	gw_params.rf24_addr[4] = 0;
-#ifdef CONFIG_GW_NETWORKING
 	strncpy(gw_params.ip_addr, GATEWAY_DEFAULT_IP, sizeof(gw_params.ip_addr) - 1);
 	strncpy(gw_params.netmask, GATEWAY_DEFAULT_MASK, sizeof(gw_params.netmask) - 1);
 	strncpy(gw_params.gateway, GATEWAY_DEFAULT_GW, sizeof(gw_params.gateway) - 1);
 	gw_params.udp_port = GATEWAY_DEFAULT_UDP_PORT;
-#endif
-
 
 	/* 加载持久化配置 (覆盖默认值) */
 	gw_config_load();
 
-	/* 初始化链路切换按键 */
-	linksw_init();
-
-
 	/* 初始化各模块 */
 	gw_rf24_init();
 
-#ifdef CONFIG_GW_NETWORKING
 	/* 等待网络就绪后初始化 */
 	k_msleep(500);
 	net_init();
-#endif
 
 	gw_params.running = true;
 	LOG_INF("Gateway ready");

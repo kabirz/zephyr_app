@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Kabirz.
  * SPDX-License-Identifier: Apache-2.0
  *
- * UDP 透传模块 - nRF24/CAN 与上位机之间的双向 UDP 转发
+ * UDP 透传模块 - nRF24 与上位机之间的双向 UDP 转发
  * + 网络配置 + 固件升级 (通过 UDP)
  */
 
@@ -27,7 +27,7 @@ LOG_MODULE_REGISTER(gw_udp, LOG_LEVEL_INF);
 
 /* UDP 命令协议 - 使用 2 字节魔数头区分命令和数据帧
  * 命令格式: [0xAA][0x55][cmd 1B][data...]
- * 数据格式: [CAN ID 2B BE][payload]
+ * 数据格式: [帧 ID 2B BE][payload]  (帧 ID 见 enum can_ids, 复用历史编号)
  */
 #define UDP_MAGIC_0 0xAA
 #define UDP_MAGIC_1 0x55
@@ -163,7 +163,8 @@ static void udp_cmd_handler(const uint8_t *data, size_t len)
 		uint8_t buf[32] = {0};
 		int offset = 0;
 
-		buf[offset++] = gw_params.connect_type;
+		/* connect_type 已移除; 保留字节位置为固定值 2 (UDP) 保持上位机协议兼容 */
+		buf[offset++] = 2;
 		buf[offset++] = gw_params.rf24_channel;
 		memcpy(buf + offset, gw_params.rf24_addr, RF24_ADDR_LEN);
 		offset += RF24_ADDR_LEN;
@@ -174,13 +175,11 @@ static void udp_cmd_handler(const uint8_t *data, size_t len)
 	}
 
 	case UDP_CMD_SET_MODE:
-		if (cmd_len >= 1) {
-			if (cmd_data[0] == GW_MODE_CAN || cmd_data[0] == GW_MODE_UDP) {
-				gw_params.connect_type = cmd_data[0];
-				LOG_INF("UDP set mode: %s", gw_params.connect_type == GW_MODE_CAN ? "CAN" : "UDP");
-				persist_save_network_config();
-			}
-			udp_send_resp(cmd, &gw_params.connect_type, 1);
+		/* 模式固定为 UDP, 此命令仅回应保持协议兼容 */
+		{
+			uint8_t mode = 2;
+
+			udp_send_resp(cmd, &mode, 1);
 		}
 		break;
 

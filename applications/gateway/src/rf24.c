@@ -8,7 +8,6 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/sys/byteorder.h>
-#include <zephyr/drivers/can.h>
 #include <zephyr/logging/log.h>
 #include <nrf24l01p.h>
 #include <gateway.h>
@@ -21,8 +20,6 @@ LOG_MODULE_REGISTER(gw_rf24, LOG_LEVEL_INF);
 
 static const struct device *rf24_dev = DEVICE_DT_GET(DT_NODELABEL(nrf24));
 static K_MUTEX_DEFINE(rf24_tx_mutex);
-
-extern int gw_can_send(uint16_t id, const uint8_t *data, uint8_t len);
 
 /* RX 帧 msgq */
 K_MSGQ_DEFINE(rf24_rx_msgq, sizeof(struct nrf24_frame), 8, 4);
@@ -79,7 +76,7 @@ void gw_rf24_init(void)
 }
 
 /* ================================================================
- * RF24 发送 (通过 CAN 转发到 mod_handler)
+ * RF24 发送 (向 mod_handler 发送数据)
  * ================================================================ */
 bool gw_rf24_send(uint16_t can_id, const uint8_t *data, size_t len)
 {
@@ -145,19 +142,9 @@ static void rf24_rx_thread(void)
 			continue;
 		}
 
-		/* 根据模式转发数据 */
-#ifdef CONFIG_GW_NETWORKING
-		if (gw_params.connect_type == GW_MODE_UDP) {
-			/* UDP 模式: nRF24 数据通过 UDP 发送 */
-			gw_udp_send(frame.data, frame.len);
-			LOG_DBG("nRF24->UDP: id=0x%03x len=%d", can_id, frame.len);
-		} else
-#endif
-		{
-			/* CAN 模式: nRF24 数据通过 CAN 发送 */
-			gw_can_send(can_id, data, data_len);
-			LOG_DBG("nRF24->CAN: id=0x%03x dlc=%d", can_id, data_len);
-		}
+		/* nRF24 数据通过 UDP 转发给上位机 */
+		gw_udp_send(frame.data, frame.len);
+		LOG_DBG("nRF24->UDP: id=0x%03x len=%d", can_id, frame.len);
 	}
 }
 

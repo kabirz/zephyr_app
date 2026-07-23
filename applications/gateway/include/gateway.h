@@ -9,7 +9,6 @@
 #define __GATEWAY_H__
 
 #include <zephyr/kernel.h>
-#include <zephyr/drivers/can.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -21,7 +20,8 @@
 #define RF24_DEFAULT_CH  76
 
 /* ================================================================
- * CAN 帧 ID (与 mod_handler 保持一致)
+ * 帧 ID (与 mod_handler 保持一致; nRF24/UDP 帧协议的逻辑标识符,
+ * 复用历史 CAN 11-bit 编号, 已与 CAN 总线无关)
  * ================================================================ */
 enum can_ids {
 	RF24_CONFIG_CMD = 0x104,
@@ -50,7 +50,6 @@ enum net_config_cmd {
 	NET_CMD_SET_GW = 0x03,       /* [0x03][gw 4B] */
 	NET_CMD_SET_PORT = 0x04,     /* [0x04][port 2B BE] */
 	NET_CMD_GET_CONFIG = 0x05,   /* [0x05] 查询全部配置 */
-	NET_CMD_SET_MODE = 0x06,     /* [0x06][mode 1B] 1=CAN, 2=UDP */
 };
 
 /* ================================================================
@@ -62,18 +61,9 @@ enum net_config_cmd {
 #define GATEWAY_DEFAULT_UDP_PORT 9000
 
 /* ================================================================
- * 连接模式
- * ================================================================ */
-#define GW_MODE_CAN  1
-#define GW_MODE_UDP  2
-
-/* ================================================================
  * 全局状态
  * ================================================================ */
 typedef struct {
-	/* 连接模式 */
-	uint8_t connect_type;
-
 	/* RF24 配置 */
 	uint8_t rf24_channel;
 	uint8_t rf24_addr[RF24_ADDR_LEN];
@@ -105,10 +95,8 @@ bool gw_rf24_send(uint16_t can_id, const uint8_t *data, size_t len);
  */
 void rf24_test_handle_rx(const uint8_t *data, uint8_t len);
 
-/* udp_forward.c (仅 CONFIG_GW_NETWORKING 启用时编译) */
-#ifdef CONFIG_GW_NETWORKING
+/* udp_forward.c */
 void gw_udp_send(const uint8_t *data, size_t len);
-#endif
 
 /* config.c */
 void gw_config_save(void);

@@ -4,7 +4,7 @@
  *
  * 2.4G 无线 (nRF24L01+) 互通测试 shell 命令
  *
- * 与 mod_handler 之间的链路测试, 独立于 link 状态机, 随时可用:
+ * 与 mod_handler 之间的链路测试:
  *   rf24 info                       查看 channel/addr/device 状态
  *   rf24 ch [0-125]                 get/set 信道
  *   rf24 addr <b0 b1 b2 b3 b4>      设置 5 字节地址
@@ -12,7 +12,7 @@
  *   rf24 ping [count=5] [iv_ms=200] ping/echo 往返测试, 统计 RTT
  *   rf24 listen [on|off]            切换监听 (打印 DATA + 自动回 ECHO)
  *
- * 测试帧: CAN ID = TEST_FRAME (0x777)
+ * 测试帧: 帧 ID = TEST_FRAME (0x777)
  * 载荷首字节 sub_cmd:
  *   0x01 PING:  [seq]
  *   0x02 ECHO:  [seq][rtt_stamp 2B BE]   (回方原样填充 seq)
@@ -40,7 +40,7 @@ enum {
 	RF24_TEST_DATA = 0x03,
 };
 
-/* 载荷上限 = NRF24_MAX_PAYLOAD - 2B CAN ID */
+/* 载荷上限 = NRF24_MAX_PAYLOAD - 2B 帧 ID */
 #define RF24_TEST_PAYLOAD_MAX (NRF24_MAX_PAYLOAD - 2)
 /* ping 单次等待 echo 超时 */
 #define RF24_PING_TIMEOUT_MS  300
