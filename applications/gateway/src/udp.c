@@ -329,11 +329,11 @@ static void udp_data_rx_thread(void)
 		return;
 	}
 
-	/* 允许广播收发 (未学习单播目标时, 默认广播数据给上位机) */
-	int broadcast = 1;
-
-	(void)setsockopt(data_sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
-
+	/* 必须绑定 INADDR_ANY (sin_addr 隐式为 0): Zephyr 的 UDP 接收匹配逻辑
+	 * (connection.c::conn_addr_cmp) 会比较 socket 本地地址与包目的地址,
+	 * 绑定具体 IP 时广播包 (dst=255.255.255.255) 不匹配 → 被丢弃.
+	 * Zephyr 发广播不依赖 SO_BROADCAST 选项 (setsockopt 它会返回 ENOPROTOOPT),
+	 * 发送路径对 255.255.255.255 无任何限制. */
 	struct sockaddr_in local_addr = {
 		.sin_family = AF_INET,
 		.sin_port = htons(gw_params.data_port),
@@ -390,7 +390,7 @@ K_THREAD_DEFINE(thread_udp_data_rx, CONFIG_GATEWAY_DATA_RX_STACK, udp_data_rx_th
 		NULL, CONFIG_GATEWAY_DATA_RX_PRIORITY, 0, 0);
 
 /* ================================================================
- * 配置端口接收线程 (绑定 0.0.0.0:9200, SO_BROADCAST)
+ * 配置端口接收线程 (绑定 0.0.0.0:9200, INADDR_ANY 以收广播配置命令)
  * 收到配置命令 → udp_cmd_handler; 学习 config_remote_addr (供回复)
  * ================================================================ */
 static void udp_config_rx_thread(void)
@@ -401,11 +401,8 @@ static void udp_config_rx_thread(void)
 		return;
 	}
 
-	/* 允许广播收发 (上位机不知道设备 IP 时可广播发配置命令) */
-	int broadcast = 1;
-
-	(void)setsockopt(config_sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
-
+	/* 绑定 INADDR_ANY: 上位机不知道设备 IP 时可向 255.255.255.255:9200 广播
+	 * 配置命令. 见数据端口注释中关于 Zephyr 广播接收约束的说明. */
 	struct sockaddr_in local_addr = {
 		.sin_family = AF_INET,
 		.sin_port = htons(GATEWAY_CONFIG_PORT),
