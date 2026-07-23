@@ -101,8 +101,13 @@ host       --UDP-->  gateway --nRF24--> mod_handler
 
 - **数据帧**: `[帧 ID 2B BE][payload]`（透传扫描仪/手柄数据，走数据端口）
 - **命令帧**: `[cmd 1B][data...]`（无魔数头，走配置端口）
-- 配置命令 0x01~0x09（IP/掩码/网关/数据端口/查询/RF24 信道/RF24 地址/重启）
+- 配置命令 0x01~0x09（IP/掩码/网关/数据端口/查询配置/查询版本/RF24 信道/RF24 地址/重启）
 - 固件升级命令 0x10~0x12（开始/数据/结束重启）
+
+### 命令响应格式
+
+- **0x05 GET_CONFIG** 响应: `[0x05][rf24_ch 1B][rf24_addr 5B][data_port 2B BE][config_port 2B BE]`（11 字节，无 IP/掩码/网关/模式）
+- **0x06 GET_VERSION** 响应: `[0x06][APP_VERSION_STRING 变长]`（如 `[0x06]0.1.0-dev`，不含末尾 `\0`）
 
 ---
 

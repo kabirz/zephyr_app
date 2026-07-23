@@ -21,6 +21,7 @@
 #include <string.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/app_version.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/net/net_if.h>
 #include <zephyr/posix/unistd.h>
@@ -44,6 +45,7 @@ enum udp_cmd {
 	UDP_CMD_SET_GW = 0x03,
 	UDP_CMD_SET_PORT = 0x04,
 	UDP_CMD_GET_CONFIG = 0x05,
+	UDP_CMD_GET_VERSION = 0x06,
 	UDP_CMD_SET_RF24_CH = 0x07,
 	UDP_CMD_SET_RF24_ADDR = 0x08,
 	UDP_CMD_REBOOT = 0x09,
@@ -237,6 +239,13 @@ static void udp_cmd_handler(const uint8_t *data, size_t len)
 		config_send_resp(cmd, buf, offset);
 		break;
 	}
+
+	case UDP_CMD_GET_VERSION:
+		/* 响应 APP_VERSION_STRING (含 EXTRAVERSION, 如 "0.1.0-dev").
+		 * 变长字符串, 不含末尾 '\0' */
+		config_send_resp(cmd, (const uint8_t *)APP_VERSION_STRING,
+				 strlen(APP_VERSION_STRING));
+		break;
 
 	case UDP_CMD_SET_RF24_CH:
 		if (cmd_len >= 1 && cmd_data[0] <= RF24_ADDR_MAX_CH) {

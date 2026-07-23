@@ -78,7 +78,8 @@ west flash
 | 0x02 | `[0x02][mask 4B]` | 设置子网掩码 |
 | 0x03 | `[0x03][gw 4B]` | 设置网关 |
 | 0x04 | `[0x04][port 2B BE]` | 设置数据端口 (配置端口 9200 固定不变) |
-| 0x05 | `[0x05]` | 查询配置 (返回: rf24_ch/rf24_addr/data_port/config_port) |
+| 0x05 | `[0x05]` | 查询配置 (返回: `[0x05][rf24_ch 1B][rf24_addr 5B][data_port 2B BE][config_port 2B BE]`) |
+| 0x06 | `[0x06]` | 查询版本 (返回: `[0x06][APP_VERSION_STRING 变长]`) |
 | 0x07 | `[0x07][channel 1B]` | 设置 RF24 信道 |
 | 0x08 | `[0x08][addr 5B]` | 设置 RF24 地址 |
 | 0x09 | `[0x09]` | 重启设备 |
