@@ -60,9 +60,9 @@ static int gw_persist_set(const char *name, size_t len, settings_read_cb read_cb
 		return 0;
 	}
 
-	if (!next && !strncmp(name, "udp_port", name_len)) {
+	if (!next && !strncmp(name, "data_port", name_len)) {
 		if (len == sizeof(uint16_t)) {
-			read_cb(cb_arg, &gw_params.udp_port, sizeof(uint16_t));
+			read_cb(cb_arg, &gw_params.data_port, sizeof(uint16_t));
 		}
 		return 0;
 	}
@@ -77,7 +77,7 @@ static int gw_persist_export(int (*cb)(const char *name, const void *value, size
 	(void)cb("gw/ip_addr", gw_params.ip_addr, strlen(gw_params.ip_addr));
 	(void)cb("gw/netmask", gw_params.netmask, strlen(gw_params.netmask));
 	(void)cb("gw/gateway", gw_params.gateway, strlen(gw_params.gateway));
-	(void)cb("gw/udp_port", &gw_params.udp_port, sizeof(gw_params.udp_port));
+	(void)cb("gw/data_port", &gw_params.data_port, sizeof(gw_params.data_port));
 	return 0;
 }
 
@@ -108,8 +108,8 @@ void persist_save_network_config(void)
 	settings_save_one("gw/ip_addr", gw_params.ip_addr, strlen(gw_params.ip_addr));
 	settings_save_one("gw/netmask", gw_params.netmask, strlen(gw_params.netmask));
 	settings_save_one("gw/gateway", gw_params.gateway, strlen(gw_params.gateway));
-	settings_save_one("gw/udp_port", &gw_params.udp_port, sizeof(gw_params.udp_port));
-	LOG_INF("Saved network: ip=%s port=%d", gw_params.ip_addr, gw_params.udp_port);
+	settings_save_one("gw/data_port", &gw_params.data_port, sizeof(gw_params.data_port));
+	LOG_INF("Saved network: ip=%s port=%d", gw_params.ip_addr, gw_params.data_port);
 }
 
 SYS_INIT(settings_backend_init, APPLICATION, 10);

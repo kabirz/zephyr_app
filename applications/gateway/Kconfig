@@ -13,10 +13,18 @@ config GATEWAY_RF24_RX_PRIORITY
 	int "RF24 RX thread priority"
 	default 8
 
+config GATEWAY_DATA_RX_STACK
+	int "UDP data RX thread stack size"
+	default 1024
+
+config GATEWAY_DATA_RX_PRIORITY
+	int "UDP data RX thread priority"
+	default 10
+
 config GATEWAY_UDP_STACK
-	int "UDP forward thread stack size"
+	int "UDP config RX thread stack size"
 	default 1024
 
 config GATEWAY_UDP_PRIORITY
-	int "UDP forward thread priority"
+	int "UDP config RX thread priority"
 	default 10

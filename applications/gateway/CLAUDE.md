@@ -76,12 +76,26 @@ host       --UDP-->  gateway --nRF24--> mod_handler
 
 ## UDP 协议
 
-- **数据帧**: `[帧 ID 2B BE][payload]`（透传扫描仪/手柄数据）
-- **命令帧**: `[0xAA][0x55][cmd 1B][data...]`（2 字节魔数头区分命令与数据）
-- 配置命令 0x01~0x09（IP/掩码/网关/端口/查询/模式/RF24 信道/RF24 地址/重启）
-- 固件升级命令 0x10~0x12（开始/数据/结束重启）
+### 双端口架构
 
-详见 `README.md`。
+| 端口 | 用途 | 可配 | 默认 |
+|------|------|------|------|
+| **数据端口** | nRF24→上位机数据转发 + 上位机→nRF24 扫描仪数据透传 | `UDP_CMD_SET_PORT` 可改，持久化 | 9090 |
+| **配置端口** | 所有配置命令（IP/掩码/网关/端口/RF24/重启/固件升级） | 固定 | 9200 |
+
+- **双端口均设 `SO_BROADCAST`**：均支持广播收发。
+- 配置端口绑定 `0.0.0.0:9200`，支持广播接收（上位机不知道设备 IP 时可广播配置）。
+- **双端口发送策略一致**：发送方/目标与本机同子网 → 单播；跨子网 → 广播 `255.255.255.255:<端口>`。
+  - 数据端口：`gw_udp_send` 按目标 IP 判断；未学习到同子网发送方前默认广播。
+  - 配置端口：`config_send_resp` 按发送方 IP 判断。
+- 两个 socket + 两个线程独立工作，配置流量不会劫持数据流量目标地址。
+
+### 帧格式
+
+- **数据帧**: `[帧 ID 2B BE][payload]`（透传扫描仪/手柄数据，走数据端口）
+- **命令帧**: `[cmd 1B][data...]`（无魔数头，走配置端口）
+- 配置命令 0x01~0x09（IP/掩码/网关/数据端口/查询/RF24 信道/RF24 地址/重启）
+- 固件升级命令 0x10~0x12（开始/数据/结束重启）
 
 ---
 
@@ -91,7 +105,7 @@ host       --UDP-->  gateway --nRF24--> mod_handler
 - **网络配置直写 prj.conf**：`CONFIG_NETWORKING`/`NET_IPV4`/`NET_UDP`/`NET_SOCKETS`/`POSIX_API`/`NET_L2_ETHERNET`/`NET_ARP` 直接写在 `prj.conf`。`ETH_DRIVER` 由 `NET_L2_ETHERNET` 自动拉起，`ETH_W5500` 由 devicetree W5500 节点自动拉起。
 - **SPI 分离**：nRF24 用 SPI2，W5500 用 SPI3，各自独立 CS，避免总线共享。
 - **STM32F103 无硬件 RNG**：网络栈随机源用 `CONFIG_TEST_RANDOM_GENERATOR`。
-- **固件升级走 UDP**：`udp_forward.c` 内置固件升级命令 (0x10~0x12)，通过 UDP 接收固件写入 slot1。
+- **固件升级走 UDP**：`udp.c` 内置固件升级命令 (0x10~0x12)，通过 UDP 接收固件写入 slot1。
 - **帧 ID 复用历史编号**：`enum can_ids` 保留原 CAN 11-bit 编号作为 UDP/nRF24 帧的逻辑标识符，上位机协议兼容。
 
 ---
@@ -107,7 +121,7 @@ gateway/
     main.c                   -- 入口 + 网络初始化 (W5500 静态 IP)
     rf24.c                   -- nRF24L01P 收发（接收数据无条件走 UDP）
     rf24_shell.c             -- rf24 shell 测试命令（info/ch/addr/send/ping/listen/diag）
-    udp_forward.c            -- UDP 透传 + 配置 + 固件升级
+    udp.c                    -- UDP 透传 + 配置 + 固件升级
     config.c                 -- 配置加载（settings_load 封装）
     persist.c                -- Settings 持久化（gw/* 键，FCB 后端）
   CMakeLists.txt             -- 源文件列表
@@ -122,8 +136,9 @@ gateway/
 
 | 线程名 | 函数 | 栈/优先级 | 说明 |
 |--------|------|-----------|------|
-| `thread_rf24_rx` | `rf24_rx_thread` | 1024 / 8 | nRF24 接收，转发到 UDP |
-| `thread_udp_rx` | `udp_rx_thread` | 1024 / 10 | UDP 接收，命令/数据分发 |
+| `thread_rf24_rx` | `rf24_rx_thread` | 1024 / 8 | nRF24 接收，转发到数据端口 |
+| `thread_udp_data_rx` | `udp_data_rx_thread` | 1024 / 10 | 数据端口 (9090) 接收，扫描仪数据透传到 nRF24 |
+| `thread_udp_config_rx` | `udp_config_rx_thread` | 1024 / 10 | 配置端口 (9200) 接收，命令/固件升级分发 |
 
 ---
 
@@ -132,7 +147,7 @@ gateway/
 - **无 CAN、无电源管理、无模式切换**：历史的双配置/CAN/snippet/linksw/电源管理代码已全部移除。
 - **修改引脚**：全部在 `boards/nrf24_f103rct6.overlay`。
 - **网络配置**：直接改 `prj.conf`，不涉及 Kconfig 开关。
-- **`boards/nrf24_f103rct6.conf` 不可删除**：Zephyr kconfig 阶段要求它与 `.overlay` 配对存在（内容可空）。
+- **UDP 双端口**：数据端口 (默认 9090, 可配) + 配置端口 (固定 9200, 支持广播)。改端口分工看 `udp.c` 头注释。
 - **修改帧协议**：同步更新 `gateway.h::enum can_ids`，并与 mod_handler 保持一致（共用协议）。
 - **`gateway_params_t gw_params`**（定义在 `main.c`）是全局共享状态：RF24 配置、网络配置、运行标志。
 - 与 mod_handler 的关系：mod_handler 是手柄端（采集+发送），gateway 是接收/中转端，通过 nRF24 无线连接。

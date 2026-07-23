@@ -92,7 +92,7 @@ int main(void)
 	strncpy(gw_params.ip_addr, GATEWAY_DEFAULT_IP, sizeof(gw_params.ip_addr) - 1);
 	strncpy(gw_params.netmask, GATEWAY_DEFAULT_MASK, sizeof(gw_params.netmask) - 1);
 	strncpy(gw_params.gateway, GATEWAY_DEFAULT_GW, sizeof(gw_params.gateway) - 1);
-	gw_params.udp_port = GATEWAY_DEFAULT_UDP_PORT;
+	gw_params.data_port = GATEWAY_DATA_PORT_DEFAULT;
 
 	/* 加载持久化配置 (覆盖默认值) */
 	gw_config_load();

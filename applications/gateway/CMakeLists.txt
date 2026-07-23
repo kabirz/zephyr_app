@@ -12,5 +12,5 @@ target_sources(app PRIVATE
   src/rf24_shell.c
   src/config.c
   src/persist.c
-  src/udp_forward.c
+  src/udp.c
 )

@@ -58,7 +58,8 @@ enum net_config_cmd {
 #define GATEWAY_DEFAULT_IP       "192.168.1.100"
 #define GATEWAY_DEFAULT_MASK     "255.255.255.0"
 #define GATEWAY_DEFAULT_GW       "192.168.1.1"
-#define GATEWAY_DEFAULT_UDP_PORT 9000
+#define GATEWAY_DATA_PORT_DEFAULT 9090  /* 数据端口 (可配, UDP_CMD_SET_PORT) */
+#define GATEWAY_CONFIG_PORT      9200  /* 配置端口 (固定, 不受 SET_PORT 影响) */
 
 /* ================================================================
  * 全局状态
@@ -72,7 +73,7 @@ typedef struct {
 	char ip_addr[16];
 	char netmask[16];
 	char gateway[16];
-	uint16_t udp_port;
+	uint16_t data_port;   /* 数据端口 (可配, 默认 GATEWAY_DATA_PORT_DEFAULT) */
 
 	/* 运行状态 */
 	volatile bool running;
@@ -95,7 +96,7 @@ bool gw_rf24_send(uint16_t can_id, const uint8_t *data, size_t len);
  */
 void rf24_test_handle_rx(const uint8_t *data, uint8_t len);
 
-/* udp_forward.c */
+/* udp.c */
 void gw_udp_send(const uint8_t *data, size_t len);
 
 /* config.c */
