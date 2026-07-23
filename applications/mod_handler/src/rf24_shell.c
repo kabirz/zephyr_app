@@ -69,10 +69,12 @@ void rf24_test_handle_rx(const uint8_t *data, uint8_t len)
 
 	switch (sub) {
 	case RF24_TEST_PING: {
-		/* 自动回 ECHO, seq 原样回填. 在 RX 线程同步发送 (驱动的 50ms 轮询
-		 * 兜底了 STM32F1 EXTI 边沿丢失问题, 无需 workqueue). */
+		/* 自动回 ECHO, seq 原样回填. 延时 2ms 让 IRQ 线程排空 RX FIFO 并清
+		 * RX_DR (IRQ 引脚回升), 避免紧接的 TX_DS 下降沿与 RX 下降沿重叠被
+		 * STM32F1 EXTI 丢掉. */
 		uint8_t echo[3] = {RF24_TEST_ECHO, (len >= 2) ? data[1] : 0xFF, 0};
 
+		k_msleep(2);
 		rf24_data_send(TEST_FRAME, echo, sizeof(echo));
 		LOG_DBG("PING -> ECHO seq=%02x", echo[1]);
 		break;
