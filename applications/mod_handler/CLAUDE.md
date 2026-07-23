@@ -196,10 +196,18 @@ src/
   persist.c         -- Settings 持久化 (connect_type, FCB 后端)
 boards/
   nrf24_f103rct6.overlay  -- 板级 devicetree 覆盖
-sysbuild.conf            -- MCUBoot 配置
+  rsa_mcuboot_2048.pem    -- 独立签名密钥（本应用专用，与 gateway 不同）
+sysbuild.conf            -- MCUBoot 配置（签名密钥 ${APP_DIR}/boards/rsa_mcuboot_2048.pem）
 sysbuild/mcuboot.conf    -- MCUBoot 参数
 VERSION                  -- 版本号 (0.1.4-release)
 ```
+
+### MCUboot 签名密钥（每应用独立）
+
+`sysbuild.conf` 用 `${APP_DIR}/boards/rsa_mcuboot_2048.pem` 指向**本应用目录**下的密钥（不是板子目录的共享密钥）。这样 mod_handler 和 gateway（共用同一块板 `nrf24_f103rct6`）**各自一把独立 RSA-2048 密钥**，互不通用：
+
+- 一个 mcuboot 镜像只能验签它自己嵌入公钥对应的应用，**不能跨应用引导**。
+- 密钥重新生成：`python bootloader/mcuboot/scripts/imgtool.py keygen -k <app>/boards/rsa_mcuboot_2048.pem -t rsa-2048`（改密钥后 mcuboot 和 app 必须重新烧写）。
 
 ---
 

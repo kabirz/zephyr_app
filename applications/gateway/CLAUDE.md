@@ -134,10 +134,18 @@ gateway/
   CMakeLists.txt             -- 源文件列表
   Kconfig                    -- 线程栈/优先级配置
   prj.conf                   -- 应用配置（含网络栈）
-  sysbuild.conf              -- MCUBoot sysbuild
+  sysbuild.conf              -- MCUBoot sysbuild（签名密钥 ${APP_DIR}/boards/rsa_mcuboot_2048.pem）
   sysbuild/mcuboot.conf
   VERSION
 ```
+
+### MCUboot 签名密钥（每应用独立）
+
+`sysbuild.conf` 用 `${APP_DIR}/boards/rsa_mcuboot_2048.pem` 指向**本应用目录**下的密钥（不是板子目录的共享密钥）。这样 gateway 和 mod_handler（共用同一块板 `nrf24_f103rct6`）**各自一把独立 RSA-2048 密钥**，互不通用：
+
+- 一个 mcuboot 镜像只能验签它自己嵌入公钥对应的应用，**不能跨应用引导**（gateway 烧的 bootloader 无法启动 mod_handler 镜像，反之亦然）。
+- `${APP_DIR}` 在 sysbuild 作用域展开为 `west build` 指定的应用源目录（`zephyr/share/sysbuild/CMakeLists.txt`），每个 app 编译时各取各的。
+- 密钥重新生成：`python bootloader/mcuboot/scripts/imgtool.py keygen -k <app>/boards/rsa_mcuboot_2048.pem -t rsa-2048`（改密钥后 mcuboot 和 app 必须重新烧写）。
 
 ### 线程清单
 
