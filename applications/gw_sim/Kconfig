@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+# gw_sim application configuration
+
+mainmenu "gw_sim"
+
+source "Kconfig.zephyr"
+
+config GATEWAY_DATA_RX_STACK
+	int "UDP data RX thread stack size"
+	default 1024
+
+config GATEWAY_DATA_RX_PRIORITY
+	int "UDP data RX thread priority"
+	default 10
+
+config GATEWAY_UDP_STACK
+	int "UDP config RX thread stack size"
+	default 1024
+
+config GATEWAY_UDP_PRIORITY
+	int "UDP config RX thread priority"
+	default 10
