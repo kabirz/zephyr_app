@@ -116,10 +116,13 @@ void gw_udp_send(const uint8_t *data, size_t len)
 	struct sockaddr_in dst;
 
 	if (is_same_subnet(data_remote_addr.sin_addr)) {
+		/* 同子网: 单播到学习到的上位机源地址 (端口=发送方源端口) */
 		dst = data_remote_addr;
 	} else {
+		/* 跨子网/未学习: 广播. 远程端口 = 本地端口 + 1 (约定上位机监听
+		 * data_port+1, 本地绑定 data_port; 单播时用源端口, 不受此约定影响) */
 		dst.sin_family = AF_INET;
-		dst.sin_port = htons(gw_params.data_port);
+		dst.sin_port = htons(gw_params.data_port + 1);
 		dst.sin_addr.s_addr = INADDR_BROADCAST;
 	}
 
@@ -147,10 +150,12 @@ static void config_send_resp(uint8_t cmd, const uint8_t *data, uint8_t len)
 	struct sockaddr_in dst;
 
 	if (is_same_subnet(config_remote_addr.sin_addr)) {
+		/* 同子网: 单播回复到发送方源地址 (端口=发送方源端口) */
 		dst = config_remote_addr;
 	} else {
+		/* 跨子网: 广播回复. 远程端口 = 本地端口 + 1 (见 gw_udp_send 注释) */
 		dst.sin_family = AF_INET;
-		dst.sin_port = htons(GATEWAY_CONFIG_PORT);
+		dst.sin_port = htons(GATEWAY_CONFIG_PORT + 1);
 		dst.sin_addr.s_addr = INADDR_BROADCAST;
 	}
 
@@ -226,6 +231,9 @@ static void udp_cmd_handler(const uint8_t *data, size_t len)
 		break;
 
 	case UDP_CMD_GET_CONFIG: {
+		/* 响应格式 (向后兼容, 上位机按长度识别):
+		 *   [rf24_ch 1B][rf24_addr 5B][data_port 2B][config_port 2B]  = 10B (旧)
+		 * + [ip 4B][mask 4B][gw 4B]                                   = 22B (新) */
 		uint8_t buf[32] = {0};
 		int offset = 0;
 
@@ -236,6 +244,24 @@ static void udp_cmd_handler(const uint8_t *data, size_t len)
 		offset += 2;
 		sys_put_be16(GATEWAY_CONFIG_PORT, buf + offset);
 		offset += 2;
+
+		/* 追加网络配置 (IP/掩码/网关, 各 4B 网络序). inet_pton 解析失败时
+		 * 对应 4 字节保持 0 (buf 已 memset=0 由 {0} 初始化) */
+		struct in_addr addr;
+
+		if (inet_pton(AF_INET, gw_params.ip_addr, &addr) == 1) {
+			memcpy(buf + offset, &addr.s_addr, 4);
+		}
+		offset += 4;
+		if (inet_pton(AF_INET, gw_params.netmask, &addr) == 1) {
+			memcpy(buf + offset, &addr.s_addr, 4);
+		}
+		offset += 4;
+		if (inet_pton(AF_INET, gw_params.gateway, &addr) == 1) {
+			memcpy(buf + offset, &addr.s_addr, 4);
+		}
+		offset += 4;
+
 		config_send_resp(cmd, buf, offset);
 		break;
 	}

@@ -10,6 +10,7 @@ target_sources(app PRIVATE
   src/main.c
   src/rf24.c
   src/rf24_shell.c
+  src/net_shell.c
   src/config.c
   src/persist.c
   src/udp.c
