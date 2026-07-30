@@ -66,6 +66,7 @@ static const struct gpio_dt_spec dis_power_gpio = GPIO_DT_SPEC_GET(USER_NODE, di
 static const struct gpio_dt_spec handler_power_gpio = GPIO_DT_SPEC_GET(USER_NODE, handlerpower_gpios);
 
 static struct gpio_callback power_button_cb_data;
+static struct gpio_callback handler_button_cb_data;
 static struct gpio_callback linksw_cb_data;
 
 static struct k_work_delayable btn_display_work;
@@ -336,9 +337,11 @@ int gpio_init(void)
 		LOG_ERR("Failed to configure power button interrupt: %d", ret);
 		return ret;
 	}
-	gpio_init_callback(&power_button_cb_data, gpio_irq,
-				   BIT(power_button.pin) | BIT(handler_button.pin));
+	gpio_init_callback(&power_button_cb_data, gpio_irq, BIT(power_button.pin));
 	gpio_add_callback(power_button.port, &power_button_cb_data);
+
+	gpio_init_callback(&handler_button_cb_data, gpio_irq, BIT(handler_button.pin));
+	gpio_add_callback(handler_button.port, &handler_button_cb_data);
 
 	ret = gpio_pin_interrupt_configure_dt(&link_switch, GPIO_INT_EDGE_FALLING);
 	if (ret < 0) {
