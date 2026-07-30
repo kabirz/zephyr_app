@@ -14,6 +14,8 @@
 #include <zephyr/app_version.h>
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/socket.h>
+#include <zephyr/net/net_mgmt.h>
+#include <zephyr/net/net_event.h>
 #ifndef CONFIG_FLASH_SIZE
 #define CONFIG_FLASH_SIZE 0x1000
 #endif
@@ -41,6 +43,27 @@ static int swd_recover(void)
 SYS_INIT(swd_recover, APPLICATION, 0);
 
 /* ================================================================
+ * 网络链路就绪事件
+ * ================================================================
+ * W5500 驱动在 PHY 检测到载波 (PHYCFGR.LNK) 后调 net_eth_carrier_on →
+ * net_if_carrier_on (置 NET_IF_LOWER_UP) → update_operational_state: 接口
+ * admin up 且 carrier ok 时 oper state → UP → notify_iface_up 发出
+ * NET_EVENT_IF_UP. 此处用信号量捕获该事件, 替代原先固定 k_msleep(500) 的盲
+ * 等待 (PHY 自动协商耗时不定, 网线未插时延时更毫无意义).
+ * ================================================================ */
+static K_SEM_DEFINE(net_link_sem, 0, 1);
+static struct net_mgmt_event_callback net_mgmt_cb;
+
+static void net_mgmt_handler(struct net_mgmt_event_callback *cb,
+			     uint64_t mgmt_event, struct net_if *iface)
+{
+	if (mgmt_event == NET_EVENT_IF_UP) {
+		LOG_INF("net link up");
+		k_sem_give(&net_link_sem);
+	}
+}
+
+/* ================================================================
  * 网络初始化 (W5500 静态 IP)
  * ================================================================ */
 static int net_init(void)
@@ -52,6 +75,12 @@ static int net_init(void)
 		LOG_ERR("No network interface found");
 		return -ENODEV;
 	}
+
+	/* 先注册链路事件回调, 再 net_if_up: 若 carrier 此刻已在线, net_if_up 会
+	 * 同步生成 NET_EVENT_IF_UP (异步投递至此回调); 若未在线, 等 W5500 检测到
+	 * 载波后生成. 注册顺序保证不丢事件. */
+	net_mgmt_init_event_callback(&net_mgmt_cb, net_mgmt_handler, NET_EVENT_IF_UP);
+	net_mgmt_add_event_callback(&net_mgmt_cb);
 
 	if (net_addr_pton(AF_INET, gw_params.ip_addr, &addr) < 0) {
 		LOG_ERR("Invalid IP address: %s", gw_params.ip_addr);
@@ -69,6 +98,10 @@ static int net_init(void)
 	net_if_ipv4_addr_add(iface, &addr, NET_ADDR_MANUAL, 0);
 	net_if_ipv4_set_netmask_by_addr(iface, &addr, &mask);
 	net_if_ipv4_set_gw(iface, &gw);
+
+	/* 触发接口 administrative up: 幂等 (已 up 返回 -EALREADY 无害). 这是
+	 * NET_EVENT_IF_UP 的可靠触发点 — oper state 由 (admin up + carrier) 决定. */
+	net_if_up(iface);
 
 	LOG_INF("Network: %s/%s gw %s", gw_params.ip_addr, gw_params.netmask, gw_params.gateway);
 	return 0;
@@ -100,9 +133,18 @@ int main(void)
 	/* 初始化各模块 */
 	gw_rf24_init();
 
-	/* 等待网络就绪后初始化 */
-	k_msleep(500);
 	net_init();
+
+	/* 等待 PHY 链路 up: 若 net_init() 注册回调时链路已 up (oper state 已 UP)
+	 * 则直接跳过; 否则等 NET_EVENT_IF_UP 信号量. 带超时兜底, 避免网线未插时
+	 * 永久阻塞 (UDP 收发线程独立运行, 链路恢复后自然恢复转发). */
+	struct net_if *iface = net_if_get_default();
+
+	if (iface != NULL && net_if_oper_state(iface) != NET_IF_OPER_UP) {
+		if (k_sem_take(&net_link_sem, K_SECONDS(5)) != 0) {
+			LOG_WRN("net link up timeout, continue anyway");
+		}
+	}
 
 	gw_params.running = true;
 	LOG_INF("Gateway ready");

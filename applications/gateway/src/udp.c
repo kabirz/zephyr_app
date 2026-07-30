@@ -362,7 +362,7 @@ static void udp_data_rx_thread(void)
 	data_remote_addr.sin_port = htons(gw_params.data_port);
 	data_remote_addr.sin_addr.s_addr = INADDR_BROADCAST;
 
-	uint8_t buf[512];
+	static uint8_t buf[512];
 
 	while (1) {
 		struct sockaddr_in src_addr;
@@ -426,7 +426,7 @@ static void udp_config_rx_thread(void)
 
 	LOG_INF("config port %d listening", GATEWAY_CONFIG_PORT);
 
-	uint8_t buf[512];
+	static uint8_t buf[512];
 
 	while (1) {
 		struct sockaddr_in src_addr;
