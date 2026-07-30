@@ -75,7 +75,15 @@ static void fw_reset(void)
 	if (fw_started) {
 		flash_img_buffered_write(&flash_img_ctx, NULL, 0, true);
 		fw_started = false;
-		LOG_INF("FW upgrade complete");
+		/* 标记 slot1 镜像为有效待升级 (设置 magic/image_ok trailer).
+		 * 没有这一步, MCUboot 启动时 slot1 magic=unset → 不 swap → 升级无效 */
+		int ret = boot_request_upgrade(1);
+
+		if (ret != 0) {
+			LOG_ERR("boot_request_upgrade failed: %d", ret);
+		} else {
+			LOG_INF("FW upgrade complete");
+		}
 	}
 }
 
@@ -153,7 +161,7 @@ static void config_send_resp(uint8_t cmd, const uint8_t *data, uint8_t len)
 		/* 同子网: 单播回复到发送方源地址 (端口=发送方源端口) */
 		dst = config_remote_addr;
 	} else {
-		/* 跨子网: 广播回复. 远程端口 = 本地端口 + 1 (见 gw_udp_send 注释) */
+		/* 跨子网: 广播回复. 远程端口 = 本地端口 + 1 (上位机监听 config+1) */
 		dst.sin_family = AF_INET;
 		dst.sin_port = htons(GATEWAY_CONFIG_PORT + 1);
 		dst.sin_addr.s_addr = INADDR_BROADCAST;
@@ -232,8 +240,11 @@ static void udp_cmd_handler(const uint8_t *data, size_t len)
 
 	case UDP_CMD_GET_CONFIG: {
 		/* 响应格式 (向后兼容, 上位机按长度识别):
-		 *   [rf24_ch 1B][rf24_addr 5B][data_port 2B][config_port 2B]  = 10B (旧)
-		 * + [ip 4B][mask 4B][gw 4B]                                   = 22B (新) */
+		 *   [rf24_ch 1B][rf24_addr 5B][data_port 2B][config_port 2B]                 = 10B (旧, 无 IP)
+		 * + [ip 4B][mask 4B][gw 4B]                                                  = 22B (无 remote_port)
+		 * + [remote_port 2B]  (插在 data_port 之后)                                  = 24B (新)
+		 * 最终 24B 布局: [rf24_ch][rf24_addr 5B][data_port][remote_port][config_port][ip][mask][gw]
+		 * remote_port = data_port + 1 (gateway 广播目标端口规则, 上位机据此设本地监听口) */
 		uint8_t buf[32] = {0};
 		int offset = 0;
 
@@ -241,6 +252,8 @@ static void udp_cmd_handler(const uint8_t *data, size_t len)
 		memcpy(buf + offset, gw_params.rf24_addr, RF24_ADDR_LEN);
 		offset += RF24_ADDR_LEN;
 		sys_put_be16(gw_params.data_port, buf + offset);
+		offset += 2;
+		sys_put_be16(gw_params.data_port + 1, buf + offset);
 		offset += 2;
 		sys_put_be16(GATEWAY_CONFIG_PORT, buf + offset);
 		offset += 2;
