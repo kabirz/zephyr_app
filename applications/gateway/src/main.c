@@ -40,7 +40,7 @@ static int swd_recover(void)
 	AFIO->MAPR = mapr | AFIO_MAPR_SWJ_CFG_JTAGDISABLE;
 	return 0;
 }
-SYS_INIT(swd_recover, APPLICATION, 0);
+SYS_INIT(swd_recover, PRE_KERNEL_2, 1);
 
 /* ================================================================
  * 网络链路就绪事件
