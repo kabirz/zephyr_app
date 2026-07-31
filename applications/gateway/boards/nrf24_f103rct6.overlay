@@ -59,6 +59,9 @@
 	};
 };
 
+&pinctrl {
+	swj-cfg = "jtag-disable";
+};
 /* ================================================================
  * SPI3: W5500 以太网 (SCK=PB3, MISO=PB4, MOSI=PB5, CS=PA15)
  * INT=PD2, RST=PC12

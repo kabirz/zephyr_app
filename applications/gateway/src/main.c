@@ -27,23 +27,6 @@ LOG_MODULE_REGISTER(gateway, LOG_LEVEL_INF);
 gateway_params_t gw_params;
 
 /* ================================================================
- * SWD 恢复: SPI3 引脚 (PB3/PB4/PA15) 复用 JTAG 引脚, Zephyr pinctrl 在
- * 应用 SPI3_REMAP0 时把 AFIO_MAPR.SWJ_CFG 设成 111 (JTAG+SWD 全关) 以释放
- * 这些引脚。但 SWJ_CFG=111 也会关闭 SWD, 导致 ST-Link 无法再通过 SWD 烧写。
- * 此处在所有驱动初始化 (POST_KERNEL) 之后, 把 SWJ_CFG 改回 010
- * (AFIO_MAPR_SWJ_CFG_JTAGDISABLE = 0x02000000): 关 JTAG 保留 SWD, 既不
- * 影响已配置的 SPI3 引脚, 又恢复 SWD 烧写能力。
- * ================================================================ */
-static int swd_recover(void)
-{
-	uint32_t mapr = AFIO->MAPR & ~AFIO_MAPR_SWJ_CFG;
-
-	AFIO->MAPR = mapr | AFIO_MAPR_SWJ_CFG_JTAGDISABLE;
-	return 0;
-}
-SYS_INIT(swd_recover, PRE_KERNEL_2, 1);
-
-/* ================================================================
  * 网络链路就绪事件
  * ================================================================
  * W5500 驱动在 PHY 检测到载波 (PHYCFGR.LNK) 后调 net_eth_carrier_on →
