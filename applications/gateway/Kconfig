@@ -21,10 +21,6 @@ config GATEWAY_DATA_RX_PRIORITY
 	int "UDP data RX thread priority"
 	default 10
 
-config GATEWAY_UDP_STACK
-	int "UDP config RX thread stack size"
-	default 1024
-
-config GATEWAY_UDP_PRIORITY
-	int "UDP config RX thread priority"
-	default 10
+config GATEWAY_UDP_INIT_PRIORITY
+	int "UDP app handler init priority (must run before udp_fw_upgrade lib)"
+	default 80

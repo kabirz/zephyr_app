@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+# gateway_udp_test application configuration
+
+mainmenu "gateway_udp_test"
+
+source "Kconfig.zephyr"
+
+config GUT_DATA_RX_STACK
+	int "UDP data RX thread stack size"
+	default 2048
+
+config GUT_DATA_RX_PRIORITY
+	int "UDP data RX thread priority"
+	default 10
+
+config GUT_UDP_INIT_PRIORITY
+	int "UDP app handler init priority (must run before udp_fw_upgrade lib)"
+	default 80

@@ -1,0 +1,13 @@
+/*
+ * gateway_udp_test board overlay for stm32f407_xinxin
+ *
+ * 硬件: STM32F407 内置 MAC + 外部 PHY (RMII), 由 f407-mac snippet 启用.
+ * 板级 DTS 已定义 MCUBoot flash 分区 (mcuboot/slot0 内部 flash,
+ * slot1/scratch/cfg 外部 W25Q128). 本 overlay 仅指定 settings 分区.
+ */
+
+/ {
+	chosen {
+		zephyr,settings-partition = &cfg_partition;
+	};
+};

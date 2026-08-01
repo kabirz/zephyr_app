@@ -5,3 +5,4 @@ config HW_TEST
 	  build same extra code hw test
 
 rsource "can_fw_upgrade/Kconfig"
+rsource "udp_fw_upgrade/Kconfig"

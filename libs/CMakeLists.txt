@@ -9,3 +9,4 @@ zephyr_sources_ifdef(CONFIG_SHELL lib_shell.c)
 endif()
 
 add_subdirectory_ifdef(CONFIG_CAN_FW_UPGRADE can_fw_upgrade)
+add_subdirectory_ifdef(CONFIG_UDP_FW_UPGRADE udp_fw_upgrade)
