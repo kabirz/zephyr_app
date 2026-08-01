@@ -24,8 +24,6 @@
  * 复用历史 CAN 11-bit 编号, 已与 CAN 总线无关)
  * ================================================================ */
 enum can_ids {
-	RF24_CONFIG_CMD = 0x104,
-	RF24_CONFIG_RESP = 0x105,
 	COBID_HEATBEAT = 0x763,
 	TEST_FRAME = 0x777,
 	HANDLER_STATE = 0x1E3,

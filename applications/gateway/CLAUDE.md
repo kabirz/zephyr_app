@@ -66,8 +66,6 @@ host       --UDP-->  gateway --nRF24--> mod_handler
 | 0x363 | `COORD_XY` | 网关→手柄 | X/Y 坐标 |
 | 0x463 | `COORD_Z` | 网关→手柄 | Z 坐标 |
 | 0x763 | `COBID_HEATBEAT` | 手柄→网关 | 心跳 |
-| 0x104 | `RF24_CONFIG_CMD` | 平台→网关 | nRF24 配置命令 (历史保留, 当前由 UDP 配置命令替代) |
-| 0x105 | `RF24_CONFIG_RESP` | 网关→平台 | nRF24 配置响应 (历史保留) |
 | 0x777 | `TEST_FRAME` | 双向 | rf24 shell 测试帧 (ping/echo/data) |
 
 ---
