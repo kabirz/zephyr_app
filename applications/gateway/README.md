@@ -56,7 +56,7 @@ west flash
 
 | 端口 | 用途 | 可配 | 默认 |
 |------|------|------|------|
-| **数据端口** | nRF24↔上位机数据转发 | `UDP_CMD_SET_CONFIG` 可改，持久化 | 9090 |
+| **数据端口** | nRF24↔上位机数据转发 | `UDP_CMD_SET_NET` 可改，持久化 | 9090 |
 | **配置端口** | 所有配置命令 + 固件升级 | 固定 | 9200 |
 
 双端口均设 `SO_BROADCAST`，均按子网判断单播/广播：
@@ -72,7 +72,9 @@ west flash
 
 ### 配置命令
 
-业务命令从 0x10 起；0x01-0x05 由 `udp_fw_upgrade` 库内部处理 (FW_START/DATA/END/GET_VERSION/REBOOT)：
+业务命令从 0x12 起；0x01-0x05 由 `udp_fw_upgrade` 库内部处理 (FW_START/DATA/END/GET_VERSION/REBOOT)。
+
+> **网络参数**：掩码固定 `255.255.255.0`，网关 = 设备 IP 末段改 1 (`a.b.c.x` → `a.b.c.1`)，均由固件运行时派生，不在帧中传输。`config_port` 固定 9200，不在响应中返回（上位机硬编码）。
 
 | 命令 | 格式 | 说明 |
 |------|------|------|
@@ -81,8 +83,10 @@ west flash
 | 0x03 | `[0x03][test 1B][crc 2B LE]` | 结束固件升级并重启 (库处理, 回 `[0x03][1/0]`) |
 | 0x04 | `[0x04]` | 查询版本 (库处理, 回 APP_VERSION_STRING 变长) |
 | 0x05 | `[0x05]` | 重启设备 (库处理) |
-| 0x10 | `[0x10][ip 4B][mask 4B][gw 4B][port 2B BE][rf24_ch 1B][rf24_addr 5B]` | 一次性设置 IP/掩码/网关/数据端口/RF24 信道/地址 (持久化, RF24 配置即时应用到硬件; 回 20B 设置后的配置) |
-| 0x11 | `[0x11]` | 查询配置 (回 22B: `[0x11][rf24_ch 1B][rf24_addr 5B][data_port 2B][config_port 2B][ip 4B][mask 4B][gw 4B]`; remote_port = data_port + 1 由上位机自行计算) |
+| 0x12 | `[0x12][ip 4B][port 2B BE]` | 设置网络参数 (持久化; 回 6B 设置后的 `[ip 4B][port 2B]`) |
+| 0x13 | `[0x13]` | 查询网络参数 (回 6B: `[ip 4B][port 2B]`) |
+| 0x14 | `[0x14][rf24_ch 1B][rf24_addr 5B]` | 设置 RF24 信道/地址 (持久化, 即时应用到硬件; 回 6B 设置后的值) |
+| 0x15 | `[0x15]` | 查询 RF24 信道/地址 (回 6B: `[rf24_ch 1B][rf24_addr 5B]`) |
 
 ## Shell 命令
 

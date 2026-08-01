@@ -66,10 +66,8 @@ host       --UDP-->  gateway --nRF24--> mod_handler
 | 0x363 | `COORD_XY` | 网关→手柄 | X/Y 坐标 |
 | 0x463 | `COORD_Z` | 网关→手柄 | Z 坐标 |
 | 0x763 | `COBID_HEATBEAT` | 手柄→网关 | 心跳 |
-| 0x104 | `RF24_CONFIG_CMD` | 平台→网关 | nRF24 配置命令 |
-| 0x105 | `RF24_CONFIG_RESP` | 网关→平台 | nRF24 配置响应 |
-| 0x106 | `NET_CONFIG_CMD` | 平台→网关 | 网络配置命令 |
-| 0x107 | `NET_CONFIG_RESP` | 网关→平台 | 网络配置响应 |
+| 0x104 | `RF24_CONFIG_CMD` | 平台→网关 | nRF24 配置命令 (历史保留, 当前由 UDP 配置命令替代) |
+| 0x105 | `RF24_CONFIG_RESP` | 网关→平台 | nRF24 配置响应 (历史保留) |
 | 0x777 | `TEST_FRAME` | 双向 | rf24 shell 测试帧 (ping/echo/data) |
 
 ---
@@ -80,8 +78,8 @@ host       --UDP-->  gateway --nRF24--> mod_handler
 
 | 端口 | 用途 | 可配 | 默认 |
 |------|------|------|------|
-| **数据端口** | nRF24→上位机数据转发 + 上位机→nRF24 扫描仪数据透传 | `UDP_CMD_SET_PORT` 可改，持久化 | 9090 |
-| **配置端口** | 所有配置命令（IP/掩码/网关/端口/RF24/重启/固件升级） | 固定 | 9200 |
+| **数据端口** | nRF24→上位机数据转发 + 上位机→nRF24 扫描仪数据透传 | `UDP_CMD_SET_NET` 可改，持久化 | 9090 |
+| **配置端口** | 所有配置命令（网络参数/RF24 参数/重启/固件升级） | 固定 | 9200 |
 
 - **双端口均支持广播收发**（详见下方 Zephyr 广播约束）。
 - 配置端口绑定 `0.0.0.0:9200`，支持广播接收（上位机不知道设备 IP 时可广播配置）。
@@ -101,13 +99,15 @@ host       --UDP-->  gateway --nRF24--> mod_handler
 
 - **数据帧**: `[帧 ID 2B BE][payload]`（透传扫描仪/手柄数据，走数据端口）
 - **命令帧**: `[cmd 1B][data...]`（无魔数头，走配置端口）
-- 配置命令 0x01~0x09（IP/掩码/网关/数据端口/查询配置/查询版本/RF24 信道/RF24 地址/重启）
-- 固件升级命令 0x10~0x12（开始/数据/结束重启）
+- 固件升级命令 0x01~0x05（开始/数据/结束/查询版本/重启，由 `udp_fw_upgrade` 库内部处理）
+- 网络参数命令 0x12/0x13（SET_NET/GET_NET）；RF24 参数命令 0x14/0x15（SET_RF24/GET_RF24）
+- 网络掩码固定 255.255.255.0，网关 = 设备 IP 末段改 1（运行时派生，不传输）
 
 ### 命令响应格式
 
-- **0x05 GET_CONFIG** 响应: `[0x05][rf24_ch 1B][rf24_addr 5B][data_port 2B BE][config_port 2B BE]`（11 字节，无 IP/掩码/网关/模式）
-- **0x06 GET_VERSION** 响应: `[0x06][APP_VERSION_STRING 变长]`（如 `[0x06]0.1.0-dev`，不含末尾 `\0`）
+- **0x13 GET_NET** 响应: `[0x13][ip 4B][port 2B BE]`（6 字节）
+- **0x15 GET_RF24** 响应: `[0x15][rf24_ch 1B][rf24_addr 5B]`（6 字节）
+- **0x04 GET_VERSION** 响应: `[0x04][APP_VERSION_STRING 变长]`（如 `[0x04]0.1.0-dev`，不含末尾 `\0`）
 
 ---
 
@@ -117,7 +117,7 @@ host       --UDP-->  gateway --nRF24--> mod_handler
 - **网络配置直写 prj.conf**：`CONFIG_NETWORKING`/`NET_IPV4`/`NET_UDP`/`NET_SOCKETS`/`POSIX_API`/`NET_L2_ETHERNET`/`NET_ARP` 直接写在 `prj.conf`。`ETH_DRIVER` 由 `NET_L2_ETHERNET` 自动拉起，`ETH_W5500` 由 devicetree W5500 节点自动拉起。
 - **SPI 分离**：nRF24 用 SPI2，W5500 用 SPI3，各自独立 CS，避免总线共享。
 - **STM32F103 无硬件 RNG**：网络栈随机源用 `CONFIG_TEST_RANDOM_GENERATOR`。
-- **固件升级走 UDP**：`udp.c` 内置固件升级命令 (0x10~0x12)，通过 UDP 接收固件写入 slot1。
+- **固件升级走 UDP**：`udp_fw_upgrade` 库内置固件升级命令 (0x01~0x03)，通过 UDP 接收固件写入 slot1。
 - **帧 ID 复用历史编号**：`enum can_ids` 保留原 CAN 11-bit 编号作为 UDP/nRF24 帧的逻辑标识符，上位机协议兼容。
 
 ---
