@@ -26,8 +26,6 @@
 enum can_ids {
 	RF24_CONFIG_CMD = 0x104,
 	RF24_CONFIG_RESP = 0x105,
-	NET_CONFIG_CMD = 0x106,   /* 平台→网关: 网络配置命令 */
-	NET_CONFIG_RESP = 0x107,  /* 网关→平台: 网络配置响应 */
 	COBID_HEATBEAT = 0x763,
 	TEST_FRAME = 0x777,
 	HANDLER_STATE = 0x1E3,
@@ -36,30 +34,23 @@ enum can_ids {
 	COORD_Z = 0x463,
 };
 
-/* RF24_CONFIG_CMD 命令类型 */
-enum rf24_config_cmd {
-	RF24_CMD_SET_CHANNEL = 0x01,
-	RF24_CMD_GET_CONFIG = 0x02,
-	RF24_CMD_SET_ADDR = 0x03,    /* 设置地址: [0x03][addr 5B][reserved 2B] */
-};
-
-/* NET_CONFIG_CMD 命令类型 */
-enum net_config_cmd {
-	NET_CMD_SET_IP = 0x01,       /* [0x01][ip 4B] */
-	NET_CMD_SET_MASK = 0x02,     /* [0x02][mask 4B] */
-	NET_CMD_SET_GW = 0x03,       /* [0x03][gw 4B] */
-	NET_CMD_SET_PORT = 0x04,     /* [0x04][port 2B BE] */
-	NET_CMD_GET_CONFIG = 0x05,   /* [0x05] 查询全部配置 */
+/* UDP 配置命令 (走配置端口 9200, 由 udp_fw_upgrade 库 RX 线程分发到 app_cmd_handler).
+ * 0x01-0x05 由库内部处理 (FW_START/DATA/END/GET_VERSION/REBOOT), 不会到达此处.
+ * 掩码固定 255.255.255.0, 网关 = IP 末段改 1 (a.b.c.1), 均不在帧中传输. */
+enum udp_cmd {
+	UDP_CMD_SET_NET  = 0x12,   /* [ip 4B][port 2B BE] = 6B → 回显同序 6B */
+	UDP_CMD_GET_NET  = 0x13,   /* (空) → [ip 4B][port 2B BE] = 6B */
+	UDP_CMD_SET_RF24 = 0x14,   /* [ch 1B][addr 5B] = 6B → 回显同序 6B */
+	UDP_CMD_GET_RF24 = 0x15,   /* (空) → [ch 1B][addr 5B] = 6B */
 };
 
 /* ================================================================
  * 网络默认配置
+ * 掩码固定 255.255.255.0; 网关 = IP 末段改 1 (运行时派生, 不存储)
  * ================================================================ */
 #define GATEWAY_DEFAULT_IP       "192.168.1.100"
-#define GATEWAY_DEFAULT_MASK     "255.255.255.0"
-#define GATEWAY_DEFAULT_GW       "192.168.1.1"
-#define GATEWAY_DATA_PORT_DEFAULT 9090  /* 数据端口 (可配, UDP_CMD_SET_CONFIG) */
-#define GATEWAY_CONFIG_PORT      9200  /* 配置端口 (固定, 不受 SET_PORT 影响) */
+#define GATEWAY_DATA_PORT_DEFAULT 9090  /* 数据端口 (可配, UDP_CMD_SET_NET) */
+#define GATEWAY_CONFIG_PORT      9200  /* 配置端口 (固定, 不受 SET_NET 影响) */
 
 /* ================================================================
  * 全局状态
@@ -69,10 +60,8 @@ typedef struct {
 	uint8_t rf24_channel;
 	uint8_t rf24_addr[RF24_ADDR_LEN];
 
-	/* 网络配置 */
+	/* 网络配置 (掩码固定 /24, 网关由 IP 派生, 均不存储) */
 	char ip_addr[16];
-	char netmask[16];
-	char gateway[16];
 	uint16_t data_port;   /* 数据端口 (可配, 默认 GATEWAY_DATA_PORT_DEFAULT) */
 
 	/* 运行状态 */

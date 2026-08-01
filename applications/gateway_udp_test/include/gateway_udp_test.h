@@ -34,14 +34,23 @@ enum can_ids {
 #define RF24_ADDR_MAX_CH 125
 #define RF24_DEFAULT_CH  76
 
+/* UDP 配置命令 (走配置端口 9200, 由 udp_fw_upgrade 库 RX 线程分发到 app_cmd_handler).
+ * 0x01-0x05 由库内部处理 (FW_START/DATA/END/GET_VERSION/REBOOT), 不会到达此处.
+ * 掩码固定 255.255.255.0, 网关 = IP 末段改 1 (a.b.c.1), 均不在帧中传输. */
+enum udp_cmd {
+	UDP_CMD_SET_NET  = 0x12,   /* [ip 4B][port 2B BE] = 6B → 回显同序 6B */
+	UDP_CMD_GET_NET  = 0x13,   /* (空) → [ip 4B][port 2B BE] = 6B */
+	UDP_CMD_SET_RF24 = 0x14,   /* [ch 1B][addr 5B] = 6B → 回显同序 6B */
+	UDP_CMD_GET_RF24 = 0x15,   /* (空) → [ch 1B][addr 5B] = 6B */
+};
+
 /* ================================================================
  * 网络默认配置
+ * 掩码固定 255.255.255.0; 网关 = IP 末段改 1 (运行时派生, 不存储)
  * ================================================================ */
 #define GUT_DEFAULT_IP         "192.168.1.100"
-#define GUT_DEFAULT_MASK       "255.255.255.0"
-#define GUT_DEFAULT_GW         "192.168.1.1"
-#define GUT_DATA_PORT_DEFAULT  9090  /* 数据端口 (可配, UDP_CMD_SET_CONFIG) */
-#define GUT_CONFIG_PORT        9200  /* 配置端口 (固定, 不受 SET_PORT 影响) */
+#define GUT_DATA_PORT_DEFAULT  9090  /* 数据端口 (可配, UDP_CMD_SET_NET) */
+#define GUT_CONFIG_PORT        9200  /* 配置端口 (固定, 不受 SET_NET 影响) */
 
 /* ================================================================
  * 全局状态
@@ -51,10 +60,8 @@ typedef struct {
 	uint8_t rf24_channel;
 	uint8_t rf24_addr[RF24_ADDR_LEN];
 
-	/* 网络配置 */
+	/* 网络配置 (掩码固定 /24, 网关由 IP 派生, 均不存储) */
 	char ip_addr[16];
-	char netmask[16];
-	char gateway[16];
 	uint16_t data_port;   /* 数据端口 (可配, 默认 GUT_DATA_PORT_DEFAULT) */
 
 	/* 运行状态 */

@@ -86,14 +86,11 @@ static int net_init(void)
 		LOG_ERR("Invalid IP address: %s", gw_params.ip_addr);
 		return -EINVAL;
 	}
-	if (net_addr_pton(AF_INET, gw_params.netmask, &mask) < 0) {
-		LOG_ERR("Invalid netmask: %s", gw_params.netmask);
-		return -EINVAL;
-	}
-	if (net_addr_pton(AF_INET, gw_params.gateway, &gw) < 0) {
-		LOG_ERR("Invalid gateway: %s", gw_params.gateway);
-		return -EINVAL;
-	}
+
+	/* 掩码固定 /24; 网关 = IP 末段改 1 (a.b.c.1), 均不存储, 运行时派生 */
+	mask.s_addr = htonl(0xFFFFFF00);
+	memcpy(&gw, &addr, sizeof(gw));
+	((uint8_t *)&gw.s_addr)[3] = 1;
 
 	net_if_ipv4_addr_add(iface, &addr, NET_ADDR_MANUAL, 0);
 	net_if_ipv4_set_netmask_by_addr(iface, &addr, &mask);
@@ -103,7 +100,10 @@ static int net_init(void)
 	 * NET_EVENT_IF_UP 的可靠触发点 — oper state 由 (admin up + carrier) 决定. */
 	net_if_up(iface);
 
-	LOG_INF("Network: %s/%s gw %s", gw_params.ip_addr, gw_params.netmask, gw_params.gateway);
+	char gw_str[NET_IPV4_ADDR_LEN];
+
+	net_addr_ntop(AF_INET, &gw, gw_str, sizeof(gw_str));
+	LOG_INF("Network: %s/24 gw %s", gw_params.ip_addr, gw_str);
 	return 0;
 }
 
@@ -123,8 +123,6 @@ int main(void)
 	gw_params.rf24_addr[3] = 0;
 	gw_params.rf24_addr[4] = 0;
 	strncpy(gw_params.ip_addr, GATEWAY_DEFAULT_IP, sizeof(gw_params.ip_addr) - 1);
-	strncpy(gw_params.netmask, GATEWAY_DEFAULT_MASK, sizeof(gw_params.netmask) - 1);
-	strncpy(gw_params.gateway, GATEWAY_DEFAULT_GW, sizeof(gw_params.gateway) - 1);
 	gw_params.data_port = GATEWAY_DATA_PORT_DEFAULT;
 
 	/* 加载持久化配置 (覆盖默认值) */

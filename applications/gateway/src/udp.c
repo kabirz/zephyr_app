@@ -30,11 +30,6 @@
 
 LOG_MODULE_REGISTER(gw_udp, LOG_LEVEL_INF);
 
-enum udp_cmd {
-	UDP_CMD_SET_CONFIG = 0x10,
-	UDP_CMD_GET_CONFIG = 0x11,
-};
-
 /* 数据端口 socket + 远端地址 (nRF24 数据转发目标).
  * data_remote_addr 为最近一次同子网数据发送方地址; 跨子网或未学习时为广播 */
 static int data_sock = -1;
@@ -44,25 +39,16 @@ static struct sockaddr_in data_remote_addr;
  * 子网判断 + 数据端口发送
  * ================================================================ */
 
-/* 判断发送方 IP 是否与本机同子网 (按 netmask 计算).
- * 数据端口用此函数决定单播目标, 无法判断时按同子网 (单播) */
+/* 判断发送方 IP 是否与本机同子网 (掩码固定 255.255.255.0).
+ * 数据端口用此函数决定单播目标, 本机 IP 解析失败时按同子网 (单播) */
 static bool is_same_subnet(struct in_addr sender_ip)
 {
-	struct net_if *iface = net_if_get_default();
 	struct in_addr local_ip, mask;
 
-	if (!iface) {
+	if (net_addr_pton(AF_INET, gw_params.ip_addr, &local_ip) < 0) {
 		return true; /* 无法判断时按同子网处理 (单播) */
 	}
-
-	/* 本机 IP 从 gw_params 解析 (net_init 设置的静态 IP) */
-	if (net_addr_pton(AF_INET, gw_params.ip_addr, &local_ip) < 0) {
-		return true;
-	}
-	struct net_in_addr nm = net_if_ipv4_get_netmask_by_addr(
-		iface, (const struct net_in_addr *)&local_ip);
-
-	mask = *(struct in_addr *)&nm;
+	mask.s_addr = htonl(0xFFFFFF00); /* /24 固定 */
 	return (sender_ip.s_addr & mask.s_addr) == (local_ip.s_addr & mask.s_addr);
 }
 
@@ -99,94 +85,80 @@ static bool app_cmd_handler(uint8_t cmd, const uint8_t *cmd_data, size_t cmd_len
 			    void *user_data)
 {
 	switch (cmd) {
-	case UDP_CMD_SET_CONFIG: {
-		/* 一次性设置 IP/掩码/网关/端口/RF24 信道/RF24 地址 (合并原 SET_IP/MASK/GW/PORT/RF24_CH/RF24_ADDR).
-		 * 帧格式: [ip 4B][mask 4B][gw 4B][port 2B BE][rf24_ch 1B][rf24_addr 5B] = 20B
-		 * 全部解析成功后统一持久化 (网络+RF24 各一次), RF24 配置应用到硬件.
-		 * rf24_ch 非法 (>125) 时保持原值不更新, 但不拒绝整包.
-		 * 回复: 设置后的 20B 配置 (二进制, 与请求同序), 供上位机确认 */
-		if (cmd_len >= 20) {
+	case UDP_CMD_SET_NET: {
+		/* 设置网络参数: [ip 4B][port 2B BE] = 6B.
+		 * 掩码固定 255.255.255.0, 网关 = IP 末段改 1 (net_init 派生, 不存储).
+		 * 回复: 设置后的 6B (回显, 与请求同序) */
+		if (cmd_len >= 6) {
 			struct in_addr addr;
 
 			memcpy(&addr.s_addr, cmd_data, 4);
 			inet_ntop(AF_INET, &addr, gw_params.ip_addr, sizeof(gw_params.ip_addr));
-			memcpy(&addr.s_addr, cmd_data + 4, 4);
-			inet_ntop(AF_INET, &addr, gw_params.netmask, sizeof(gw_params.netmask));
-			memcpy(&addr.s_addr, cmd_data + 8, 4);
-			inet_ntop(AF_INET, &addr, gw_params.gateway, sizeof(gw_params.gateway));
-			gw_params.data_port = sys_get_be16(cmd_data + 12);
-			uint8_t ch = cmd_data[14];
+			gw_params.data_port = sys_get_be16(cmd_data + 4);
 
-			if (ch <= RF24_ADDR_MAX_CH) {
-				gw_params.rf24_channel = ch;
-			}
-			memcpy(gw_params.rf24_addr, cmd_data + 15, RF24_ADDR_LEN);
-
-			LOG_INF("UDP set config: ip=%s mask=%s gw=%s port=%d rf24 ch=%d",
-				gw_params.ip_addr, gw_params.netmask,
-				gw_params.gateway, gw_params.data_port, gw_params.rf24_channel);
+			LOG_INF("UDP set net: ip=%s port=%d", gw_params.ip_addr, gw_params.data_port);
 			persist_save_network_config();
-			persist_save_rf24_config();
-			gw_rf24_set_config(gw_params.rf24_channel, gw_params.rf24_addr);
 
-			/* 回复设置后的配置 (二进制 20B, 与请求同序) */
-			uint8_t resp[20];
-			int off = 0;
+			uint8_t resp[6];
 
 			if (inet_pton(AF_INET, gw_params.ip_addr, &addr) == 1) {
-				memcpy(resp + off, &addr.s_addr, 4);
+				memcpy(resp, &addr.s_addr, 4);
+			} else {
+				memset(resp, 0, 4);
 			}
-			off += 4;
-			if (inet_pton(AF_INET, gw_params.netmask, &addr) == 1) {
-				memcpy(resp + off, &addr.s_addr, 4);
-			}
-			off += 4;
-			if (inet_pton(AF_INET, gw_params.gateway, &addr) == 1) {
-				memcpy(resp + off, &addr.s_addr, 4);
-			}
-			off += 4;
-			sys_put_be16(gw_params.data_port, resp + off);
-			off += 2;
-			resp[off++] = gw_params.rf24_channel;
-			memcpy(resp + off, gw_params.rf24_addr, RF24_ADDR_LEN);
-			off += RF24_ADDR_LEN;
-
-			udp_fw_reply(cmd, resp, off);
+			sys_put_be16(gw_params.data_port, resp + 4);
+			udp_fw_reply(cmd, resp, sizeof(resp));
 		}
 		return true;
 	}
 
-	case UDP_CMD_GET_CONFIG: {
-		/* 响应格式 (22B, 上位机按长度识别):
-		 *   [rf24_ch 1B][rf24_addr 5B][data_port 2B][config_port 2B][ip 4B][mask 4B][gw 4B]
-		 * remote_port = data_port + 1 由上位机自行计算 (固件不传) */
-		uint8_t buf[32] = {0};
-		int offset = 0;
-
-		buf[offset++] = gw_params.rf24_channel;
-		memcpy(buf + offset, gw_params.rf24_addr, RF24_ADDR_LEN);
-		offset += RF24_ADDR_LEN;
-		sys_put_be16(gw_params.data_port, buf + offset);
-		offset += 2;
-		sys_put_be16(GATEWAY_CONFIG_PORT, buf + offset);
-		offset += 2;
-
+	case UDP_CMD_GET_NET: {
+		/* 查询网络参数: (空) → [ip 4B][port 2B BE] = 6B */
+		uint8_t buf[6];
 		struct in_addr addr;
 
 		if (inet_pton(AF_INET, gw_params.ip_addr, &addr) == 1) {
-			memcpy(buf + offset, &addr.s_addr, 4);
+			memcpy(buf, &addr.s_addr, 4);
+		} else {
+			memset(buf, 0, 4);
 		}
-		offset += 4;
-		if (inet_pton(AF_INET, gw_params.netmask, &addr) == 1) {
-			memcpy(buf + offset, &addr.s_addr, 4);
-		}
-		offset += 4;
-		if (inet_pton(AF_INET, gw_params.gateway, &addr) == 1) {
-			memcpy(buf + offset, &addr.s_addr, 4);
-		}
-		offset += 4;
+		sys_put_be16(gw_params.data_port, buf + 4);
+		udp_fw_reply(cmd, buf, sizeof(buf));
+		return true;
+	}
 
-		udp_fw_reply(cmd, buf, offset);
+	case UDP_CMD_SET_RF24: {
+		/* 设置 RF24 参数: [ch 1B][addr 5B] = 6B.
+		 * ch 非法 (>125) 时保持原值不更新, 但不拒绝整包.
+		 * 回复: 设置后的 6B (回显) */
+		if (cmd_len >= 6) {
+			uint8_t ch = cmd_data[0];
+
+			if (ch <= RF24_ADDR_MAX_CH) {
+				gw_params.rf24_channel = ch;
+			}
+			memcpy(gw_params.rf24_addr, cmd_data + 1, RF24_ADDR_LEN);
+
+			LOG_INF("UDP set rf24: ch=%d", gw_params.rf24_channel);
+			persist_save_rf24_config();
+			gw_rf24_set_config(gw_params.rf24_channel, gw_params.rf24_addr);
+
+			uint8_t resp[6];
+
+			resp[0] = gw_params.rf24_channel;
+			memcpy(resp + 1, gw_params.rf24_addr, RF24_ADDR_LEN);
+			udp_fw_reply(cmd, resp, sizeof(resp));
+		}
+		return true;
+	}
+
+	case UDP_CMD_GET_RF24: {
+		/* 查询 RF24 参数: (空) → [ch 1B][addr 5B] = 6B */
+		uint8_t buf[6];
+
+		buf[0] = gw_params.rf24_channel;
+		memcpy(buf + 1, gw_params.rf24_addr, RF24_ADDR_LEN);
+		udp_fw_reply(cmd, buf, sizeof(buf));
 		return true;
 	}
 

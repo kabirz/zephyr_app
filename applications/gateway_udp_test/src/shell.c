@@ -4,7 +4,7 @@
  *
  * UDP 测试 shell 命令 — 模拟数据源, 验证 UDP 双端口链路
  *
- *   gut info              查看网络配置 (IP/掩码/网关/端口/RF24)
+ *   gut info              查看网络配置 (IP/掩码固定/网关/端口/RF24)
  *   gut send <id> <hex..> 发送数据帧 [帧ID 2B BE][payload]
  *   gut ping [count=5]    发送 TEST_FRAME (0x777) 计数测试
  *   gut echo [on|off]     开关数据端口回显
@@ -15,6 +15,7 @@
 #ifdef CONFIG_SHELL
 
 #include <zephyr/kernel.h>
+#include <zephyr/net/net_ip.h>
 #include <zephyr/shell/shell.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/byteorder.h>
@@ -35,9 +36,17 @@ static int cmd_gut_info(const struct shell *ctx, size_t argc, char **argv)
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 
+	/* 掩码固定 /24, 网关 = IP 末段改 1 (运行时派生) */
+	struct in_addr gw;
+	char gw_str[NET_IPV4_ADDR_LEN] = "-";
+
+	if (net_addr_pton(AF_INET, gut_params.ip_addr, &gw) == 0) {
+		((uint8_t *)&gw.s_addr)[3] = 1;
+		net_addr_ntop(AF_INET, &gw, gw_str, sizeof(gw_str));
+	}
 	shell_print(ctx, "ip:        %s", gut_params.ip_addr);
-	shell_print(ctx, "netmask:   %s", gut_params.netmask);
-	shell_print(ctx, "gateway:   %s", gut_params.gateway);
+	shell_print(ctx, "netmask:   255.255.255.0 (fixed)");
+	shell_print(ctx, "gateway:   %s (derived)", gw_str);
 	shell_print(ctx, "data port: %d", gut_params.data_port);
 	shell_print(ctx, "cfg port:  %d", GUT_CONFIG_PORT);
 	shell_print(ctx, "rf24 ch:   %d", gut_params.rf24_channel);

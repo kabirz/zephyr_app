@@ -66,14 +66,11 @@ static int net_init(struct net_if *iface)
 		LOG_ERR("Invalid IP address: %s", gut_params.ip_addr);
 		return -EINVAL;
 	}
-	if (net_addr_pton(AF_INET, gut_params.netmask, &mask) < 0) {
-		LOG_ERR("Invalid netmask: %s", gut_params.netmask);
-		return -EINVAL;
-	}
-	if (net_addr_pton(AF_INET, gut_params.gateway, &gw) < 0) {
-		LOG_ERR("Invalid gateway: %s", gut_params.gateway);
-		return -EINVAL;
-	}
+
+	/* 掩码固定 /24; 网关 = IP 末段改 1 (a.b.c.1), 均不存储, 运行时派生 */
+	mask.s_addr = htonl(0xFFFFFF00);
+	memcpy(&gw, &addr, sizeof(gw));
+	((uint8_t *)&gw.s_addr)[3] = 1;
 
 	net_if_ipv4_addr_add(iface, &addr, NET_ADDR_MANUAL, 0);
 	net_if_ipv4_set_netmask_by_addr(iface, &addr, &mask);
@@ -83,8 +80,10 @@ static int net_init(struct net_if *iface)
 	 * 决定, 是 NET_EVENT_IF_UP 的可靠触发点. */
 	net_if_up(iface);
 
-	LOG_INF("Network: %s/%s gw %s", gut_params.ip_addr, gut_params.netmask,
-		gut_params.gateway);
+	char gw_str[NET_IPV4_ADDR_LEN];
+
+	net_addr_ntop(AF_INET, &gw, gw_str, sizeof(gw_str));
+	LOG_INF("Network: %s/24 gw %s", gut_params.ip_addr, gw_str);
 	return 0;
 }
 
@@ -100,8 +99,6 @@ int main(void)
 	gut_params.rf24_channel = RF24_DEFAULT_CH;
 	memset(gut_params.rf24_addr, 0, RF24_ADDR_LEN);
 	strncpy(gut_params.ip_addr, GUT_DEFAULT_IP, sizeof(gut_params.ip_addr) - 1);
-	strncpy(gut_params.netmask, GUT_DEFAULT_MASK, sizeof(gut_params.netmask) - 1);
-	strncpy(gut_params.gateway, GUT_DEFAULT_GW, sizeof(gut_params.gateway) - 1);
 	gut_params.data_port = GUT_DATA_PORT_DEFAULT;
 	gut_params.echo = false;
 	k_event_init(&gut_params.event);

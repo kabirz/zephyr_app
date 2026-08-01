@@ -4,7 +4,7 @@
  *
  * UDP 网络链路测试 shell 命令 — 模拟数据源, 验证 UDP 双端口链路
  *
- *   gw info              查看网络配置 (IP/掩码/网关/端口)
+ *   gw info              查看网络配置 (IP/掩码固定/网关/端口)
  *   gw send <id> <hex..> 发送数据帧 [帧ID 2B BE][payload]
  *   gw ping [count=5]    发送 TEST_FRAME (0x777) 计数测试
  *   gw ip <addr>         设置 IP (并持久化)
@@ -18,6 +18,7 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
+#include <zephyr/net/net_ip.h>
 #include <zephyr/shell/shell.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/byteorder.h>
@@ -40,9 +41,17 @@ static int cmd_gw_info(const struct shell *ctx, size_t argc, char **argv)
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 
+	/* 掩码固定 /24, 网关 = IP 末段改 1 (运行时派生) */
+	struct in_addr gw;
+	char gw_str[NET_IPV4_ADDR_LEN] = "-";
+
+	if (net_addr_pton(AF_INET, gw_params.ip_addr, &gw) == 0) {
+		((uint8_t *)&gw.s_addr)[3] = 1;
+		net_addr_ntop(AF_INET, &gw, gw_str, sizeof(gw_str));
+	}
 	shell_print(ctx, "ip:        %s", gw_params.ip_addr);
-	shell_print(ctx, "netmask:   %s", gw_params.netmask);
-	shell_print(ctx, "gateway:   %s", gw_params.gateway);
+	shell_print(ctx, "netmask:   255.255.255.0 (fixed)");
+	shell_print(ctx, "gateway:   %s (derived)", gw_str);
 	shell_print(ctx, "data port: %d", gw_params.data_port);
 	shell_print(ctx, "cfg port:  %d", GATEWAY_CONFIG_PORT);
 	shell_print(ctx, "running:   %s", gw_params.running ? "yes" : "no");

@@ -44,22 +44,6 @@ static int gw_persist_set(const char *name, size_t len, settings_read_cb read_cb
 		return 0;
 	}
 
-	if (!next && !strncmp(name, "netmask", name_len)) {
-		if (len < sizeof(gw_params.netmask)) {
-			read_cb(cb_arg, gw_params.netmask, len);
-			gw_params.netmask[len] = '\0';
-		}
-		return 0;
-	}
-
-	if (!next && !strncmp(name, "gateway", name_len)) {
-		if (len < sizeof(gw_params.gateway)) {
-			read_cb(cb_arg, gw_params.gateway, len);
-			gw_params.gateway[len] = '\0';
-		}
-		return 0;
-	}
-
 	if (!next && !strncmp(name, "data_port", name_len)) {
 		if (len == sizeof(uint16_t)) {
 			read_cb(cb_arg, &gw_params.data_port, sizeof(uint16_t));
@@ -75,8 +59,6 @@ static int gw_persist_export(int (*cb)(const char *name, const void *value, size
 	(void)cb("gw/rf24_channel", &gw_params.rf24_channel, sizeof(gw_params.rf24_channel));
 	(void)cb("gw/rf24_addr", gw_params.rf24_addr, RF24_ADDR_LEN);
 	(void)cb("gw/ip_addr", gw_params.ip_addr, strlen(gw_params.ip_addr));
-	(void)cb("gw/netmask", gw_params.netmask, strlen(gw_params.netmask));
-	(void)cb("gw/gateway", gw_params.gateway, strlen(gw_params.gateway));
 	(void)cb("gw/data_port", &gw_params.data_port, sizeof(gw_params.data_port));
 	return 0;
 }
@@ -91,6 +73,10 @@ static int settings_backend_init(void)
 		LOG_ERR("settings_subsys_init failed: %d", rc);
 	} else {
 		LOG_INF("Settings subsystem initialized");
+		/* 清除旧协议残留的历史键 (掩码/网关已不再持久化).
+		 * 不删除的话 settings_load 回放时会打 -ENOENT 错误日志. */
+		settings_delete("gw/netmask");
+		settings_delete("gw/gateway");
 	}
 	return rc;
 }
@@ -106,8 +92,6 @@ void persist_save_rf24_config(void)
 void persist_save_network_config(void)
 {
 	settings_save_one("gw/ip_addr", gw_params.ip_addr, strlen(gw_params.ip_addr));
-	settings_save_one("gw/netmask", gw_params.netmask, strlen(gw_params.netmask));
-	settings_save_one("gw/gateway", gw_params.gateway, strlen(gw_params.gateway));
 	settings_save_one("gw/data_port", &gw_params.data_port, sizeof(gw_params.data_port));
 	LOG_INF("Saved network: ip=%s port=%d", gw_params.ip_addr, gw_params.data_port);
 }
