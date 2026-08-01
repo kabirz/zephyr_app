@@ -121,7 +121,7 @@ static int cmd_gut_ping(const struct shell *ctx, size_t argc, char **argv)
 		k_msleep(200);
 	}
 
-	shell_print(ctx, "done (检查上位机/echo 是否收到)");
+	shell_print(ctx, "done (check if host PC/echo received)");
 	return 0;
 }
 
@@ -156,7 +156,7 @@ static int cmd_gut_ip(const struct shell *ctx, size_t argc, char **argv)
 	strncpy(gut_params.ip_addr, argv[1], sizeof(gut_params.ip_addr) - 1);
 	gut_params.ip_addr[sizeof(gut_params.ip_addr) - 1] = '\0';
 	persist_save_network_config();
-	shell_print(ctx, "ip set to %s (重启生效)", gut_params.ip_addr);
+	shell_print(ctx, "ip set to %s (takes effect after reboot)", gut_params.ip_addr);
 	return 0;
 }
 
@@ -173,7 +173,7 @@ static int cmd_gut_port(const struct shell *ctx, size_t argc, char **argv)
 	}
 	gut_params.data_port = (uint16_t)p;
 	persist_save_network_config();
-	shell_print(ctx, "data port set to %d (重启生效)", gut_params.data_port);
+	shell_print(ctx, "data port set to %d (takes effect after reboot)", gut_params.data_port);
 	return 0;
 }
 

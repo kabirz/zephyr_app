@@ -119,7 +119,7 @@ static int cmd_gw_ping(const struct shell *ctx, size_t argc, char **argv)
 		k_msleep(200);
 	}
 
-	shell_print(ctx, "done (检查上位机是否收到)");
+	shell_print(ctx, "done (check if host PC received)");
 	return 0;
 }
 
@@ -136,7 +136,7 @@ static int cmd_gw_ip(const struct shell *ctx, size_t argc, char **argv)
 	strncpy(gw_params.ip_addr, argv[1], sizeof(gw_params.ip_addr) - 1);
 	gw_params.ip_addr[sizeof(gw_params.ip_addr) - 1] = '\0';
 	persist_save_network_config();
-	shell_print(ctx, "ip set to %s (重启生效)", gw_params.ip_addr);
+	shell_print(ctx, "ip set to %s (takes effect after reboot)", gw_params.ip_addr);
 	return 0;
 }
 
@@ -153,7 +153,7 @@ static int cmd_gw_port(const struct shell *ctx, size_t argc, char **argv)
 	}
 	gw_params.data_port = (uint16_t)p;
 	persist_save_network_config();
-	shell_print(ctx, "data port set to %d (重启生效)", gw_params.data_port);
+	shell_print(ctx, "data port set to %d (takes effect after reboot)", gw_params.data_port);
 	return 0;
 }
 

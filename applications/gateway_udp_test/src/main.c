@@ -118,7 +118,7 @@ int main(void)
 		k_msleep(50);
 	}
 	if (iface == NULL) {
-		LOG_ERR("No network interface found (检查 ETH 驱动/PHY)");
+		LOG_ERR("No network interface found (check ETH driver/PHY)");
 		/* 不 set event: UDP 线程持续等待, 避免在无接口状态下 bind 报错刷屏 */
 	} else {
 		int ret = net_init(iface);
