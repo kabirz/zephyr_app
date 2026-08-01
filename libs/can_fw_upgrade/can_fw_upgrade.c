@@ -118,6 +118,10 @@ static void handle_platform_rx(struct can_frame *frame)
 		fw_can_reply(FW_CODE_OFFSET, 0);
 
 	} else if (cmd == FW_CMD_CONFIRM) {
+		/* val (data_32[1]): 0=临时升级 (重启后回滚), 1=永久升级.
+		 * 与 gateway UDP 侧语义一致, 直接透传给 boot_request_upgrade. */
+		uint32_t permanent = frame->data_32[1];
+
 		flash_img_buffered_write(&flash_img_ctx, NULL, 0, true);
 		fw_img_initialized = false;
 
@@ -127,10 +131,17 @@ static void handle_platform_rx(struct can_frame *frame)
 			return;
 		}
 
-		LOG_INF("FW upgrade complete, rebooting...");
-		fw_can_reply(FW_CODE_CONFIRM, 0x55AA55AA);
-		k_msleep(500);
-		sys_reboot(SYS_REBOOT_COLD);
+		int ret = boot_request_upgrade(permanent);
+
+		if (ret == 0) {
+			LOG_INF("FW upgrade confirmed (permanent=%u), waiting for reboot",
+				permanent);
+			fw_can_reply(FW_CODE_CONFIRM, 0x55AA55AA);
+			/* 不自动 reboot: 由上位机重启按钮 (FW_CMD_REBOOT) 触发 */
+		} else {
+			LOG_ERR("boot_request_upgrade failed: %d", ret);
+			fw_can_reply(FW_CODE_TRANFER_ERROR, 0);
+		}
 
 	} else if (cmd == FW_CMD_VERSION) {
 		fw_can_reply(FW_CODE_VERSION, APPVERSION);

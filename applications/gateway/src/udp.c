@@ -27,6 +27,7 @@
 #include <zephyr/posix/unistd.h>
 #include <zephyr/posix/arpa/inet.h>
 #include <zephyr/sys/byteorder.h>
+#include <zephyr/sys/crc.h>
 #include <zephyr/drivers/flash.h>
 #include <zephyr/storage/flash_map.h>
 #include <zephyr/dfu/flash_img.h>
@@ -66,25 +67,52 @@ static struct sockaddr_in config_remote_addr;
 
 /* ================================================================
  * 固件升级状态
- * ================================================================ */
+ * ================================================================
+ * 协议 (配置端口 9200, 走 [cmd 1B][data...]):
+ *   FW_START (0x10): 上位机发 [0x10][size 4B LE]; 固件擦 slot1+init, 回 [0x10][1/0]
+ *   FW_DATA  (0x11): 上位机发 [0x11][data 256B]; 固件 flash_img 写, 回 [0x11][offset 4B LE]
+ *   FW_END   (0x12): 上位机发 [0x12][test_mode 1B][crc16 2B LE]; 固件 flush +
+ *                    读回 slot1 重算 CRC16-CCITT 比对, 匹配则 boot_request_upgrade.
+ *                    test_mode: 0=永久(test_mode?0:1→permanent), 1=临时(下次回滚).
+ *                    回 [0x12][1/0]. 固件不自动 reboot, 由上位机重启按钮触发. */
 static struct flash_img_context flash_img_ctx;
 static bool fw_started = false;
+static uint32_t fw_size;          /* START 保存的固件大小 */
+static uint32_t fw_received;      /* 已接收字节数 (用于 DATA offset 回复) */
 
-static void fw_reset(void)
+#define FW_CRC_CHUNK 64           /* 读回 slot1 重算 CRC 的分块大小 */
+
+/* 读回 slot1 已写数据, 重算 CRC16-CCITT, 与 recv_crc 比对 */
+static bool fw_verify_crc(uint16_t recv_crc)
 {
-	if (fw_started) {
-		flash_img_buffered_write(&flash_img_ctx, NULL, 0, true);
-		fw_started = false;
-		/* 标记 slot1 镜像为有效待升级 (设置 magic/image_ok trailer).
-		 * 没有这一步, MCUboot 启动时 slot1 magic=unset → 不 swap → 升级无效 */
-		int ret = boot_request_upgrade(1);
+	const struct flash_area *fa;
 
-		if (ret != 0) {
-			LOG_ERR("boot_request_upgrade failed: %d", ret);
-		} else {
-			LOG_INF("FW upgrade complete");
-		}
+	if (flash_area_open(SLOT1_PARTITION_ID, &fa) != 0) {
+		LOG_ERR("CRC verify: flash_area_open failed");
+		return false;
 	}
+
+	size_t written = flash_img_bytes_written(&flash_img_ctx);
+	uint16_t calc_crc = 0;
+	uint8_t buf[FW_CRC_CHUNK];
+
+	for (size_t off = 0; off < written; off += FW_CRC_CHUNK) {
+		size_t len = (written - off < FW_CRC_CHUNK) ? (written - off) : FW_CRC_CHUNK;
+
+		if (flash_area_read(fa, off, buf, len) != 0) {
+			flash_area_close(fa);
+			LOG_ERR("CRC verify: flash_area_read failed @%zu", off);
+			return false;
+		}
+		calc_crc = crc16_ccitt(calc_crc, buf, len);
+	}
+
+	flash_area_close(fa);
+	if (calc_crc != recv_crc) {
+		LOG_ERR("CRC mismatch: calc=0x%04x recv=0x%04x", calc_crc, recv_crc);
+		return false;
+	}
+	return true;
 }
 
 /* ================================================================
@@ -313,50 +341,76 @@ static void udp_cmd_handler(const uint8_t *data, size_t len)
 		sys_reboot(SYS_REBOOT_COLD);
 		break;
 
-	case UDP_CMD_FW_START:
-		if (!fw_started) {
+	case UDP_CMD_FW_START: {
+		uint8_t status = 0;
+
+		if (!fw_started && cmd_len >= 4) {
+			fw_size = sys_get_le32(cmd_data);
 			const struct flash_area *fa;
 
 			if (flash_area_open(SLOT1_PARTITION_ID, &fa) != 0) {
-				LOG_ERR("flash_area_open failed");
-				config_send_resp(cmd, (uint8_t *)"error", 5);
-				return;
-			}
-			flash_area_erase(fa, 0, fa->fa_size);
-			flash_area_close(fa);
-
-			if (flash_img_init(&flash_img_ctx) != 0) {
-				LOG_ERR("flash_img_init failed");
-				config_send_resp(cmd, (uint8_t *)"error", 5);
-				return;
-			}
-			fw_started = true;
-			LOG_INF("FW upgrade started");
-		}
-		config_send_resp(cmd, (uint8_t *)"ok", 2);
-		break;
-
-	case UDP_CMD_FW_DATA:
-		if (fw_started && cmd_len > 0) {
-			if (flash_img_buffered_write(&flash_img_ctx, cmd_data, cmd_len, false) != 0) {
-				LOG_ERR("flash write failed");
-				fw_started = false;
-				config_send_resp(cmd, (uint8_t *)"error", 5);
+				LOG_ERR("FW_START: flash_area_open failed");
 			} else {
-				config_send_resp(cmd, (uint8_t *)"ok", 2);
+				flash_area_erase(fa, 0, fa->fa_size);
+				flash_area_close(fa);
+				if (flash_img_init(&flash_img_ctx) != 0) {
+					LOG_ERR("FW_START: flash_img_init failed");
+				} else {
+					fw_started = true;
+					fw_received = 0;
+					status = 1;
+					LOG_INF("FW upgrade started, size=%u", fw_size);
+				}
 			}
 		}
+		config_send_resp(cmd, &status, 1);
 		break;
+	}
 
-	case UDP_CMD_FW_END:
-		if (fw_started) {
-			fw_reset();
-			config_send_resp(cmd, (uint8_t *)"ok", 2);
-			LOG_INF("FW upgrade complete, rebooting...");
-			k_msleep(500);
-			sys_reboot(SYS_REBOOT_COLD);
+	case UDP_CMD_FW_DATA: {
+		uint8_t off[4] = {0};
+
+		if (fw_started && cmd_len > 0) {
+			if (flash_img_buffered_write(&flash_img_ctx, cmd_data, cmd_len, false) == 0) {
+				fw_received += cmd_len;
+				sys_put_le32(fw_received, off);
+			} else {
+				LOG_ERR("FW_DATA: flash write failed");
+				fw_started = false;
+			}
 		}
+		config_send_resp(cmd, off, 4);
 		break;
+	}
+
+	case UDP_CMD_FW_END: {
+		uint8_t result = 0;
+
+		if (fw_started && cmd_len >= 3) {
+			uint8_t test_mode = cmd_data[0];
+			uint16_t recv_crc = sys_get_le16(cmd_data + 1);
+
+			flash_img_buffered_write(&flash_img_ctx, NULL, 0, true);
+
+			if (fw_verify_crc(recv_crc)) {
+				int ret = boot_request_upgrade(test_mode ? 0 : 1);
+
+				if (ret == 0) {
+					result = 1;
+					LOG_INF("FW upgrade verified (test_mode=%d), ready to reboot",
+						test_mode);
+				} else {
+					LOG_ERR("FW_END: boot_request_upgrade failed: %d", ret);
+				}
+			} else {
+				LOG_ERR("FW_END: CRC mismatch, upgrade rejected");
+			}
+			fw_started = false;
+		}
+		config_send_resp(cmd, &result, 1);
+		/* 不自动 reboot: 由上位机重启按钮 (UDP_CMD_REBOOT) 触发 */
+		break;
+	}
 
 	default:
 		LOG_DBG("Unknown UDP cmd: 0x%02x", cmd);
