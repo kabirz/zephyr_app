@@ -58,7 +58,7 @@ enum net_config_cmd {
 #define GATEWAY_DEFAULT_IP       "192.168.1.100"
 #define GATEWAY_DEFAULT_MASK     "255.255.255.0"
 #define GATEWAY_DEFAULT_GW       "192.168.1.1"
-#define GATEWAY_DATA_PORT_DEFAULT 9090  /* 数据端口 (可配, UDP_CMD_SET_PORT) */
+#define GATEWAY_DATA_PORT_DEFAULT 9090  /* 数据端口 (可配, UDP_CMD_SET_CONFIG) */
 #define GATEWAY_CONFIG_PORT      9200  /* 配置端口 (固定, 不受 SET_PORT 影响) */
 
 /* ================================================================

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Settings 持久化存储 — 使用 Zephyr settings 子系统 (FCB 后端, cfg_partition)
- * 平移自 gateway/src/persist.c, 去掉 RF24 字段.
+ * 平移自 gateway/src/persist.c; 保留 RF24 字段用于协议验证 (无硬件, 仅持久化).
  */
 
 #include <zephyr/kernel.h>
@@ -17,6 +17,25 @@ static int gut_persist_set(const char *name, size_t len, settings_read_cb read_c
 {
 	const char *next;
 	size_t name_len = settings_name_next(name, &next);
+
+	if (!next && !strncmp(name, "rf24_channel", name_len)) {
+		if (len == sizeof(uint8_t)) {
+			uint8_t ch;
+
+			read_cb(cb_arg, &ch, sizeof(ch));
+			if (ch <= RF24_ADDR_MAX_CH) {
+				gut_params.rf24_channel = ch;
+			}
+		}
+		return 0;
+	}
+
+	if (!next && !strncmp(name, "rf24_addr", name_len)) {
+		if (len == RF24_ADDR_LEN) {
+			read_cb(cb_arg, gut_params.rf24_addr, RF24_ADDR_LEN);
+		}
+		return 0;
+	}
 
 	if (!next && !strncmp(name, "ip_addr", name_len)) {
 		if (len < sizeof(gut_params.ip_addr)) {
@@ -54,6 +73,8 @@ static int gut_persist_set(const char *name, size_t len, settings_read_cb read_c
 
 static int gut_persist_export(int (*cb)(const char *name, const void *value, size_t val_len))
 {
+	(void)cb("gut/rf24_channel", &gut_params.rf24_channel, sizeof(gut_params.rf24_channel));
+	(void)cb("gut/rf24_addr", gut_params.rf24_addr, RF24_ADDR_LEN);
 	(void)cb("gut/ip_addr", gut_params.ip_addr, strlen(gut_params.ip_addr));
 	(void)cb("gut/netmask", gut_params.netmask, strlen(gut_params.netmask));
 	(void)cb("gut/gateway", gut_params.gateway, strlen(gut_params.gateway));
@@ -74,6 +95,14 @@ static int settings_backend_init(void)
 		LOG_INF("Settings subsystem initialized");
 	}
 	return rc;
+}
+
+void persist_save_rf24_config(void)
+{
+	settings_save_one("gut/rf24_channel", &gut_params.rf24_channel,
+			  sizeof(gut_params.rf24_channel));
+	settings_save_one("gut/rf24_addr", gut_params.rf24_addr, RF24_ADDR_LEN);
+	LOG_INF("Saved rf24: ch=%d", gut_params.rf24_channel);
 }
 
 void persist_save_network_config(void)

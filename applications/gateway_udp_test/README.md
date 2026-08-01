@@ -42,32 +42,29 @@ west flash -d build_gut
 
 | 端口 | 用途 | 可配 | 默认 |
 |------|------|------|------|
-| **数据端口** | 数据帧收发 (shell 测试 / echo) | UDP_CMD_SET_PORT 可改, 持久化 | 9090 |
+| **数据端口** | 数据帧收发 (shell 测试 / echo) | UDP_CMD_SET_CONFIG 可改, 持久化 | 9090 |
 | **配置端口** | 所有配置命令 + 固件升级 | 固定 | 9200 |
 
 双端口均绑定 INADDR_ANY，支持广播收发，按子网判断单播/广播。
 
 ### 配置命令 (配置端口 9200)
 
-与 gateway 协议兼容（仅去掉 RF24 相关的 0x07/0x08）：
+与 gateway 协议完全一致 (SET_CONFIG/GET_CONFIG 含 RF24 字段, 便于统一上位机测试; 本应用无 nRF24 硬件, RF24 字段仅持久化不应用). 业务命令从 0x10 起; 0x01-0x05 由 `udp_fw_upgrade` 库内部处理 (FW_START/DATA/END/GET_VERSION/REBOOT):
 
 | 命令 | 格式 | 说明 |
 |------|------|------|
-| 0x01 | `[0x01][ip 4B]` | 设置 IP |
-| 0x02 | `[0x02][mask 4B]` | 设置子网掩码 |
-| 0x03 | `[0x03][gw 4B]` | 设置网关 |
-| 0x04 | `[0x04][port 2B BE]` | 设置数据端口 |
-| 0x05 | `[0x05]` | 查询配置 (返回 `[0x05][local_port 2B][remote_port 2B][config_port 2B]`, 6B net_test 格式; remote_port = local_port + 1) |
-| 0x06 | `[0x06]` | 查询版本 |
-| 0x09 | `[0x09]` | 重启 |
-| 0x10 | `[0x10]` | 开始固件升级 |
-| 0x11 | `[0x11][data...]` | 固件数据 |
-| 0x12 | `[0x12]` | 结束固件升级并重启 |
+| 0x01 | `[0x01][size 4B LE]` | 开始固件升级 (库处理, 回 `[0x01][1/0]`) |
+| 0x02 | `[0x02][data ≤511B]` | 固件数据 (库处理, 回 `[0x02][offset 4B LE]`) |
+| 0x03 | `[0x03][test 1B][crc 2B LE]` | 结束固件升级并重启 (库处理, 回 `[0x03][1/0]`) |
+| 0x04 | `[0x04]` | 查询版本 (库处理, 回 APP_VERSION_STRING) |
+| 0x05 | `[0x05]` | 重启 (库处理) |
+| 0x10 | `[0x10][ip 4B][mask 4B][gw 4B][port 2B BE][rf24_ch 1B][rf24_addr 5B]` | 一次性设置 IP/掩码/网关/数据端口/RF24 信道/地址 (持久化; 回 20B 设置后的配置) |
+| 0x11 | `[0x11]` | 查询配置 (回 22B: `[0x11][rf24_ch 1B][rf24_addr 5B][data_port 2B][config_port 2B][ip 4B][mask 4B][gw 4B]`; remote_port = data_port + 1 由上位机自行计算) |
 
 ### Shell 命令
 
 ```
-gut info              查看网络配置 (IP/掩码/网关/端口/echo)
+gut info              查看网络配置 (IP/掩码/网关/端口/RF24/echo)
 gut send <id> <hex..> 发送数据帧 [帧ID 2B BE][payload]
 gut ping [count=5]    发送 TEST_FRAME (0x777) 计数测试
 gut echo [on|off]     开关数据端口回显 (收到数据原样回发)

@@ -27,18 +27,30 @@ enum can_ids {
 };
 
 /* ================================================================
+ * RF24 地址/信道配置 (无 nRF24 硬件, 仅用于协议验证/持久化,
+ * 字段与 gateway 保持一致以便统一上位机测试)
+ * ================================================================ */
+#define RF24_ADDR_LEN    5
+#define RF24_ADDR_MAX_CH 125
+#define RF24_DEFAULT_CH  76
+
+/* ================================================================
  * 网络默认配置
  * ================================================================ */
 #define GUT_DEFAULT_IP         "192.168.1.100"
 #define GUT_DEFAULT_MASK       "255.255.255.0"
 #define GUT_DEFAULT_GW         "192.168.1.1"
-#define GUT_DATA_PORT_DEFAULT  9090  /* 数据端口 (可配, UDP_CMD_SET_PORT) */
+#define GUT_DATA_PORT_DEFAULT  9090  /* 数据端口 (可配, UDP_CMD_SET_CONFIG) */
 #define GUT_CONFIG_PORT        9200  /* 配置端口 (固定, 不受 SET_PORT 影响) */
 
 /* ================================================================
  * 全局状态
  * ================================================================ */
 typedef struct {
+	/* RF24 配置 (无硬件, 仅协议验证用) */
+	uint8_t rf24_channel;
+	uint8_t rf24_addr[RF24_ADDR_LEN];
+
 	/* 网络配置 */
 	char ip_addr[16];
 	char netmask[16];
@@ -62,5 +74,6 @@ void gut_udp_send(const uint8_t *data, size_t len);
 
 /* persist.c */
 void persist_save_network_config(void);
+void persist_save_rf24_config(void);
 
 #endif /* __GATEWAY_UDP_TEST_H__ */

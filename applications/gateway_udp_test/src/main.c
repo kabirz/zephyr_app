@@ -97,6 +97,8 @@ int main(void)
 	LOG_INF("version: %s", APP_VERSION_STRING);
 
 	/* 初始化默认配置 */
+	gut_params.rf24_channel = RF24_DEFAULT_CH;
+	memset(gut_params.rf24_addr, 0, RF24_ADDR_LEN);
 	strncpy(gut_params.ip_addr, GUT_DEFAULT_IP, sizeof(gut_params.ip_addr) - 1);
 	strncpy(gut_params.netmask, GUT_DEFAULT_MASK, sizeof(gut_params.netmask) - 1);
 	strncpy(gut_params.gateway, GUT_DEFAULT_GW, sizeof(gut_params.gateway) - 1);

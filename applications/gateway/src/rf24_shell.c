@@ -173,6 +173,7 @@ static int cmd_rf24_addr(const struct shell *ctx, size_t argc, char **argv)
 		addr[i] = (uint8_t)v;
 	}
 	gw_rf24_set_config(gw_params.rf24_channel, addr);
+	persist_save_rf24_config();
 
 	char addr_str[RF24_ADDR_LEN * 3 + 1] = {0};
 

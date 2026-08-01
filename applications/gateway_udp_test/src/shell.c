@@ -4,7 +4,7 @@
  *
  * UDP 测试 shell 命令 — 模拟数据源, 验证 UDP 双端口链路
  *
- *   gut info              查看网络配置 (IP/掩码/网关/端口)
+ *   gut info              查看网络配置 (IP/掩码/网关/端口/RF24)
  *   gut send <id> <hex..> 发送数据帧 [帧ID 2B BE][payload]
  *   gut ping [count=5]    发送 TEST_FRAME (0x777) 计数测试
  *   gut echo [on|off]     开关数据端口回显
@@ -40,6 +40,11 @@ static int cmd_gut_info(const struct shell *ctx, size_t argc, char **argv)
 	shell_print(ctx, "gateway:   %s", gut_params.gateway);
 	shell_print(ctx, "data port: %d", gut_params.data_port);
 	shell_print(ctx, "cfg port:  %d", GUT_CONFIG_PORT);
+	shell_print(ctx, "rf24 ch:   %d", gut_params.rf24_channel);
+	shell_print(ctx, "rf24 addr: %02x %02x %02x %02x %02x",
+		    gut_params.rf24_addr[0], gut_params.rf24_addr[1],
+		    gut_params.rf24_addr[2], gut_params.rf24_addr[3],
+		    gut_params.rf24_addr[4]);
 	shell_print(ctx, "echo:      %s", gut_params.echo ? "on" : "off");
 	shell_print(ctx, "running:   %s", gut_params.running ? "yes" : "no");
 	return 0;

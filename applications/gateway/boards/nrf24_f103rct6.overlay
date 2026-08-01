@@ -53,7 +53,7 @@
 	eth0: w5500@0 {
 		compatible = "wiznet,w5500";
 		reg = <0x0>;
-		spi-max-frequency = <32000000>;
+		spi-max-frequency = <18000000>;
 		int-gpios = <&gpiod 2 GPIO_ACTIVE_LOW>;
 		reset-gpios = <&gpioc 12 GPIO_ACTIVE_LOW>;
 		local-mac-address = [00 08 DC 01 02 03];

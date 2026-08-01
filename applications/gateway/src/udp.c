@@ -6,12 +6,12 @@
  * + 网络配置命令处理 (固件升级由 udp_fw_upgrade 库自管)
  *
  * 双端口架构:
- *   - 数据端口 (默认 9090, 可通过 UDP_CMD_SET_PORT 配置, 持久化):
+ *   - 数据端口 (默认 9090, 可通过 UDP_CMD_SET_CONFIG 配置, 持久化):
  *       nRF24 → 上位机数据转发 (gw_udp_send) + 上位机 → nRF24 扫描仪数据透传
  *       转发策略: 目标与本机同子网 → 单播; 跨子网/未学习 → 广播
  *   - 配置端口 (固定 9200, 由 udp_fw_upgrade 库自管):
- *       库内部处理固件升级命令 (FW_START/DATA/END),
- *       其余配置命令 (IP/掩码/网关/端口/RF24/重启) 通过回调分发到此模块.
+ *       库内部处理固件升级命令 (FW_START/DATA/END/VERSION/REBOOT),
+ *       其余配置命令 (IP/掩码/网关/端口/RF24) 通过回调分发到此模块.
  *
  * 配置命令帧格式: [cmd 1B][data...] (无魔数头, 配置端口只收命令)
  * 数据帧格式: [帧 ID 2B BE][payload]  (帧 ID 见 enum can_ids, 复用历史编号)
@@ -31,15 +31,8 @@
 LOG_MODULE_REGISTER(gw_udp, LOG_LEVEL_INF);
 
 enum udp_cmd {
-	/* 业务命令从 0x10 起 (0x01-0x05 由 udp_fw_upgrade 库内部处理:
-	 *   1=FW_START 2=FW_DATA 3=FW_END 4=GET_VERSION 5=REBOOT) */
-	UDP_CMD_SET_IP = 0x10,
-	UDP_CMD_SET_MASK = 0x11,
-	UDP_CMD_SET_GW = 0x12,
-	UDP_CMD_SET_PORT = 0x13,
-	UDP_CMD_GET_CONFIG = 0x14,
-	UDP_CMD_SET_RF24_CH = 0x15,
-	UDP_CMD_SET_RF24_ADDR = 0x16,
+	UDP_CMD_SET_CONFIG = 0x10,
+	UDP_CMD_GET_CONFIG = 0x11,
 };
 
 /* 数据端口 socket + 远端地址 (nRF24 数据转发目标).
@@ -98,72 +91,75 @@ void gw_udp_send(const uint8_t *data, size_t len)
 
 /* ================================================================
  * 配置命令处理 (应用回调, 由 udp_fw_upgrade 库 RX 线程调用)
- * 处理 IP/掩码/网关/端口/RF24/版本/重启等业务命令;
- * 固件升级命令 (0x10/0x11/0x12) 由库内部处理, 不会到达此处.
+ * 处理业务命令: UDP_CMD_SET_CONFIG (0x10) / UDP_CMD_GET_CONFIG (0x11);
+ * 固件升级及版本/重启命令 (0x01-0x05) 由库内部处理, 不会到达此处.
  * 回复通过 udp_fw_reply 发送 (库自管 socket + 回复路由).
  * ================================================================ */
 static bool app_cmd_handler(uint8_t cmd, const uint8_t *cmd_data, size_t cmd_len,
 			    void *user_data)
 {
 	switch (cmd) {
-	case UDP_CMD_SET_IP:
-		if (cmd_len >= 4) {
+	case UDP_CMD_SET_CONFIG: {
+		/* 一次性设置 IP/掩码/网关/端口/RF24 信道/RF24 地址 (合并原 SET_IP/MASK/GW/PORT/RF24_CH/RF24_ADDR).
+		 * 帧格式: [ip 4B][mask 4B][gw 4B][port 2B BE][rf24_ch 1B][rf24_addr 5B] = 20B
+		 * 全部解析成功后统一持久化 (网络+RF24 各一次), RF24 配置应用到硬件.
+		 * rf24_ch 非法 (>125) 时保持原值不更新, 但不拒绝整包.
+		 * 回复: 设置后的 20B 配置 (二进制, 与请求同序), 供上位机确认 */
+		if (cmd_len >= 20) {
 			struct in_addr addr;
 
-			addr.s4_addr[0] = cmd_data[0];
-			addr.s4_addr[1] = cmd_data[1];
-			addr.s4_addr[2] = cmd_data[2];
-			addr.s4_addr[3] = cmd_data[3];
+			memcpy(&addr.s_addr, cmd_data, 4);
 			inet_ntop(AF_INET, &addr, gw_params.ip_addr, sizeof(gw_params.ip_addr));
-			LOG_INF("UDP set IP: %s", gw_params.ip_addr);
+			memcpy(&addr.s_addr, cmd_data + 4, 4);
+			inet_ntop(AF_INET, &addr, gw_params.netmask, sizeof(gw_params.netmask));
+			memcpy(&addr.s_addr, cmd_data + 8, 4);
+			inet_ntop(AF_INET, &addr, gw_params.gateway, sizeof(gw_params.gateway));
+			gw_params.data_port = sys_get_be16(cmd_data + 12);
+			uint8_t ch = cmd_data[14];
+
+			if (ch <= RF24_ADDR_MAX_CH) {
+				gw_params.rf24_channel = ch;
+			}
+			memcpy(gw_params.rf24_addr, cmd_data + 15, RF24_ADDR_LEN);
+
+			LOG_INF("UDP set config: ip=%s mask=%s gw=%s port=%d rf24 ch=%d",
+				gw_params.ip_addr, gw_params.netmask,
+				gw_params.gateway, gw_params.data_port, gw_params.rf24_channel);
 			persist_save_network_config();
-			udp_fw_reply(cmd, (uint8_t *)gw_params.ip_addr, strlen(gw_params.ip_addr));
+			persist_save_rf24_config();
+			gw_rf24_set_config(gw_params.rf24_channel, gw_params.rf24_addr);
+
+			/* 回复设置后的配置 (二进制 20B, 与请求同序) */
+			uint8_t resp[20];
+			int off = 0;
+
+			if (inet_pton(AF_INET, gw_params.ip_addr, &addr) == 1) {
+				memcpy(resp + off, &addr.s_addr, 4);
+			}
+			off += 4;
+			if (inet_pton(AF_INET, gw_params.netmask, &addr) == 1) {
+				memcpy(resp + off, &addr.s_addr, 4);
+			}
+			off += 4;
+			if (inet_pton(AF_INET, gw_params.gateway, &addr) == 1) {
+				memcpy(resp + off, &addr.s_addr, 4);
+			}
+			off += 4;
+			sys_put_be16(gw_params.data_port, resp + off);
+			off += 2;
+			resp[off++] = gw_params.rf24_channel;
+			memcpy(resp + off, gw_params.rf24_addr, RF24_ADDR_LEN);
+			off += RF24_ADDR_LEN;
+
+			udp_fw_reply(cmd, resp, off);
 		}
 		return true;
-
-	case UDP_CMD_SET_MASK:
-		if (cmd_len >= 4) {
-			struct in_addr mask;
-
-			mask.s4_addr[0] = cmd_data[0];
-			mask.s4_addr[1] = cmd_data[1];
-			mask.s4_addr[2] = cmd_data[2];
-			mask.s4_addr[3] = cmd_data[3];
-			inet_ntop(AF_INET, &mask, gw_params.netmask, sizeof(gw_params.netmask));
-			LOG_INF("UDP set mask: %s", gw_params.netmask);
-			persist_save_network_config();
-			udp_fw_reply(cmd, (uint8_t *)gw_params.netmask, strlen(gw_params.netmask));
-		}
-		return true;
-
-	case UDP_CMD_SET_GW:
-		if (cmd_len >= 4) {
-			struct in_addr gw;
-
-			gw.s4_addr[0] = cmd_data[0];
-			gw.s4_addr[1] = cmd_data[1];
-			gw.s4_addr[2] = cmd_data[2];
-			gw.s4_addr[3] = cmd_data[3];
-			inet_ntop(AF_INET, &gw, gw_params.gateway, sizeof(gw_params.gateway));
-			LOG_INF("UDP set gw: %s", gw_params.gateway);
-			persist_save_network_config();
-			udp_fw_reply(cmd, (uint8_t *)gw_params.gateway, strlen(gw_params.gateway));
-		}
-		return true;
-
-	case UDP_CMD_SET_PORT:
-		if (cmd_len >= 2) {
-			gw_params.data_port = sys_get_be16(cmd_data);
-			LOG_INF("UDP set data port: %d", gw_params.data_port);
-			persist_save_network_config();
-			udp_fw_reply(cmd, cmd_data, 2);
-		}
-		return true;
+	}
 
 	case UDP_CMD_GET_CONFIG: {
-		/* 响应格式 (向后兼容, 上位机按长度识别):
-		 *   [rf24_ch 1B][rf24_addr 5B][data_port 2B][remote_port 2B][config_port 2B][ip 4B][mask 4B][gw 4B] = 24B
-		 * remote_port = data_port + 1 (gateway 广播目标端口规则) */
+		/* 响应格式 (22B, 上位机按长度识别):
+		 *   [rf24_ch 1B][rf24_addr 5B][data_port 2B][config_port 2B][ip 4B][mask 4B][gw 4B]
+		 * remote_port = data_port + 1 由上位机自行计算 (固件不传) */
 		uint8_t buf[32] = {0};
 		int offset = 0;
 
@@ -171,8 +167,6 @@ static bool app_cmd_handler(uint8_t cmd, const uint8_t *cmd_data, size_t cmd_len
 		memcpy(buf + offset, gw_params.rf24_addr, RF24_ADDR_LEN);
 		offset += RF24_ADDR_LEN;
 		sys_put_be16(gw_params.data_port, buf + offset);
-		offset += 2;
-		sys_put_be16(gw_params.data_port + 1, buf + offset);
 		offset += 2;
 		sys_put_be16(GATEWAY_CONFIG_PORT, buf + offset);
 		offset += 2;
@@ -195,26 +189,6 @@ static bool app_cmd_handler(uint8_t cmd, const uint8_t *cmd_data, size_t cmd_len
 		udp_fw_reply(cmd, buf, offset);
 		return true;
 	}
-
-	case UDP_CMD_SET_RF24_CH:
-		if (cmd_len >= 1 && cmd_data[0] <= RF24_ADDR_MAX_CH) {
-			gw_params.rf24_channel = cmd_data[0];
-			persist_save_rf24_config();
-			gw_rf24_set_config(gw_params.rf24_channel, gw_params.rf24_addr);
-			LOG_INF("UDP set rf24 ch: %d", gw_params.rf24_channel);
-		}
-		udp_fw_reply(cmd, &gw_params.rf24_channel, 1);
-		return true;
-
-	case UDP_CMD_SET_RF24_ADDR:
-		if (cmd_len >= RF24_ADDR_LEN) {
-			memcpy(gw_params.rf24_addr, cmd_data, RF24_ADDR_LEN);
-			persist_save_rf24_config();
-			gw_rf24_set_config(gw_params.rf24_channel, gw_params.rf24_addr);
-			LOG_INF("UDP set rf24 addr");
-		}
-		udp_fw_reply(cmd, gw_params.rf24_addr, RF24_ADDR_LEN);
-		return true;
 
 	default:
 		return false;
