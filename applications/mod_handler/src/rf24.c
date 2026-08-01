@@ -33,6 +33,65 @@ static K_MUTEX_DEFINE(rf24_tx_mutex); /* 序列化多线程 TX (adc + gpio 按�
 /* RX 帧 msgq: nRF24 驱动 IRQ 线程投递, 本模块 RX 线程消费 */
 K_MSGQ_DEFINE(rf24_rx_msgq, sizeof(struct nrf24_frame), 8, 4);
 
+/* ================================================================
+ * 信号质量统计 (EMA, 无浮点)
+ * nRF24L01+ 无 RSSI 寄存器, 用本地 TX 统计估算链路质量:
+ *   retransmits (OBSERVE_TX.ARC_CNT, 0-15) + MAX_RT 失败
+ * 映射 0-4 档, 对应 LoRa 时代 SignalQuality_t
+ * (NONE/BAD/FAIR/GOOD/EXCELLENT) 与信号图标 signal_levels[5].
+ * ================================================================ */
+#define RF24_QUAL_ALPHA_NUM  3                     /* α = 3/8 ≈ 0.375 */
+#define RF24_QUAL_ALPHA_DEN  8
+#define RF24_QUAL_FAIL_DROP  (2 * RF24_QUAL_ALPHA_DEN) /* 每次 MAX_RT 失败下拉 2 档 */
+#define RF24_QUAL_INIT       (4 * RF24_QUAL_ALPHA_DEN) /* 初始满档 (×DEN) */
+
+static int16_t rf24_quality = RF24_QUAL_INIT; /* 定点 EMA 累积值, level = /DEN */
+
+/* 单次 TX -> 0-4 档评分 (MAX_RT 失败恒为 0; 成功按重传次数分档) */
+static uint8_t rf24_tx_level(bool acked, uint8_t retrans)
+{
+	if (!acked) {
+		return 0;       /* MAX_RT 重传耗尽: 最差 */
+	}
+	if (retrans <= 1) {
+		return 4;       /* 0-1 次: 极好 */
+	}
+	if (retrans <= 4) {
+		return 3;       /* 2-4 次: 良好 */
+	}
+	if (retrans <= 9) {
+		return 2;       /* 5-9 次: 一般 */
+	}
+	return 1;               /* 10-15 次: 差但勉强通 */
+}
+
+/* 用本次 TX 结果更新 EMA 并在档位变化时刷新显示 */
+static void rf24_update_rssi(bool acked, uint8_t retrans)
+{
+	uint8_t lv = rf24_tx_level(acked, retrans);
+
+	rf24_quality = (lv * RF24_QUAL_ALPHA_NUM
+			+ rf24_quality * (RF24_QUAL_ALPHA_DEN - RF24_QUAL_ALPHA_NUM))
+		       / RF24_QUAL_ALPHA_DEN;
+	if (!acked) {
+		/* 失败快速下拉, 避免 EMA 对掉线响应太慢 (≈3 次收敛到 0) */
+		rf24_quality -= RF24_QUAL_FAIL_DROP;
+		if (rf24_quality < 0) {
+			rf24_quality = 0;
+		}
+	}
+
+	uint8_t level = (uint8_t)(rf24_quality / RF24_QUAL_ALPHA_DEN);
+
+	if (level > 4) {
+		level = 4;
+	}
+	if (global_params.rssi != level) {
+		global_params.rssi = level;
+		mod_display_rf24(level);
+	}
+}
+
 void rf24_init(void)
 {
 	if (!device_is_ready(rf24_dev)) {
@@ -69,6 +128,9 @@ void rf24_init(void)
 		return;
 	}
 	LOG_INF("nRF24L01+ ready (PRX, irq-driven rx)");
+
+	/* 复位信号质量 EMA 为满档, 避免上一会话残留低档影响新连接 */
+	rf24_quality = RF24_QUAL_INIT;
 }
 
 void rf24_deinit(void)
@@ -107,12 +169,14 @@ bool rf24_data_send(uint16_t can_id, const uint8_t *data, size_t len)
 	if (ret != 0) {
 		LOG_WRN("nRF24 send failed (id=0x%03x ret=%d acked=%d retrans=%d)",
 			can_id, ret, result.acked, result.retransmits);
+		rf24_update_rssi(result.acked, result.retransmits);
 		return false;
 	}
 	if (global_params.log) {
 		LOG_INF("TX id=0x%03x acked=%d %ums retrans=%d", can_id, result.acked,
 			result.elapsed_ms, result.retransmits);
 	}
+	rf24_update_rssi(result.acked, result.retransmits);
 	return true;
 }
 

@@ -22,7 +22,7 @@
  *   Row 3 (y=48-63):  [8x16] Z 轴 "Z:"
  *
  * 布局 (SCANNER_USE_8x16 = 1, SHOW_XYZ = 0, 8x16 字体):
- *   Row 0 (y=0-15):   [8x16] ASCII文字("2.4G "/"CAN") + 信号图标(16px) + 电池图标(24px)
+ *   Row 0 (y=0-15):   [8x16] ASCII文字("NRF "/"CAN") + 信号图标(16px) + 电池图标(24px)
  *   Row 1 (y=24-31):  [8x16] 超欠挖 "OB:"
  *   Row 2 (y=40-47):  [8x16] 激光距离 "Dis:"
  *
@@ -170,8 +170,8 @@ void mod_display_clear(void)
 #else
 #define ROW0_ASCII 0
 #endif
-/* ASCII(64): Row 0 左侧(40x16, 16x16): 2.4G 信号 0/1/2/3/4 */
-/* ICON(64):  Row 0 左侧(8x16, 16x16): 2.4G 信号 0/1/2/3/4 */
+/* ASCII(64): Row 0 左侧(40x16, 16x16): NRF 信号 0/1/2/3/4 */
+/* ICON(64):  Row 0 左侧(8x16, 16x16): NRF 信号 0/1/2/3/4 */
 void mod_display_rf24(uint8_t rssi)
 {
 	if (global_params.connect_type != RF24_TYPE) {
@@ -182,7 +182,7 @@ void mod_display_rf24(uint8_t rssi)
 		rssi = 4;
 	}
 #if ROW0_ASCII
-	display_8x16_str_pad("2.4G ", 0, 0, 40);
+	display_8x16_str_pad("NRF", 0, 0, 40);
 	display_write_buf(40, 0, SIGNAL_ICON_W, SIGNAL_ICON_H, signal_levels[rssi]);
 	display_8x16_char(' ', 56, 0);
 #else
