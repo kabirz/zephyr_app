@@ -98,13 +98,14 @@ host       --UDP-->  gateway --nRF24--> mod_handler
 - **数据帧**: `[帧 ID 2B BE][payload]`（透传扫描仪/手柄数据，走数据端口）
 - **命令帧**: `[cmd 1B][data...]`（无魔数头，走配置端口）
 - 固件升级命令 0x01~0x05（开始/数据/结束/查询版本/重启，由 `udp_fw_upgrade` 库内部处理）
-- 网络参数命令 0x12/0x13（SET_NET/GET_NET）；RF24 参数命令 0x14/0x15（SET_RF24/GET_RF24）
-- 网络掩码固定 255.255.255.0，网关 = 设备 IP 末段改 1（运行时派生，不传输）
+- 网络参数命令 0x12/0x13（SET_NET/GET_NET）；RF24 参数命令 0x14/0x15（SET_RF24/GET_RF24）；网络模式 0x16/0x17（SET_NET_MODE/GET_NET_MODE）
+- 静态模式掩码固定 255.255.255.0，网关 = 设备 IP 末段改 1（运行时派生，不传输）；DHCP 模式（`use_dhcp`，持久化重启生效）由服务器分配，GET_NET 回复 live interface 地址
 
 ### 命令响应格式
 
-- **0x13 GET_NET** 响应: `[0x13][ip 4B][port 2B BE]`（6 字节）
+- **0x13 GET_NET** 响应: `[0x13][ip 4B][port 2B BE]`（6 字节，IP 取自 live interface）
 - **0x15 GET_RF24** 响应: `[0x15][rf24_ch 1B][rf24_addr 5B]`（6 字节）
+- **0x17 GET_NET_MODE** 响应: `[0x17][mode 1B]`（0=静态, 1=DHCP）
 - **0x04 GET_VERSION** 响应: `[0x04][APP_VERSION_STRING 变长]`（如 `[0x04]0.1.0-dev`，不含末尾 `\0`）
 
 ---

@@ -52,6 +52,13 @@ static int gut_persist_set(const char *name, size_t len, settings_read_cb read_c
 		return 0;
 	}
 
+	if (!next && !strncmp(name, "use_dhcp", name_len)) {
+		if (len == sizeof(uint8_t)) {
+			read_cb(cb_arg, &gut_params.use_dhcp, sizeof(uint8_t));
+		}
+		return 0;
+	}
+
 	return -ENOENT;
 }
 
@@ -61,6 +68,7 @@ static int gut_persist_export(int (*cb)(const char *name, const void *value, siz
 	(void)cb("gut/rf24_addr", gut_params.rf24_addr, RF24_ADDR_LEN);
 	(void)cb("gut/ip_addr", gut_params.ip_addr, strlen(gut_params.ip_addr));
 	(void)cb("gut/data_port", &gut_params.data_port, sizeof(gut_params.data_port));
+	(void)cb("gut/use_dhcp", &gut_params.use_dhcp, sizeof(gut_params.use_dhcp));
 	return 0;
 }
 
@@ -97,7 +105,9 @@ void persist_save_network_config(void)
 {
 	settings_save_one("gut/ip_addr", gut_params.ip_addr, strlen(gut_params.ip_addr));
 	settings_save_one("gut/data_port", &gut_params.data_port, sizeof(gut_params.data_port));
-	LOG_INF("Saved network: ip=%s port=%d", gut_params.ip_addr, gut_params.data_port);
+	settings_save_one("gut/use_dhcp", &gut_params.use_dhcp, sizeof(gut_params.use_dhcp));
+	LOG_INF("Saved network: ip=%s port=%d dhcp=%d", gut_params.ip_addr, gut_params.data_port,
+		gut_params.use_dhcp);
 }
 
 SYS_INIT(settings_backend_init, APPLICATION, 10);

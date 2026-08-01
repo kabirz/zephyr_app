@@ -16,6 +16,7 @@
 #include <zephyr/net/socket.h>
 #include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/net_event.h>
+#include <zephyr/net/dhcpv4.h>
 #ifndef CONFIG_FLASH_SIZE
 #define CONFIG_FLASH_SIZE 0x1000
 #endif
@@ -60,50 +61,65 @@ static void net_mgmt_handler(struct net_mgmt_event_callback *cb,
 	if (mgmt_event == NET_EVENT_IF_UP) {
 		LOG_INF("net link up");
 		k_sem_give(&net_link_sem);
+	} else if (mgmt_event == NET_EVENT_IPV4_ADDR_ADD) {
+		/* DHCP 模式下地址到达时打印 (静态模式下此事件也会触发, 同样打印) */
+		struct in_addr *addr = (struct in_addr *)
+			net_if_ipv4_get_global_addr(iface, NET_ADDR_PREFERRED);
+		if (addr) {
+			char ip_str[NET_IPV4_ADDR_LEN];
+			net_addr_ntop(AF_INET, addr, ip_str, sizeof(ip_str));
+			LOG_INF("IPv4 address assigned: %s", ip_str);
+		}
 	}
 }
 
 /* ================================================================
- * 网络初始化 (W5500 静态 IP)
+ * 网络初始化 (静态 IP / DHCP)
  * ================================================================ */
 static int net_init(void)
 {
 	struct net_if *iface = net_if_get_default();
-	struct in_addr addr, mask, gw;
 
 	if (!iface) {
 		LOG_ERR("No network interface found");
 		return -ENODEV;
 	}
 
-	/* 先注册链路事件回调, 再 net_if_up: 若 carrier 此刻已在线, net_if_up 会
-	 * 同步生成 NET_EVENT_IF_UP (异步投递至此回调); 若未在线, 等 W5500 检测到
-	 * 载波后生成. 注册顺序保证不丢事件. */
-	net_mgmt_init_event_callback(&net_mgmt_cb, net_mgmt_handler, NET_EVENT_IF_UP);
+	/* 注册链路 + IPv4 地址事件回调 (IF_UP 驱动配置 socket; ADDR_ADD 打印分配到的 IP) */
+	net_mgmt_init_event_callback(&net_mgmt_cb, net_mgmt_handler,
+				     NET_EVENT_IF_UP | NET_EVENT_IPV4_ADDR_ADD);
 	net_mgmt_add_event_callback(&net_mgmt_cb);
 
-	if (net_addr_pton(AF_INET, gw_params.ip_addr, &addr) < 0) {
-		LOG_ERR("Invalid IP address: %s", gw_params.ip_addr);
-		return -EINVAL;
+	if (gw_params.use_dhcp) {
+		/* DHCP 模式: 不设静态 IP/mask/gw, 启动接口后由 DHCP 服务器分配.
+		 * 地址到达时 net_mgmt_handler 收到 NET_EVENT_IPV4_ADDR_ADD 打印 */
+		LOG_INF("Starting DHCPv4 client...");
+		net_if_up(iface);
+		net_dhcpv4_start(iface);
+	} else {
+		/* 静态模式: 掩码固定 /24; 网关 = IP 末段改 1 (a.b.c.1), 不存储 */
+		struct in_addr addr, mask, gw;
+
+		if (net_addr_pton(AF_INET, gw_params.ip_addr, &addr) < 0) {
+			LOG_ERR("Invalid IP address: %s", gw_params.ip_addr);
+			return -EINVAL;
+		}
+		mask.s_addr = htonl(0xFFFFFF00);
+		memcpy(&gw, &addr, sizeof(gw));
+		((uint8_t *)&gw.s_addr)[3] = 1;
+
+		net_if_ipv4_addr_add(iface, &addr, NET_ADDR_MANUAL, 0);
+		net_if_ipv4_set_netmask_by_addr(iface, &addr, &mask);
+		net_if_ipv4_set_gw(iface, &gw);
+
+		/* 触发接口 administrative up: 幂等. oper state 由 (admin up + carrier) 决定,
+		 * 是 NET_EVENT_IF_UP 的可靠触发点. */
+		net_if_up(iface);
+
+		char gw_str[NET_IPV4_ADDR_LEN];
+		net_addr_ntop(AF_INET, &gw, gw_str, sizeof(gw_str));
+		LOG_INF("Network: %s/24 gw %s", gw_params.ip_addr, gw_str);
 	}
-
-	/* 掩码固定 /24; 网关 = IP 末段改 1 (a.b.c.1), 均不存储, 运行时派生 */
-	mask.s_addr = htonl(0xFFFFFF00);
-	memcpy(&gw, &addr, sizeof(gw));
-	((uint8_t *)&gw.s_addr)[3] = 1;
-
-	net_if_ipv4_addr_add(iface, &addr, NET_ADDR_MANUAL, 0);
-	net_if_ipv4_set_netmask_by_addr(iface, &addr, &mask);
-	net_if_ipv4_set_gw(iface, &gw);
-
-	/* 触发接口 administrative up: 幂等 (已 up 返回 -EALREADY 无害). 这是
-	 * NET_EVENT_IF_UP 的可靠触发点 — oper state 由 (admin up + carrier) 决定. */
-	net_if_up(iface);
-
-	char gw_str[NET_IPV4_ADDR_LEN];
-
-	net_addr_ntop(AF_INET, &gw, gw_str, sizeof(gw_str));
-	LOG_INF("Network: %s/24 gw %s", gw_params.ip_addr, gw_str);
 	return 0;
 }
 
@@ -124,6 +140,7 @@ int main(void)
 	gw_params.rf24_addr[4] = 0;
 	strncpy(gw_params.ip_addr, GATEWAY_DEFAULT_IP, sizeof(gw_params.ip_addr) - 1);
 	gw_params.data_port = GATEWAY_DATA_PORT_DEFAULT;
+	gw_params.use_dhcp = GW_USE_DHCP_DEFAULT;
 
 	/* 加载持久化配置 (覆盖默认值) */
 	gw_config_load();

@@ -51,6 +51,13 @@ static int gw_persist_set(const char *name, size_t len, settings_read_cb read_cb
 		return 0;
 	}
 
+	if (!next && !strncmp(name, "use_dhcp", name_len)) {
+		if (len == sizeof(uint8_t)) {
+			read_cb(cb_arg, &gw_params.use_dhcp, sizeof(uint8_t));
+		}
+		return 0;
+	}
+
 	return -ENOENT;
 }
 
@@ -60,6 +67,7 @@ static int gw_persist_export(int (*cb)(const char *name, const void *value, size
 	(void)cb("gw/rf24_addr", gw_params.rf24_addr, RF24_ADDR_LEN);
 	(void)cb("gw/ip_addr", gw_params.ip_addr, strlen(gw_params.ip_addr));
 	(void)cb("gw/data_port", &gw_params.data_port, sizeof(gw_params.data_port));
+	(void)cb("gw/use_dhcp", &gw_params.use_dhcp, sizeof(gw_params.use_dhcp));
 	return 0;
 }
 
@@ -93,7 +101,9 @@ void persist_save_network_config(void)
 {
 	settings_save_one("gw/ip_addr", gw_params.ip_addr, strlen(gw_params.ip_addr));
 	settings_save_one("gw/data_port", &gw_params.data_port, sizeof(gw_params.data_port));
-	LOG_INF("Saved network: ip=%s port=%d", gw_params.ip_addr, gw_params.data_port);
+	settings_save_one("gw/use_dhcp", &gw_params.use_dhcp, sizeof(gw_params.use_dhcp));
+	LOG_INF("Saved network: ip=%s port=%d dhcp=%d", gw_params.ip_addr, gw_params.data_port,
+		gw_params.use_dhcp);
 }
 
 SYS_INIT(settings_backend_init, APPLICATION, 10);

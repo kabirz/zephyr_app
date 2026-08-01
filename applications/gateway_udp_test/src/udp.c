@@ -44,17 +44,37 @@ static struct sockaddr_in data_remote_addr;
  * 子网判断 + 数据端口发送
  * ================================================================ */
 
-/* 判断发送方 IP 是否与本机同子网 (掩码固定 255.255.255.0).
- * 数据端口用此函数决定单播目标, 本机 IP 解析失败时按同子网 (单播) */
+/* 取本机 live IPv4 地址 (DHCP 分配或静态配置的当前地址), 失败返回 NULL.
+ * DHCP 模式下 gut_params.ip_addr 是旧静态值 (stale), 必须从 live interface 读. */
+static struct in_addr *get_live_ipv4(void)
+{
+	struct net_if *iface = net_if_get_default();
+
+	if (!iface) {
+		return NULL;
+	}
+	return (struct in_addr *)net_if_ipv4_get_global_addr(iface, NET_ADDR_PREFERRED);
+}
+
+/* 判断发送方 IP 是否与本机同子网 (按 live interface 的实际 IP+掩码计算).
+ * 数据端口用此函数决定单播目标, 无法判断时按同子网 (单播) */
 static bool is_same_subnet(struct in_addr sender_ip)
 {
-	struct in_addr local_ip, mask;
+	struct net_if *iface = net_if_get_default();
+	struct in_addr *local_ip;
 
-	if (net_addr_pton(AF_INET, gut_params.ip_addr, &local_ip) < 0) {
+	if (!iface) {
 		return true; /* 无法判断时按同子网处理 (单播) */
 	}
-	mask.s_addr = htonl(0xFFFFFF00); /* /24 固定 */
-	return (sender_ip.s_addr & mask.s_addr) == (local_ip.s_addr & mask.s_addr);
+	local_ip = get_live_ipv4();
+	if (!local_ip) {
+		return true;
+	}
+	struct net_in_addr nm = net_if_ipv4_get_netmask_by_addr(
+		iface, (const struct net_in_addr *)local_ip);
+	struct in_addr mask = *(struct in_addr *)&nm;
+
+	return (sender_ip.s_addr & mask.s_addr) == (local_ip->s_addr & mask.s_addr);
 }
 
 /* 数据端口发送: → 上位机. 同子网单播到 data_remote_addr, 跨子网广播.
@@ -116,11 +136,16 @@ static bool app_cmd_handler(uint8_t cmd, const uint8_t *cmd_data, size_t cmd_len
 	}
 
 	case UDP_CMD_GET_NET: {
-		/* 查询网络参数: (空) → [ip 4B][port 2B BE] = 6B */
+		/* 查询网络参数: (空) → [ip 4B][port 2B BE] = 6B.
+		 * IP 取自 live interface (DHCP 模式下是实际拿到的地址; 静态模式下与
+		 * gut_params.ip_addr 一致). 拿不到 live IP 时回退 gut_params.ip_addr. */
 		uint8_t buf[6];
 		struct in_addr addr;
+		struct in_addr *live = get_live_ipv4();
 
-		if (inet_pton(AF_INET, gut_params.ip_addr, &addr) == 1) {
+		if (live) {
+			memcpy(buf, &live->s_addr, 4);
+		} else if (inet_pton(AF_INET, gut_params.ip_addr, &addr) == 1) {
 			memcpy(buf, &addr.s_addr, 4);
 		} else {
 			memset(buf, 0, 4);
@@ -164,6 +189,30 @@ static bool app_cmd_handler(uint8_t cmd, const uint8_t *cmd_data, size_t cmd_len
 		buf[0] = gut_params.rf24_channel;
 		memcpy(buf + 1, gut_params.rf24_addr, RF24_ADDR_LEN);
 		udp_fw_reply(cmd, buf, sizeof(buf));
+		return true;
+	}
+
+	case UDP_CMD_SET_NET_MODE: {
+		/* 设置网络模式: [mode 1B] (0=静态,1=DHCP). 持久化, 重启生效.
+		 * 回复: 设置后的 1B (回显) */
+		if (cmd_len >= 1) {
+			uint8_t mode = cmd_data[0];
+
+			if (mode <= 1) {
+				gut_params.use_dhcp = mode;
+				LOG_INF("UDP set net mode: %s", mode ? "DHCP" : "static");
+				persist_save_network_config();
+			}
+			uint8_t resp = gut_params.use_dhcp;
+			udp_fw_reply(cmd, &resp, sizeof(resp));
+		}
+		return true;
+	}
+
+	case UDP_CMD_GET_NET_MODE: {
+		/* 查询网络模式: (空) → [mode 1B] (0=静态,1=DHCP) */
+		uint8_t mode = gut_params.use_dhcp;
+		udp_fw_reply(cmd, &mode, sizeof(mode));
 		return true;
 	}
 
