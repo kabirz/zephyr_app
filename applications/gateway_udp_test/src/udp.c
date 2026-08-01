@@ -20,13 +20,11 @@
 #include <string.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
-#include <zephyr/app_version.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/net/net_if.h>
 #include <zephyr/posix/unistd.h>
 #include <zephyr/posix/arpa/inet.h>
 #include <zephyr/sys/byteorder.h>
-#include <zephyr/sys/reboot.h>
 #include <gateway_udp_test.h>
 #include <udp_fw_upgrade.h>
 
@@ -38,14 +36,13 @@ LOG_MODULE_REGISTER(gut_udp, LOG_LEVEL_INF);
 #define NET_READY_BIT 0x1
 
 enum udp_cmd {
-	UDP_CMD_SET_IP = 0x01,
-	UDP_CMD_SET_MASK = 0x02,
-	UDP_CMD_SET_GW = 0x03,
-	UDP_CMD_SET_PORT = 0x04,
-	UDP_CMD_GET_CONFIG = 0x05,
-	UDP_CMD_GET_VERSION = 0x06,
-	UDP_CMD_REBOOT = 0x09,
-	/* 固件升级命令 0x10/0x11/0x12 由 udp_fw_upgrade 库内部处理 */
+	/* 业务命令从 0x10 起 (0x01-0x05 由 udp_fw_upgrade 库内部处理:
+	 *   1=FW_START 2=FW_DATA 3=FW_END 4=GET_VERSION 5=REBOOT) */
+	UDP_CMD_SET_IP = 0x10,
+	UDP_CMD_SET_MASK = 0x11,
+	UDP_CMD_SET_GW = 0x12,
+	UDP_CMD_SET_PORT = 0x13,
+	UDP_CMD_GET_CONFIG = 0x14,
 };
 
 /* 数据端口 socket + 远端地址 (数据转发目标).
@@ -197,18 +194,6 @@ static bool app_cmd_handler(uint8_t cmd, const uint8_t *cmd_data, size_t cmd_len
 		LOG_INF("[DIAG] GET_CONFIG resp len=%d", offset);
 		return true;
 	}
-
-	case UDP_CMD_GET_VERSION:
-		udp_fw_reply(cmd, (const uint8_t *)APP_VERSION_STRING,
-			     strlen(APP_VERSION_STRING));
-		return true;
-
-	case UDP_CMD_REBOOT:
-		LOG_INF("UDP reboot requested");
-		udp_fw_reply(cmd, NULL, 0);
-		k_msleep(100);
-		sys_reboot(SYS_REBOOT_COLD);
-		return true;
 
 	default:
 		return false;

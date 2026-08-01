@@ -8,9 +8,10 @@ config UDP_FW_UPGRADE
 	  Enable UDP-based firmware upgrade functionality.
 	  The library is self-contained: it creates the config-port UDP
 	  socket (binds INADDR_ANY:9200), owns the RX thread, handles
-	  firmware-upgrade commands (FW_START 0x10 / FW_DATA 0x11 /
-	  FW_END 0x12) internally, and forwards all other config commands
-	  to an application-registered callback. Apps only register a
+	  firmware-upgrade commands (FW_START 0x1 / FW_DATA 0x2 /
+	  FW_END 0x3 / GET_VERSION 0x4 / REBOOT 0x5) internally,
+	  and forwards all other config commands to
+	  an application-registered callback. Apps only register a
 	  business-command callback and never touch the config socket.
 
 config UDP_FW_CONFIG_PORT

@@ -12,6 +12,7 @@
 #include <string.h>
 #include <errno.h>
 #include <zephyr/kernel.h>
+#include <zephyr/app_version.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/net/net_if.h>
@@ -29,11 +30,14 @@
 
 LOG_MODULE_REGISTER(udp_fw_upgrade, LOG_LEVEL_INF);
 
-/* 固件升级命令码 (配置端口帧首字节) */
+/* 库内命令码 (配置端口帧首字节, 从 0 开始连续编号, 对齐 can_fw_upgrade).
+ * 应用业务命令从 0x10 起, 不会与此区间冲突. */
 enum fw_cmd {
-	FW_CMD_START = 0x10,
-	FW_CMD_DATA  = 0x11,
-	FW_CMD_END   = 0x12,
+	FW_CMD_START       = 1,   /* 开始升级 (擦 slot1 + init) */
+	FW_CMD_DATA        = 2,   /* 固件数据写入 */
+	FW_CMD_END         = 3,   /* 结束升级 (flush + CRC 校验 + boot_request_upgrade) */
+	FW_CMD_GET_VERSION = 4,   /* 查询固件版本 */
+	FW_CMD_REBOOT      = 5,   /* 重启设备 */
 };
 
 #define SLOT1_PARTITION_ID PARTITION_ID(slot1_partition)
@@ -233,6 +237,20 @@ static bool handle_fw_cmd(uint8_t cmd, const uint8_t *data, size_t len)
 		return true;
 	}
 
+	case FW_CMD_GET_VERSION:
+		/* 响应 APP_VERSION_STRING (含 EXTRAVERSION, 如 "0.1.0-dev").
+		 * 变长字符串, 不含末尾 '\0' */
+		udp_fw_reply(cmd, (const uint8_t *)APP_VERSION_STRING,
+			     strlen(APP_VERSION_STRING));
+		return true;
+
+	case FW_CMD_REBOOT:
+		LOG_INF("reboot requested");
+		udp_fw_reply(cmd, NULL, 0);
+		k_msleep(100);
+		sys_reboot(SYS_REBOOT_COLD);
+		return true;
+
 	default:
 		return false;
 	}
@@ -252,10 +270,6 @@ static void udp_fw_rx_thread(void *p1, void *p2, void *p3)
 		ssize_t received = recvfrom(config_sock, buf, sizeof(buf), 0,
 					    (struct sockaddr *)&src_addr, &addr_len);
 		if (received <= 0) {
-			continue;
-		}
-
-		if (received < 1) {
 			continue;
 		}
 
@@ -284,7 +298,7 @@ static void udp_fw_rx_thread(void *p1, void *p2, void *p3)
 
 K_THREAD_DEFINE(udp_fw_rx_thread_id, CONFIG_UDP_FW_RX_STACK_SIZE,
 		udp_fw_rx_thread, NULL, NULL, NULL,
-		CONFIG_UDP_FW_RX_PRIORITY, 0, 0);
+		CONFIG_UDP_FW_RX_PRIORITY, 0, SYS_FOREVER_MS);
 
 /* ================================================================
  * 网络就绪后启动: 创建配置端口 socket + bind + 启动 RX 线程

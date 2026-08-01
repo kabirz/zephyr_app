@@ -9,9 +9,9 @@
  * 其他配置命令通过应用注册的回调分发, 应用无需调用任何 init。
  *
  * 固件升级协议 (配置端口, 帧 [cmd 1B][data...]):
- *   FW_START 0x10 [size 4B LE]  → 回 [0x10][1/0]
- *   FW_DATA  0x11 [data ≤511B]  → 回 [0x11][offset 4B LE]
- *   FW_END   0x12 [test 1B][crc 2B LE] → 回 [0x12][1/0]
+ *   FW_START 0x1 [size 4B LE]  → 回 [0x1][1/0]
+ *   FW_DATA  0x2 [data ≤511B]  → 回 [0x2][offset 4B LE]
+ *   FW_END   0x3 [test 1B][crc 2B LE] → 回 [0x3][1/0]
  */
 
 #ifndef __UDP_FW_UPGRADE_H__
