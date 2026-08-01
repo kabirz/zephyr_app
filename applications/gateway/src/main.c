@@ -62,13 +62,29 @@ static void net_mgmt_handler(struct net_mgmt_event_callback *cb,
 		LOG_INF("net link up");
 		k_sem_give(&net_link_sem);
 	} else if (mgmt_event == NET_EVENT_IPV4_ADDR_ADD) {
-		/* DHCP 模式下地址到达时打印 (静态模式下此事件也会触发, 同样打印) */
-		struct in_addr *addr = (struct in_addr *)
-			net_if_ipv4_get_global_addr(iface, NET_ADDR_PREFERRED);
-		if (addr) {
-			char ip_str[NET_IPV4_ADDR_LEN];
-			net_addr_ntop(AF_INET, addr, ip_str, sizeof(ip_str));
-			LOG_INF("IPv4 address assigned: %s", ip_str);
+		/* IPv4 地址分配完成 (DHCP 分配或静态配置). 打印 IP/掩码/网关,
+		 * DHCP 模式额外打印租期, 方便确认 DHCP 协商结果. */
+		for (int i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
+			if (iface->config.ip.ipv4->unicast[i].ipv4.addr_type !=
+			    NET_ADDR_DHCP && iface->config.ip.ipv4->unicast[i].ipv4.addr_type !=
+			    NET_ADDR_MANUAL) {
+				continue;
+			}
+			char buf[NET_IPV4_ADDR_LEN];
+
+			net_addr_ntop(AF_INET,
+				      &iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr,
+				      buf, sizeof(buf));
+			LOG_INF("IPv4 address: %s", buf);
+			net_addr_ntop(AF_INET, &iface->config.ip.ipv4->unicast[i].netmask,
+				      buf, sizeof(buf));
+			LOG_INF("IPv4 netmask: %s", buf);
+			net_addr_ntop(AF_INET, &iface->config.ip.ipv4->gw, buf, sizeof(buf));
+			LOG_INF("IPv4 gateway: %s", buf);
+			if (iface->config.ip.ipv4->unicast[i].ipv4.addr_type == NET_ADDR_DHCP) {
+				LOG_INF("DHCP lease time: %u seconds", iface->config.dhcpv4.lease_time);
+			}
+			break;
 		}
 	}
 }
