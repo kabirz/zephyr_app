@@ -255,7 +255,7 @@ static int power_init(void)
 		global_params.rf24_addr[0], global_params.rf24_addr[1],
 		global_params.rf24_addr[2], global_params.rf24_addr[3],
 		global_params.rf24_addr[4]);
-	global_params.rf24_channel = 76; /* nRF24 默认信道 */
+	global_params.rf24_channel = 1; /* nRF24 默认信道 */
 
 	k_event_init(&global_params.event);
 	k_event_post(&global_params.event, CAN_EVENT);

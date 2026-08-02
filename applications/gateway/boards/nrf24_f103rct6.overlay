@@ -49,7 +49,7 @@
 		spi-max-frequency = <8000000>;
 		ce-gpios = <&gpioa 9 GPIO_ACTIVE_HIGH>;
 		irq-gpios = <&gpioc 6 GPIO_ACTIVE_LOW>;
-		channel = <76>;
+		channel = <1>;
 		data-rate = "1m";
 		tx-power = "0dbm";
 	};

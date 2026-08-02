@@ -36,7 +36,7 @@
 		ce-gpios = <&gpioa 9 GPIO_ACTIVE_HIGH>;
 		irq-gpios = <&gpioc 6 GPIO_ACTIVE_LOW>;
 		power-gpios = <&gpioc 9 GPIO_ACTIVE_HIGH>;
-		channel = <76>;
+		channel = <1>;
 		data-rate = "1m";
 		tx-power = "0dbm";
 	};
