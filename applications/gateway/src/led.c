@@ -98,8 +98,10 @@ K_THREAD_DEFINE(thread_led, CONFIG_GATEWAY_LED_STACK, led_thread, NULL, NULL, NU
 
 /* ================================================================
  * Zephyr fatal error handler - 覆盖默认弱符号
- * 栈溢出 / CPU 异常 (hardfault 等) 时点亮错误灯锁定, 之后交还默认处理流程
+ * CPU 异常 (hardfault 等) 时点亮错误灯锁定, 之后交还默认处理流程
  * (不做 reboot, 让系统进入 fault dump / LOG_PANIC 以便调试).
+ * 注: STM32F1 (Cortex-M3) 无 MPU, 硬件栈保护不可用, K_ERR_STACK_CHK_FAIL
+ *     不会触发; 但 K_ERR_CPU_EXCEPTION (hardfault) 仍会被此 handler 捕获.
  * ================================================================ */
 void k_sys_fatal_error_handler(unsigned int reason, const struct arch_esf *esf)
 {

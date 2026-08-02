@@ -47,3 +47,18 @@ config NRF24L01P_INT_THREAD_PRIORITY
 	help
 	  Priority of the internal bottom-half thread (cooperative thread;
 	  lower value means higher priority).
+
+config NRF24L01P_CRYPT
+	bool "Enable XXTEA-CTR link-layer encryption"
+	default n
+	depends on NRF24L01P
+	help
+	  XXTEA-CTR stream cipher using the 5-byte rf24 address as key.
+	  Encrypts the full frame (CAN-ID header + payload) with zero length
+	  expansion except a 1-byte counter prefix (payload 30B -> 29B).
+
+	  Must be enabled on BOTH endpoints (mod_handler + gateway).
+	  Mismatched configuration results in one-way silent frame drops
+	  (decrypt fails, frames discarded without crashing).
+
+	  When disabled, the link operates exactly as before (plaintext).

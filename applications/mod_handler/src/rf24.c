@@ -20,6 +20,9 @@
 #include <mod-can.h>
 #include <mod-gpio.h>
 #include <display.h>
+#ifdef CONFIG_NRF24L01P_CRYPT
+#include <nrf24_crypt.h>
+#endif
 
 LOG_MODULE_REGISTER(rf24_radio, LOG_LEVEL_INF);
 
@@ -110,6 +113,12 @@ void rf24_init(void)
 			.tx_addr = global_params.rf24_addr,
 		};
 
+#ifdef CONFIG_NRF24L01P_CRYPT
+		/* 用 rf24 地址派生加密密钥 (与 gateway 共享同一地址 → 同一密钥) */
+		nrf24_crypt_set_key(global_params.rf24_addr);
+		nrf24_crypt_rx_reset();
+#endif
+
 		nrf24_configure(rf24_dev, &cfg);
 		LOG_INF("nRF24 configured: ch=%d addr=%02x%02x%02x%02x%02x",
 			global_params.rf24_channel,
@@ -148,10 +157,19 @@ bool rf24_data_send(uint16_t can_id, const uint8_t *data, size_t len)
 	if (!device_is_ready(rf24_dev)) {
 		return false;
 	}
+#ifdef CONFIG_NRF24L01P_CRYPT
+	/* 加密: [ctr 1B][CAN_ID 2B][payload] ≤ 32 → payload ≤ 29 */
+	if (len > RF24_PAYLOAD_MAX - RF24_ID_SIZE - 1) {
+		LOG_ERR("Payload too large: %zu (max %d)", len,
+			RF24_PAYLOAD_MAX - RF24_ID_SIZE - 1);
+		return false;
+	}
+#else
 	if (len > RF24_PAYLOAD_MAX - RF24_ID_SIZE) {
 		LOG_ERR("Payload too large: %zu (max %d)", len, RF24_PAYLOAD_MAX - RF24_ID_SIZE);
 		return false;
 	}
+#endif
 
 	uint8_t buf[RF24_PAYLOAD_MAX];
 
@@ -160,10 +178,20 @@ bool rf24_data_send(uint16_t can_id, const uint8_t *data, size_t len)
 		memcpy(buf + RF24_ID_SIZE, data, len);
 	}
 
+	uint8_t frame_len = (uint8_t)(len + RF24_ID_SIZE);
+
+#ifdef CONFIG_NRF24L01P_CRYPT
+	/* 原地加密: buf 从 [CAN_ID][data] 变为 [ctr][ciphertext], 长度 +1 */
+	frame_len = nrf24_crypt_seal(buf, frame_len);
+	if (frame_len == 0) {
+		return false;
+	}
+#endif
+
 	struct nrf24_tx_result result;
 
 	k_mutex_lock(&rf24_tx_mutex, K_FOREVER);
-	int ret = nrf24_send(rf24_dev, buf, len + RF24_ID_SIZE, RF24_TX_TIMEOUT, &result);
+	int ret = nrf24_send(rf24_dev, buf, frame_len, RF24_TX_TIMEOUT, &result);
 	k_mutex_unlock(&rf24_tx_mutex);
 
 	if (ret != 0) {
@@ -216,6 +244,16 @@ static void rf24_rx_thread(void)
 			LOG_WRN("nRF24 frame too short: %u", frame.len);
 			continue;
 		}
+
+#ifdef CONFIG_NRF24L01P_CRYPT
+		/* 原地解密: [ctr][ciphertext] → [CAN_ID][plaintext], 长度 -1.
+		 * 窗口外/重放帧返回 0, 静默丢弃. */
+		uint8_t pt_len = nrf24_crypt_open(frame.data, frame.len);
+		if (pt_len == 0) {
+			continue;
+		}
+		frame.len = pt_len;
+#endif
 
 		uint16_t can_id = sys_get_be16(frame.data);
 		uint8_t data_len = frame.len - RF24_ID_SIZE;
