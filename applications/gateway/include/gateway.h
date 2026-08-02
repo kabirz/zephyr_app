@@ -77,6 +77,10 @@ typedef struct {
 
 extern gateway_params_t gw_params;
 
+/* 网络链路状态 (main.c 的 NET_EVENT_IF_UP/DOWN 回调维护).
+ * gw_udp_send 据此决定是否转发 nRF24 数据到上位机. */
+extern volatile bool gw_net_link_up;
+
 /* ================================================================
  * 接口声明
  * ================================================================ */

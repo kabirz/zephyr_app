@@ -54,12 +54,15 @@ SYS_INIT(swd_recover, PRE_KERNEL_2, 1);
  * ================================================================ */
 static K_SEM_DEFINE(net_link_sem, 0, 1);
 
+/* 网络链路状态: IF_UP 置 true, IF_DOWN 置 false. gw_udp_send 据此决定是否转发. */
+volatile bool gw_net_link_up;
+
 /* 网络事件回调 (静态注册, 编译时进 section, 不受运行时注册时序影响).
  * 注意: Zephyr net_mgmt 的 mask 匹配按 layer 精确相等, 不同 layer 的事件
  * (IF_UP=L2, IPV4_ADDR_ADD=L3) 不能 OR 在同一个 mask 里, 否则全部匹配失败.
- * 故分成两个独立 handler 注册. */
+ * 故分成两个独立 handler 注册. IF_UP/IF_DOWN 同 layer 可共用一个. */
 
-/* IF_UP: carrier 就绪 → 唤醒 main + (DHCP 模式) 启动 DHCP 客户端. */
+/* IF_UP/IF_DOWN: carrier 状态变化 → 唤醒 main + 启动 DHCP + 维护 gw_net_link_up. */
 static void net_if_event_handler(uint64_t mgmt_event, struct net_if *iface,
 				 void *info, size_t info_length, void *user_data)
 {
@@ -67,15 +70,18 @@ static void net_if_event_handler(uint64_t mgmt_event, struct net_if *iface,
 	ARG_UNUSED(info_length);
 	ARG_UNUSED(user_data);
 
-	if (mgmt_event != NET_EVENT_IF_UP) {
-		return;
-	}
-	LOG_INF("net link up");
-	k_sem_give(&net_link_sem);
-	/* DHCP 模式: carrier up 后才启动 DHCP 客户端 (启动早了 Discover 发不出) */
-	if (gw_params.use_dhcp) {
-		LOG_INF("Starting DHCPv4 client...");
-		net_dhcpv4_start(iface);
+	if (mgmt_event == NET_EVENT_IF_UP) {
+		LOG_INF("net link up");
+		gw_net_link_up = true;
+		k_sem_give(&net_link_sem);
+		/* DHCP 模式: carrier up 后才启动 DHCP 客户端 (启动早了 Discover 发不出) */
+		if (gw_params.use_dhcp) {
+			LOG_INF("Starting DHCPv4 client...");
+			net_dhcpv4_start(iface);
+		}
+	} else if (mgmt_event == NET_EVENT_IF_DOWN) {
+		LOG_WRN("net link down");
+		gw_net_link_up = false;
 	}
 }
 
@@ -114,7 +120,8 @@ static void net_ipv4_event_handler(uint64_t mgmt_event, struct net_if *iface,
 	}
 }
 
-NET_MGMT_REGISTER_EVENT_HANDLER(net_if_handler_cb, NET_EVENT_IF_UP,
+NET_MGMT_REGISTER_EVENT_HANDLER(net_if_handler_cb,
+				NET_EVENT_IF_UP | NET_EVENT_IF_DOWN,
 				net_if_event_handler, NULL);
 NET_MGMT_REGISTER_EVENT_HANDLER(net_ipv4_handler_cb, NET_EVENT_IPV4_ADDR_ADD,
 				net_ipv4_event_handler, NULL);

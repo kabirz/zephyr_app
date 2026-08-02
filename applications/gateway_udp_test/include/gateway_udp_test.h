@@ -80,6 +80,10 @@ typedef struct {
 
 extern gut_params_t gut_params;
 
+/* 网络链路状态 (main.c 的 NET_EVENT_IF_UP/DOWN 回调维护).
+ * gut_udp_send 据此决定是否转发数据到上位机. */
+extern volatile bool gut_net_link_up;
+
 /* ================================================================
  * 接口声明
  * ================================================================ */

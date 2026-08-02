@@ -7,7 +7,7 @@ source "Kconfig.zephyr"
 
 config GUT_DATA_RX_STACK
 	int "UDP data RX thread stack size"
-	default 2048
+	default 1024
 
 config GUT_DATA_RX_PRIORITY
 	int "UDP data RX thread priority"

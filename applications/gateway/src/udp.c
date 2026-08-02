@@ -78,6 +78,10 @@ void gw_udp_send(const uint8_t *data, size_t len)
 	if (data_sock < 0 || len == 0) {
 		return;
 	}
+	/* 链路 down 时不转发 nRF24 数据到上位机 (网线断开/PHY 未就绪时避免无效 sendto) */
+	if (!gw_net_link_up) {
+		return;
+	}
 
 	struct sockaddr_in dst;
 
