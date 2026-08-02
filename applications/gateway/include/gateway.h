@@ -9,6 +9,7 @@
 #define __GATEWAY_H__
 
 #include <zephyr/kernel.h>
+#include <zephyr/net/net_ip.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -92,6 +93,10 @@ void rf24_test_handle_rx(const uint8_t *data, uint8_t len);
 
 /* udp.c */
 void gw_udp_send(const uint8_t *data, size_t len);
+
+/* 取本机 live IPv4 地址 (DHCP 分配或静态配置的当前地址), 失败返回 NULL.
+ * DHCP 模式下 gw_params.ip_addr 是旧静态值, 需从 live interface 读. */
+struct in_addr *gw_get_live_ipv4(void);
 
 /* config.c */
 void gw_config_save(void);

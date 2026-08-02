@@ -41,7 +41,7 @@ static struct sockaddr_in data_remote_addr;
 
 /* 取本机 live IPv4 地址 (DHCP 分配或静态配置的当前地址), 失败返回 NULL.
  * DHCP 模式下 gw_params.ip_addr 是旧静态值 (stale), 必须从 live interface 读. */
-static struct in_addr *get_live_ipv4(void)
+struct in_addr *gw_get_live_ipv4(void)
 {
 	struct net_if *iface = net_if_get_default();
 
@@ -61,7 +61,7 @@ static bool is_same_subnet(struct in_addr sender_ip)
 	if (!iface) {
 		return true; /* 无法判断时按同子网处理 (单播) */
 	}
-	local_ip = get_live_ipv4();
+	local_ip = gw_get_live_ipv4();
 	if (!local_ip) {
 		return true;
 	}
@@ -124,7 +124,7 @@ static bool app_cmd_handler(uint8_t cmd, const uint8_t *cmd_data, size_t cmd_len
 			persist_save_network_config();
 
 			uint8_t resp[6];
-			struct in_addr *live = get_live_ipv4();
+			struct in_addr *live = gw_get_live_ipv4();
 
 			if (live) {
 				memcpy(resp, &live->s_addr, 4);
@@ -145,7 +145,7 @@ static bool app_cmd_handler(uint8_t cmd, const uint8_t *cmd_data, size_t cmd_len
 		 * gw_params.ip_addr 一致). 拿不到 live IP 时回退 gw_params.ip_addr. */
 		uint8_t buf[6];
 		struct in_addr addr;
-		struct in_addr *live = get_live_ipv4();
+		struct in_addr *live = gw_get_live_ipv4();
 
 		if (live) {
 			memcpy(buf, &live->s_addr, 4);
