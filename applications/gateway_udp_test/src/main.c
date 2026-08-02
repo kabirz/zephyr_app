@@ -39,59 +39,83 @@ gut_params_t gut_params;
  * 后 net_eth_carrier_on → oper state UP → notify_iface_up 发出 NET_EVENT_IF_UP.
  * 用信号量捕获该事件, 通知 UDP 线程接口已可用. */
 static K_SEM_DEFINE(net_link_sem, 0, 1);
-static struct net_mgmt_event_callback net_mgmt_cb;
 
-static void net_mgmt_handler(struct net_mgmt_event_callback *cb,
-			     uint64_t mgmt_event, struct net_if *iface)
+/* 网络事件回调 (静态注册, 编译时进 section, 不受运行时注册时序影响).
+ * 注意: Zephyr net_mgmt 的 mask 匹配按 layer 精确相等, 不同 layer 的事件
+ * (IF_UP=L2, IPV4_ADDR_ADD=L3) 不能 OR 在同一个 mask 里, 否则全部匹配失败.
+ * 故分成两个独立 handler 注册. */
+
+/* IF_UP: carrier 就绪 → 唤醒 main + (DHCP 模式) 启动 DHCP 客户端. */
+static void net_if_event_handler(uint64_t mgmt_event, struct net_if *iface,
+				 void *info, size_t info_length, void *user_data)
 {
-	if (mgmt_event == NET_EVENT_IF_UP) {
-		LOG_INF("net link up");
-		k_sem_give(&net_link_sem);
-	} else if (mgmt_event == NET_EVENT_IPV4_ADDR_ADD) {
-		/* IPv4 地址分配完成 (DHCP 分配或静态配置). 打印 IP/掩码/网关,
-		 * DHCP 模式额外打印租期, 方便确认 DHCP 协商结果. */
-		for (int i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
-			if (iface->config.ip.ipv4->unicast[i].ipv4.addr_type !=
-			    NET_ADDR_DHCP && iface->config.ip.ipv4->unicast[i].ipv4.addr_type !=
-			    NET_ADDR_MANUAL) {
-				continue;
-			}
-			char buf[NET_IPV4_ADDR_LEN];
+	ARG_UNUSED(info);
+	ARG_UNUSED(info_length);
+	ARG_UNUSED(user_data);
 
-			net_addr_ntop(AF_INET,
-				      &iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr,
-				      buf, sizeof(buf));
-			LOG_INF("IPv4 address: %s", buf);
-			net_addr_ntop(AF_INET, &iface->config.ip.ipv4->unicast[i].netmask,
-				      buf, sizeof(buf));
-			LOG_INF("IPv4 netmask: %s", buf);
-			net_addr_ntop(AF_INET, &iface->config.ip.ipv4->gw, buf, sizeof(buf));
-			LOG_INF("IPv4 gateway: %s", buf);
-			if (iface->config.ip.ipv4->unicast[i].ipv4.addr_type == NET_ADDR_DHCP) {
-				LOG_INF("DHCP lease time: %u seconds", iface->config.dhcpv4.lease_time);
-			}
-			break;
-		}
+	if (mgmt_event != NET_EVENT_IF_UP) {
+		return;
+	}
+	LOG_INF("net link up");
+	k_sem_give(&net_link_sem);
+	/* DHCP 模式: carrier up 后才启动 DHCP 客户端 (启动早了 Discover 发不出) */
+	if (gut_params.use_dhcp) {
+		LOG_INF("Starting DHCPv4 client...");
+		net_dhcpv4_start(iface);
 	}
 }
+
+/* ADDR_ADD: IPv4 地址分配完成 → 打印 IP/掩码/网关 (DHCP 模式额外打印租期). */
+static void net_ipv4_event_handler(uint64_t mgmt_event, struct net_if *iface,
+				   void *info, size_t info_length, void *user_data)
+{
+	ARG_UNUSED(info);
+	ARG_UNUSED(info_length);
+	ARG_UNUSED(user_data);
+
+	if (mgmt_event != NET_EVENT_IPV4_ADDR_ADD) {
+		return;
+	}
+	for (int i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
+		if (iface->config.ip.ipv4->unicast[i].ipv4.addr_type !=
+		    NET_ADDR_DHCP && iface->config.ip.ipv4->unicast[i].ipv4.addr_type !=
+		    NET_ADDR_MANUAL) {
+			continue;
+		}
+		char buf[NET_IPV4_ADDR_LEN];
+
+		net_addr_ntop(AF_INET,
+			      &iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr,
+			      buf, sizeof(buf));
+		LOG_INF("IPv4 address: %s", buf);
+		net_addr_ntop(AF_INET, &iface->config.ip.ipv4->unicast[i].netmask,
+			      buf, sizeof(buf));
+		LOG_INF("IPv4 netmask: %s", buf);
+		net_addr_ntop(AF_INET, &iface->config.ip.ipv4->gw, buf, sizeof(buf));
+		LOG_INF("IPv4 gateway: %s", buf);
+		if (iface->config.ip.ipv4->unicast[i].ipv4.addr_type == NET_ADDR_DHCP) {
+			LOG_INF("DHCP lease time: %u seconds", iface->config.dhcpv4.lease_time);
+		}
+		break;
+	}
+}
+
+NET_MGMT_REGISTER_EVENT_HANDLER(net_if_handler_cb, NET_EVENT_IF_UP,
+				net_if_event_handler, NULL);
+NET_MGMT_REGISTER_EVENT_HANDLER(net_ipv4_handler_cb, NET_EVENT_IPV4_ADDR_ADD,
+				net_ipv4_event_handler, NULL);
 
 /* ================================================================
  * 网络初始化 (静态 IP / DHCP)
  * ================================================================
- * 调用前提: iface 已注册 (由 main 轮询等待). 先注册事件回调再 net_if_up,
- * 保证不丢事件 (carrier 已在线时 net_if_up 同步生成事件). */
+ * 调用前提: iface 已注册 (由 main 轮询等待). 事件回调已静态注册 (编译时).
+ * DHCP 模式下 net_dhcpv4_start 延迟到 NET_EVENT_IF_UP 回调里调用. */
 static int net_init(struct net_if *iface)
 {
-	/* 注册链路 + IPv4 地址事件回调 (IF_UP 驱动配置 socket; ADDR_ADD 打印分配到的 IP) */
-	net_mgmt_init_event_callback(&net_mgmt_cb, net_mgmt_handler,
-				     NET_EVENT_IF_UP | NET_EVENT_IPV4_ADDR_ADD);
-	net_mgmt_add_event_callback(&net_mgmt_cb);
-
 	if (gut_params.use_dhcp) {
-		/* DHCP 模式: 不设静态 IP/mask/gw, 启动接口后由 DHCP 服务器分配 */
-		LOG_INF("Starting DHCPv4 client...");
+		/* DHCP 模式: 只 up 接口, DHCP 客户端在 IF_UP 回调里启动 */
+		LOG_INF("DHCP mode, waiting for link up...");
 		net_if_up(iface);
-		net_dhcpv4_start(iface);
 	} else {
 		/* 静态模式: 掩码固定 /24; 网关 = IP 末段改 1 (a.b.c.1), 不存储 */
 		struct in_addr addr, mask, gw;
