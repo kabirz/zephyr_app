@@ -23,10 +23,10 @@
 			gpios = <&gpioa 1 GPIO_ACTIVE_LOW>;
 		};
 		led_err: led-err {
-			gpios = <&gpioa 2 GPIO_ACTIVE_LOW>;
+			gpios = <&gpioa 3 GPIO_ACTIVE_LOW>;
 		};
 		led_sys: led-sys {
-			gpios = <&gpioa 3 GPIO_ACTIVE_LOW>;
+			gpios = <&gpioa 2 GPIO_ACTIVE_LOW>;
 		};
 	};
 };

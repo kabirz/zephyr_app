@@ -182,7 +182,7 @@ void mod_display_rf24(uint8_t rssi)
 		rssi = 4;
 	}
 #if ROW0_ASCII
-	display_8x16_str_pad("NRF", 0, 0, 40);
+	display_8x16_str_pad("24G", 0, 0, 40);
 	display_write_buf(40, 0, SIGNAL_ICON_W, SIGNAL_ICON_H, signal_levels[rssi]);
 	display_8x16_char(' ', 56, 0);
 #else

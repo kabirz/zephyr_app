@@ -105,19 +105,19 @@ void adc_read_thread(void)
 				} else {
 					LOG_DBG("val[%d]: %d mv", i, val_mv);
 				}
-				/* 500~4500mV → -200~+200 (0.1° 单位, ×10) */
+				/* 500~4500mV → -20~+20 (1° 单位) */
 				if (i == 0) {
 					x_samples[xy_sample_idx] =
-						(CLAMP(val_mv * 10 / 6, 500, 4500) - 500) * 400 / 4000 - 200;
+						(CLAMP(val_mv * 10 / 6, 500, 4500) - 500) * 40 / 4000 - 20;
 				} else {
 					y_samples[xy_sample_idx] =
-						(CLAMP(val_mv * 10 / 6, 500, 4500) - 500) * 400 / 4000 - 200;
+						(CLAMP(val_mv * 10 / 6, 500, 4500) - 500) * 40 / 4000 - 20;
 				}
 			}
 			k_usleep(500);
 		}
 
-		/* 保留 0.1° 精度平均值 */
+		/* 1° 精度平均值 */
 		int x_degree = trim_avg(x_samples, XY_SAMPLE_COUNT);
 		int y_degree = trim_avg(y_samples, XY_SAMPLE_COUNT);
 

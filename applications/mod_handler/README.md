@@ -151,8 +151,8 @@ Row 0 图标说明:
 
 | 偏移 | 长度 | 字段 | 说明 |
 |------|------|------|------|
-| 0-1 | 2 | coord_x | int16_t BE, 单位 0.1° |
-| 2-3 | 2 | coord_y | int16_t BE, 单位 0.1° |
+| 0-1 | 2 | coord_x | int16_t BE, 单位 1° |
+| 2-3 | 2 | coord_y | int16_t BE, 单位 1° |
 | 4 | 1 | btn flags | bit0: btnHandler |
 | 5-7 | 3 | reserved | 固定 0xFF |
 

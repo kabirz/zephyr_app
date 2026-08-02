@@ -77,7 +77,7 @@ void mod_can_parse_scanner(struct can_frame *frame)
 		if (global_params.log) {
 			LOG_INF("CoordXY: X=%d Y=%d", s->coord_x, s->coord_y);
 		}
-		break;
+		return;
 
 	case COORD_Z:
 		/* Byte 0-3: coordZ (int32_t BE)
@@ -92,10 +92,10 @@ void mod_can_parse_scanner(struct can_frame *frame)
 		if (global_params.log) {
 			LOG_INF("CoordZ: Z=%d valid=%d", s->coord_z, s->coord_z_valid);
 		}
-		break;
+		return;
 
 	default:
-		break;
+		return;
 	}
 
 	/* 解析完成后刷新扫描仪数据显示 */
