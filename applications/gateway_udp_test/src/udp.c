@@ -110,21 +110,28 @@ static bool app_cmd_handler(uint8_t cmd, const uint8_t *cmd_data, size_t cmd_len
 	switch (cmd) {
 	case UDP_CMD_SET_NET: {
 		/* 设置网络参数: [ip 4B][port 2B BE] = 6B.
-		 * 掩码固定 255.255.255.0, 网关 = IP 末段改 1 (net_init 派生, 不存储).
-		 * 回复: 设置后的 6B (回显, 与请求同序) */
+		 * 静态模式: 写入 ip_addr + data_port (掩码固定 /24, 网关派生, 不存储).
+		 * DHCP 模式: 忽略 ip 字段 (IP 由 DHCP 服务器分配), 只写 data_port.
+		 * 回复: 设置后的 6B (IP 取自 live interface 或 ip_addr, 见 GET_NET) */
 		if (cmd_len >= 6) {
 			struct in_addr addr;
 
-			memcpy(&addr.s_addr, cmd_data, 4);
-			inet_ntop(AF_INET, &addr, gut_params.ip_addr, sizeof(gut_params.ip_addr));
+			if (!gut_params.use_dhcp) {
+				memcpy(&addr.s_addr, cmd_data, 4);
+				inet_ntop(AF_INET, &addr, gut_params.ip_addr, sizeof(gut_params.ip_addr));
+			}
 			gut_params.data_port = sys_get_be16(cmd_data + 4);
 
-			LOG_INF("UDP set net: ip=%s port=%d", gut_params.ip_addr, gut_params.data_port);
+			LOG_INF("UDP set net: ip=%s port=%d dhcp=%d", gut_params.ip_addr,
+				gut_params.data_port, gut_params.use_dhcp);
 			persist_save_network_config();
 
 			uint8_t resp[6];
+			struct in_addr *live = get_live_ipv4();
 
-			if (inet_pton(AF_INET, gut_params.ip_addr, &addr) == 1) {
+			if (live) {
+				memcpy(resp, &live->s_addr, 4);
+			} else if (inet_pton(AF_INET, gut_params.ip_addr, &addr) == 1) {
 				memcpy(resp, &addr.s_addr, 4);
 			} else {
 				memset(resp, 0, 4);
