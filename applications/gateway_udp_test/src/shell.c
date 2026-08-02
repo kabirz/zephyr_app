@@ -36,17 +36,31 @@ static int cmd_gut_info(const struct shell *ctx, size_t argc, char **argv)
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 
-	/* 掩码固定 /24, 网关 = IP 末段改 1 (运行时派生) */
-	struct in_addr gw;
-	char gw_str[NET_IPV4_ADDR_LEN] = "-";
+	/* 显示 live IP (DHCP 分配或静态配置的当前地址) */
+	char ip_str[NET_IPV4_ADDR_LEN] = "-";
+	struct in_addr *live = gut_get_live_ipv4();
 
-	if (net_addr_pton(AF_INET, gut_params.ip_addr, &gw) == 0) {
-		((uint8_t *)&gw.s_addr)[3] = 1;
-		net_addr_ntop(AF_INET, &gw, gw_str, sizeof(gw_str));
+	if (live) {
+		net_addr_ntop(AF_INET, live, ip_str, sizeof(ip_str));
 	}
-	shell_print(ctx, "ip:        %s", gut_params.ip_addr);
-	shell_print(ctx, "netmask:   255.255.255.0 (fixed)");
-	shell_print(ctx, "gateway:   %s (derived)", gw_str);
+	shell_print(ctx, "ip:        %s (%s)", ip_str, gut_params.use_dhcp ? "DHCP" : "static");
+	if (gut_params.use_dhcp) {
+		shell_print(ctx, "netmask:   (from DHCP)");
+		shell_print(ctx, "gateway:   (from DHCP)");
+	} else {
+		/* 静态模式: 掩码固定 /24, 网关 = IP 末段改 1 (运行时派生) */
+		struct in_addr gw;
+
+		if (net_addr_pton(AF_INET, gut_params.ip_addr, &gw) == 0) {
+			((uint8_t *)&gw.s_addr)[3] = 1;
+			net_addr_ntop(AF_INET, &gw, ip_str, sizeof(ip_str));
+		} else {
+			ip_str[0] = '-';
+			ip_str[1] = '\0';
+		}
+		shell_print(ctx, "netmask:   255.255.255.0 (fixed)");
+		shell_print(ctx, "gateway:   %s (derived)", ip_str);
+	}
 	shell_print(ctx, "data port: %d", gut_params.data_port);
 	shell_print(ctx, "cfg port:  %d", GUT_CONFIG_PORT);
 	shell_print(ctx, "rf24 ch:   %d", gut_params.rf24_channel);
@@ -146,8 +160,22 @@ static int cmd_gut_echo(const struct shell *ctx, size_t argc, char **argv)
 static int cmd_gut_ip(const struct shell *ctx, size_t argc, char **argv)
 {
 	if (argc < 2) {
-		shell_print(ctx, "ip: %s", gut_params.ip_addr);
+		/* 显示 live IP (DHCP 模式下是服务器分配的地址) */
+		struct in_addr *live = gut_get_live_ipv4();
+		char ip_str[NET_IPV4_ADDR_LEN];
+
+		if (live) {
+			net_addr_ntop(AF_INET, live, ip_str, sizeof(ip_str));
+			shell_print(ctx, "ip: %s (%s)", ip_str,
+				    gut_params.use_dhcp ? "DHCP" : "static");
+		} else {
+			shell_print(ctx, "ip: (no address, stored=%s)", gut_params.ip_addr);
+		}
 		return 0;
+	}
+	if (gut_params.use_dhcp) {
+		shell_error(ctx, "cannot set static IP in DHCP mode");
+		return -EINVAL;
 	}
 	if (strlen(argv[1]) >= sizeof(gut_params.ip_addr)) {
 		shell_error(ctx, "ip too long");
