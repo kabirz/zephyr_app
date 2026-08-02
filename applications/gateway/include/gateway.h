@@ -85,6 +85,12 @@ extern volatile bool gw_net_link_up;
  * 接口声明
  * ================================================================ */
 
+/* led.c */
+void gw_led_init(void);            /* 初始化三路 LED: PA1常亮, PA2灭, PA3灭 */
+void gw_led_sys_on(void);          /* 点亮系统灯 PA3 */
+void gw_led_error_on(void);        /* 点亮错误灯 PA2 (锁定, 不可灭) */
+void gw_led_rf24_activity(void);   /* 标记 2.4G 收发活动 (仅更新时间戳, 零阻塞) */
+
 /* rf24.c */
 void gw_rf24_init(void);
 void gw_rf24_set_config(uint8_t channel, const uint8_t *addr);

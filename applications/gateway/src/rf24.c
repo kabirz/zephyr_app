@@ -56,6 +56,7 @@ void gw_rf24_init(void)
 {
 	if (!device_is_ready(rf24_dev)) {
 		LOG_ERR("nRF24 device not ready");
+		gw_led_error_on();   /* 关键硬件初始化失败, 点亮错误灯 */
 		return;
 	}
 
@@ -70,6 +71,7 @@ void gw_rf24_init(void)
 
 	if (ret != 0) {
 		LOG_ERR("nRF24 start RX failed: %d", ret);
+		gw_led_error_on();
 		return;
 	}
 	LOG_INF("nRF24 ready (PRX, ch=%d)", gw_params.rf24_channel);
@@ -104,6 +106,8 @@ bool gw_rf24_send(uint16_t can_id, const uint8_t *data, size_t len)
 		LOG_WRN("nRF24 send failed (id=0x%03x ret=%d)", can_id, ret);
 		return false;
 	}
+
+	gw_led_rf24_activity();   /* 标记 2.4G 发送活动 (零阻塞) */
 	return true;
 }
 
@@ -126,6 +130,8 @@ static void rf24_rx_thread(void)
 		if (frame.len < RF24_ID_SIZE) {
 			continue;
 		}
+
+		gw_led_rf24_activity();   /* 标记 2.4G 接收活动 (零阻塞) */
 
 		uint16_t can_id = sys_get_be16(frame.data);
 		uint8_t data_len = frame.len - RF24_ID_SIZE;

@@ -10,6 +10,25 @@
 		zephyr,ethernet = &eth0;
 		zephyr,settings-partition = &cfg_partition;
 	};
+
+	aliases {
+		led-rf24 = &led_rf24;   /* PA1: 2.4G 状态灯 (低电平亮) */
+		led-err  = &led_err;    /* PA2: 错误灯 (低电平亮) */
+		led-sys  = &led_sys;    /* PA3: 系统灯 (低电平亮) */
+	};
+
+	gpio_leds: leds {
+		compatible = "gpio-leds";
+		led_rf24: led-rf24 {
+			gpios = <&gpioa 1 GPIO_ACTIVE_LOW>;
+		};
+		led_err: led-err {
+			gpios = <&gpioa 2 GPIO_ACTIVE_LOW>;
+		};
+		led_sys: led-sys {
+			gpios = <&gpioa 3 GPIO_ACTIVE_LOW>;
+		};
+	};
 };
 
 /* ================================================================

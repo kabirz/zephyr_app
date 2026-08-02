@@ -14,4 +14,5 @@ target_sources(app PRIVATE
   src/config.c
   src/persist.c
   src/udp.c
+  src/led.c
 )
