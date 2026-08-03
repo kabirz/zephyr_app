@@ -69,6 +69,7 @@ static int cmd_gut_info(const struct shell *ctx, size_t argc, char **argv)
 		    gut_params.rf24_addr[2], gut_params.rf24_addr[3],
 		    gut_params.rf24_addr[4]);
 	shell_print(ctx, "echo:      %s", gut_params.echo ? "on" : "off");
+	shell_print(ctx, "log:       %s", gut_params.log ? "on" : "off");
 	shell_print(ctx, "running:   %s", gut_params.running ? "yes" : "no");
 	return 0;
 }
@@ -157,6 +158,24 @@ static int cmd_gut_echo(const struct shell *ctx, size_t argc, char **argv)
 	return 0;
 }
 
+static int cmd_gut_log(const struct shell *ctx, size_t argc, char **argv)
+{
+	if (argc < 2) {
+		shell_print(ctx, "log: %s", gut_params.log ? "on" : "off");
+		return 0;
+	}
+	if (strcmp(argv[1], "on") == 0) {
+		gut_params.log = true;
+	} else if (strcmp(argv[1], "off") == 0) {
+		gut_params.log = false;
+	} else {
+		shell_error(ctx, "usage: gut log [on|off]");
+		return -EINVAL;
+	}
+	shell_print(ctx, "log: %s", gut_params.log ? "on" : "off");
+	return 0;
+}
+
 static int cmd_gut_ip(const struct shell *ctx, size_t argc, char **argv)
 {
 	if (argc < 2) {
@@ -213,6 +232,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 		      cmd_gut_send, 3, 16),
 	SHELL_CMD_ARG(ping, NULL, "Send TEST_FRAME (0x777) [count=5]", cmd_gut_ping, 1, 1),
 	SHELL_CMD_ARG(echo, NULL, "Data port echo [on|off]", cmd_gut_echo, 1, 1),
+	SHELL_CMD_ARG(log, NULL, "UDP tx/rx debug log [on|off]", cmd_gut_log, 1, 1),
 	SHELL_CMD_ARG(ip, NULL, "Get/set IP <addr>", cmd_gut_ip, 1, 1),
 	SHELL_CMD_ARG(port, NULL, "Get/set data port <1-65535>", cmd_gut_port, 1, 1),
 	SHELL_SUBCMD_SET_END);

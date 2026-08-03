@@ -100,6 +100,10 @@ void gut_udp_send(const uint8_t *data, size_t len)
 	}
 
 	sendto(data_sock, data, len, 0, (struct sockaddr *)&dst, sizeof(dst));
+
+	if (gut_params.log && len >= 2) {
+		LOG_INF("TX id=0x%03x len=%zu", sys_get_be16(data), len);
+	}
 }
 
 /* ================================================================
@@ -286,7 +290,9 @@ static void udp_data_rx_thread(void)
 		if (received >= 2) {
 			uint16_t can_id = sys_get_be16(buf);
 
-			LOG_DBG("UDP RX: id=0x%03x len=%zd", can_id, received);
+			if (gut_params.log) {
+				LOG_INF("RX id=0x%03x len=%zd", can_id, received);
+			}
 
 			/* echo 模式: 原样回发收到的帧 (含帧 ID) */
 			if (gut_params.echo) {

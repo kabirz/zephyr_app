@@ -330,6 +330,18 @@ static int cmd_rf24_diag(const struct shell *ctx, size_t argc, char **argv)
 	return 0;
 }
 
+/* rf24 log [0/1]: 开关 nRF24 收发详细日志 (TX/RX id + len + acked/retrans) */
+static int cmd_rf24_log(const struct shell *ctx, size_t argc, char **argv)
+{
+	if (argc < 2) {
+		shell_print(ctx, "rf24 log: %s", gw_params.log ? "on" : "off");
+		return 0;
+	}
+	gw_params.log = (atoi(argv[1]) != 0);
+	shell_print(ctx, "rf24 log: %s", gw_params.log ? "on" : "off");
+	return 0;
+}
+
 SHELL_STATIC_SUBCMD_SET_CREATE(
 	sub_rf24_cmds,
 	SHELL_CMD_ARG(info, NULL, "Show RF24 channel/addr/state", cmd_rf24_info, 1, 0),
@@ -339,8 +351,9 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 	SHELL_CMD_ARG(ping, NULL, "Ping test [count=5] [interval_ms=200]", cmd_rf24_ping, 1, 2),
 	SHELL_CMD_ARG(listen, NULL, "Listen mode [on|off] (auto echo + print DATA)", cmd_rf24_listen,
 		      1, 1),
-	SHELL_CMD_ARG(diag, NULL, "Dump nRF24 hardware registers", cmd_rf24_diag, 1, 0),
-	SHELL_SUBCMD_SET_END);
+		SHELL_CMD_ARG(diag, NULL, "Dump nRF24 hardware registers", cmd_rf24_diag, 1, 0),
+		SHELL_CMD_ARG(log, NULL, "Enable/disable RF24 tx/rx debug log [0/1]", cmd_rf24_log, 1, 1),
+		SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(rf24, &sub_rf24_cmds, "RF24 (nRF24L01+) link test", NULL);
 

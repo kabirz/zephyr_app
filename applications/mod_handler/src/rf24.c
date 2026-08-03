@@ -258,6 +258,10 @@ static void rf24_rx_thread(void)
 		uint16_t can_id = sys_get_be16(frame.data);
 		uint8_t data_len = frame.len - RF24_ID_SIZE;
 
+		if (global_params.log) {
+			LOG_INF("RX id=0x%03x len=%d", can_id, data_len);
+		}
+
 		/* 测试帧 (TEST_FRAME): 交给 rf24_shell 处理 (ping/echo/data) */
 		if (can_id == TEST_FRAME) {
 			rf24_test_handle_rx(frame.data + RF24_ID_SIZE, data_len);

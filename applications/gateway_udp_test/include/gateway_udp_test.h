@@ -75,6 +75,7 @@ typedef struct {
 	/* 运行状态 */
 	volatile bool running;
 	bool echo;            /* 数据端口回显开关 (shell 控制) */
+	bool log;             /* UDP 收发详细日志开关 (shell: gut log [0/1]) */
 	struct k_event event;
 } gut_params_t;
 

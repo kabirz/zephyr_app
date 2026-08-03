@@ -72,6 +72,7 @@ typedef struct {
 
 	/* 运行状态 */
 	volatile bool running;
+	bool log;             /* nRF24 收发详细日志开关 (shell: rf24 log [0/1]) */
 	struct k_event event;
 } gateway_params_t;
 

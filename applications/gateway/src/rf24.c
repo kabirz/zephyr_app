@@ -132,6 +132,11 @@ bool gw_rf24_send(uint16_t can_id, const uint8_t *data, size_t len)
 		return false;
 	}
 
+	if (gw_params.log) {
+		LOG_INF("TX id=0x%03x len=%zu acked=%d retrans=%d", can_id, len,
+			result.acked, result.retransmits);
+	}
+
 	gw_led_rf24_activity();   /* 标记 2.4G 发送活动 (零阻塞) */
 	return true;
 }
@@ -172,6 +177,10 @@ static void rf24_rx_thread(void)
 		uint8_t data_len = frame.len - RF24_ID_SIZE;
 		const uint8_t *data = frame.data + RF24_ID_SIZE;
 
+		if (gw_params.log) {
+			LOG_INF("RX id=0x%03x len=%d", can_id, data_len);
+		}
+
 		/* 测试帧 (TEST_FRAME): 交给 rf24_shell 处理 (ping/echo/data) */
 		if (can_id == TEST_FRAME) {
 			rf24_test_handle_rx(data, data_len);
@@ -185,7 +194,6 @@ static void rf24_rx_thread(void)
 
 		/* nRF24 数据通过 UDP 转发给上位机 */
 		gw_udp_send(frame.data, frame.len);
-		LOG_DBG("nRF24->UDP: id=0x%03x len=%d", can_id, frame.len);
 	}
 }
 
