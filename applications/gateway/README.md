@@ -74,11 +74,13 @@ west flash
 
 业务命令从 0x12 起；0x01-0x05 由 `udp_fw_upgrade` 库内部处理 (FW_START/DATA/END/GET_VERSION/REBOOT)。
 
+> **升级 keyhash 校验（默认开启）**：`udp_fw_upgrade` 库在编译期由 `CONFIG_MCUBOOT_SIGNATURE_KEY_FILE` 派生 32B keyhash（SHA-256 of RSA 公钥 PKCS#1 DER，即镜像 `IMG_TLV_KEYHASH`）。新上位机可在 0x01 FW_START 后追加该 keyhash，不一致时回状态 2 拒绝且不擦写 flash；老上位机发不带 keyhash 的旧 4B 帧仍放行，兼容旧协议。
+
 > **网络参数**：静态模式下掩码固定 `255.255.255.0`，网关 = 设备 IP 末段改 1 (`a.b.c.x` → `a.b.c.1`)，均由固件运行时派生，不在帧中传输。DHCP 模式下 IP/掩码/网关由 DHCP 服务器分配，`GET_NET` 回复的是 live interface 的实际地址（DHCP 模式下上位机可广播 `GET_NET` 发现设备）。`config_port` 固定 9200，不在响应中返回（上位机硬编码）。
 
 | 命令 | 格式 | 说明 |
 |------|------|------|
-| 0x01 | `[0x01][size 4B LE]` | 开始固件升级 (库处理, 回 `[0x01][1/0]`) |
+| 0x01 | `[0x01][size 4B LE][keyhash 32B]` | 开始固件升级 (库处理, 回 `[0x01][1/0/2]`；`[keyhash 32B]` 可选，携带时校验不一致回 2 拒绝) |
 | 0x02 | `[0x02][data ≤511B]` | 固件数据 (库处理, 回 `[0x02][offset 4B LE]`) |
 | 0x03 | `[0x03][test 1B][crc 2B LE]` | 结束固件升级并重启 (库处理, 回 `[0x03][1/0]`) |
 | 0x04 | `[0x04]` | 查询版本 (库处理, 回 APP_VERSION_STRING 变长) |

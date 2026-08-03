@@ -20,12 +20,22 @@
 #include <zephyr/sys/reboot.h>
 #include "can_fw_upgrade.h"
 
+#ifdef CONFIG_MCUBOOT_SIGNATURE_KEY_FILE
+#include <fw_keyhash.h>
+#endif
+
 LOG_MODULE_REGISTER(can_fw_upgrade, LOG_LEVEL_INF);
 
 /* CAN 帧 ID */
 #define CAN_FW_PLATFORM_RX  0x101
 #define CAN_FW_PLATFORM_TX  0x102
 #define CAN_FW_FW_DATA_RX   0x103
+#define CAN_FW_KEYHASH_RX   0x104   /* keyhash 帧: data[0]=seq, data[1..7]=7B chunk */
+
+/* keyhash 分帧: 每帧 1B seq + 7B keyhash (CAN DLC 上限 8B), 32B 需 5 帧 */
+#define CAN_FW_KEYHASH_CHUNK_BYTES 7
+#define CAN_FW_KEYHASH_CHUNKS ((FW_KEYHASH_KEY_LEN + CAN_FW_KEYHASH_CHUNK_BYTES - 1) / CAN_FW_KEYHASH_CHUNK_BYTES)
+#define CAN_FW_KEYHASH_FULL_MASK ((1U << CAN_FW_KEYHASH_CHUNKS) - 1)
 
 /* 命令码 */
 enum fw_cmd {
@@ -43,6 +53,7 @@ enum fw_code {
 	FW_CODE_CONFIRM,
 	FW_CODE_FLASH_ERROR,
 	FW_CODE_TRANFER_ERROR,
+	FW_CODE_KEYHASH_ERROR,   /* keyhash 不一致, 已拒绝升级 */
 };
 
 #define SLOT1_PARTITION_ID PARTITION_ID(slot1_partition)
@@ -61,6 +72,12 @@ static struct can_fw_handler handlers[CONFIG_CAN_FW_UPGRADE_MAX_HANDLERS];
 
 static struct flash_img_context flash_img_ctx;
 static bool fw_img_initialized;
+
+#ifdef CONFIG_MCUBOOT_SIGNATURE_KEY_FILE
+/* 上位机 keyhash 累积缓冲 (4 x 8B 分帧) + 到齐位图 */
+static uint8_t rx_keybuf[FW_KEYHASH_KEY_LEN];
+static uint8_t key_chunk_mask;
+#endif
 
 /* RX msgq (全接收过滤器投递目标) */
 K_MSGQ_DEFINE(can_fw_rx_msgq, sizeof(struct can_frame), 8, 4);
@@ -94,6 +111,20 @@ static void handle_platform_rx(struct can_frame *frame)
 			fw_can_reply(FW_CODE_FLASH_ERROR, 0);
 			return;
 		}
+
+#ifdef CONFIG_MCUBOOT_SIGNATURE_KEY_FILE
+		/* 升级前 keyhash 校验: 仅当上位机先前把 4 帧 keyhash (0x104) 送齐才校验;
+		 * 不一致 → 拒绝且不触碰 slot1 flash. 老上位机不发 key 帧则放行 (兼容). */
+		if ((key_chunk_mask & CAN_FW_KEYHASH_FULL_MASK) == CAN_FW_KEYHASH_FULL_MASK) {
+			key_chunk_mask = 0;
+
+			if (memcmp(rx_keybuf, fw_keyhash, FW_KEYHASH_KEY_LEN) != 0) {
+				LOG_WRN("FW upgrade rejected: keyhash mismatch");
+				fw_can_reply(FW_CODE_KEYHASH_ERROR, 0);
+				return;
+			}
+		}
+#endif
 
 		if (!fw_img_initialized) {
 			const struct flash_area *fa;
@@ -152,6 +183,30 @@ static void handle_platform_rx(struct can_frame *frame)
 }
 
 /* ================================================================
+ * keyhash 帧处理 (0x104): data[0]=seq(0..3), data[1..8]=8B chunk
+ * 累积到 rx_keybuf, 全部到齐置 full mask, 供 START_UPDATE 校验用。
+ * ================================================================ */
+#ifdef CONFIG_MCUBOOT_SIGNATURE_KEY_FILE
+static void handle_keyhash_frame(struct can_frame *frame)
+{
+	uint8_t seq = frame->data[0];
+	uint8_t rem = FW_KEYHASH_KEY_LEN - seq * CAN_FW_KEYHASH_CHUNK_BYTES;
+	uint8_t chunk = MIN(rem, CAN_FW_KEYHASH_CHUNK_BYTES);
+	uint8_t bytes = can_dlc_to_bytes(frame->dlc);
+
+	if (seq >= CAN_FW_KEYHASH_CHUNKS || bytes < 1 + chunk) {
+		LOG_WRN("keyhash frame invalid, seq=%u dlc=%u", seq, frame->dlc);
+		return;
+	}
+
+	memcpy(&rx_keybuf[seq * CAN_FW_KEYHASH_CHUNK_BYTES], &frame->data[1], chunk);
+	key_chunk_mask |= (1U << seq);
+
+	LOG_INF("keyhash chunk %u/%d received", seq, CAN_FW_KEYHASH_CHUNKS);
+}
+#endif
+
+/* ================================================================
  * 固件数据帧处理 (0x103)
  * ================================================================ */
 static void handle_fw_data(struct can_frame *frame)
@@ -193,6 +248,10 @@ static void can_fw_rx_thread_fn(void *p1, void *p2, void *p3)
 			handle_platform_rx(&frame);
 		} else if (frame.id == CAN_FW_FW_DATA_RX) {
 			handle_fw_data(&frame);
+#ifdef CONFIG_MCUBOOT_SIGNATURE_KEY_FILE
+		} else if (frame.id == CAN_FW_KEYHASH_RX) {
+			handle_keyhash_frame(&frame);
+#endif
 		} else {
 			/* 广播给所有已注册的业务帧 handler; 若均未处理则告警 */
 			bool handled = false;

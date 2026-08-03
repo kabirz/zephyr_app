@@ -9,7 +9,12 @@
  * 其他配置命令通过应用注册的回调分发, 应用无需调用任何 init。
  *
  * 固件升级协议 (配置端口, 帧 [cmd 1B][data...]):
- *   FW_START 0x1 [size 4B LE]  → 回 [0x1][1/0]
+ *   FW_START 0x1 [size 4B LE][keyhash 32B opt]  → 回 [0x1][status]
+ *                      [keyhash 32B] 可选: 仅在签名 key 已配置 (默认开启) 时校验
+ *                      时, 且上位机携带该字段 (len==4+32) 才校验; 不一致 →
+ *                      回 [0x1][2], 拒绝升级. 老上位机发 4B 帧 (不带 keyhash)
+ *                      仍放行 (兼容旧协议).
+ *                      status: 0=启动失败, 1=已开始, 2=keyhash 不一致
  *   FW_DATA  0x2 [data ≤511B]  → 回 [0x2][offset 4B LE]
  *   FW_END   0x3 [test 1B][crc 2B LE] → 回 [0x3][1/0]
  */

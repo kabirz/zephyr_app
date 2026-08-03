@@ -28,6 +28,10 @@
 #include <zephyr/sys/reboot.h>
 #include "udp_fw_upgrade.h"
 
+#ifdef CONFIG_MCUBOOT_SIGNATURE_KEY_FILE
+#include <fw_keyhash.h>
+#endif
+
 LOG_MODULE_REGISTER(udp_fw_upgrade, LOG_LEVEL_INF);
 
 /* 库内命令码 (配置端口帧首字节, 从 0 开始连续编号, 对齐 can_fw_upgrade).
@@ -41,6 +45,13 @@ enum fw_cmd {
 };
 
 #define SLOT1_PARTITION_ID PARTITION_ID(slot1_partition)
+
+/* FW_START 应答状态字节 (保持旧值时兼容既有上位机) */
+enum fw_start_status {
+	FW_START_ERR_FAIL     = 0,  /* 启动失败 (擦除/初始化) 或未开始 */
+	FW_START_OK           = 1,  /* 校验通过, 已开始升级 (原有语义) */
+	FW_START_ERR_KEYHASH  = 2,  /* keyhash 不一致, 已拒绝 */
+};
 
 /* ================================================================
  * 全局状态
@@ -167,11 +178,25 @@ static bool fw_verify_crc(uint16_t recv_crc)
 static bool handle_fw_cmd(uint8_t cmd, const uint8_t *data, size_t len)
 {
 	switch (cmd) {
-	case FW_CMD_START: {
-		uint8_t status = 0;
+case FW_CMD_START: {
+		uint8_t status = FW_START_ERR_FAIL;
 
 		if (!fw_started && len >= 4) {
 			fw_size = sys_get_le32(data);
+
+			/* 升级前 keyhash 校验 (CONFIG_MCUBOOT_SIGNATURE_KEY_FILE): 仅当上位机在
+			 * FW_START 携带 [keyhash 32B] (len==4+32) 时才校验; 老上位机发
+			 * 旧 4B 帧 (无 keyhash) 时放行, 兼容旧协议. 不一致则拒绝且不触 flash. */
+#ifdef CONFIG_MCUBOOT_SIGNATURE_KEY_FILE
+			if (len == 4 + FW_KEYHASH_KEY_LEN &&
+			    memcmp(data + 4, fw_keyhash, FW_KEYHASH_KEY_LEN) != 0) {
+				LOG_WRN("FW_START rejected: keyhash mismatch");
+				status = FW_START_ERR_KEYHASH;
+				udp_fw_reply(cmd, &status, 1);
+				return true;
+			}
+#endif
+
 			const struct flash_area *fa;
 
 			if (flash_area_open(SLOT1_PARTITION_ID, &fa) != 0) {
@@ -184,7 +209,7 @@ static bool handle_fw_cmd(uint8_t cmd, const uint8_t *data, size_t len)
 				} else {
 					fw_started = true;
 					fw_received = 0;
-					status = 1;
+					status = FW_START_OK;
 					LOG_INF("FW upgrade started, size=%u", fw_size);
 				}
 			}

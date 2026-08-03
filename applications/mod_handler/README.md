@@ -141,6 +141,7 @@ Row 0 图标说明:
 | 0x101 | 平台 → 手柄 | 控制命令（升级启动/确认/版本查询/重启） |
 | 0x102 | 手柄 → 平台 | 响应帧 |
 | 0x103 | 平台 → 手柄 | 固件数据传输 |
+| 0x104 | 平台 → 手柄 | 升级 keyhash (5 帧: `[seq 1B][chunk 7B]`, 共 32B) |
 | 0x763 | 手柄 → 平台 | 心跳保活 (800ms) |
 | 0x1E3 | 手柄 → 平台 | 手柄状态 (X/Y 角度 BE + 按键 + 保留) |
 | 0x263 | 平台 → 手柄 | 超欠挖 + 激光测距数据 |
@@ -220,11 +221,14 @@ link rf24      -- 切换到 2.4G (nRF24L01+) 模式
 
 使用 `libs/can_fw_upgrade` 共享库，协议与 gateway 一致。
 
-1. 平台通过 CAN 帧 0x101 发送升级启动命令
-2. 手柄初始化外部 SPI Flash 写入上下文
-3. 平台通过 CAN 帧 0x103 分片传输固件数据
-4. 传输完成后验证镜像，确认写入成功
-5. MCUBoot 以 swap-with-scratch 模式完成安全切换
+> **升级 keyhash 校验（默认开启）**：编译期由 `CONFIG_MCUBOOT_SIGNATURE_KEY_FILE` 派生 32B keyhash（SHA-256 of RSA 公钥 PKCS#1 DER，即镜像 `IMG_TLV_KEYHASH`）。新上位机在发送 0x101 升级启动命令前，先发 5 帧 0x104 keyhash（每帧 1B seq + 7B 数据）凑齐 32B；启动时校验不一致回 `KEYHASH_ERROR` 且不擦写 Flash。老上位机不发 keyhash 帧仍按原流程放行，兼容旧协议。
+
+1. 平台通过 CAN 帧 0x104 分 5 帧发送 32B keyhash（新上位机，可跳过兼容）
+2. 平台通过 CAN 帧 0x101 发送升级启动命令
+3. 手柄初始化外部 SPI Flash 写入上下文
+4. 平台通过 CAN 帧 0x103 分片传输固件数据
+5. 传输完成后验证镜像，确认写入成功
+6. MCUBoot 以 swap-with-scratch 模式完成安全切换
 
 ## 引脚分配
 
