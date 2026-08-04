@@ -2016,6 +2016,11 @@
 <td>固件数据传输</td>
 </tr>
 <tr>
+<td>0x104</td>
+<td>平台 → 手柄</td>
+<td>升级 keyhash (5 帧: <code>[seq 1B][chunk 7B]</code>, 共 32B)</td>
+</tr>
+<tr>
 <td>0x763</td>
 <td>手柄 → 平台</td>
 <td>心跳保活 (800ms)</td>
@@ -2057,13 +2062,13 @@
 <td>0-1</td>
 <td>2</td>
 <td>coord_x</td>
-<td>int16_t BE, 单位 0.1°</td>
+<td>int16_t BE, 单位 1°</td>
 </tr>
 <tr>
 <td>2-3</td>
 <td>2</td>
 <td>coord_y</td>
-<td>int16_t BE, 单位 0.1°</td>
+<td>int16_t BE, 单位 1°</td>
 </tr>
 <tr>
 <td>4</td>
@@ -2202,7 +2207,11 @@
 </span></code></pre></div>
 <h2 id="ota">OTA 升级流程<a class="headerlink" href="#ota" title="Permanent link">&para;</a></h2>
 <p>使用 <code>libs/can_fw_upgrade</code> 共享库，协议与 gateway 一致。</p>
+<blockquote>
+<p><strong>升级 keyhash 校验（默认开启）</strong>：编译期由 <code>CONFIG_MCUBOOT_SIGNATURE_KEY_FILE</code> 派生 32B keyhash（SHA-256 of RSA 公钥 PKCS#1 DER，即镜像 <code>IMG_TLV_KEYHASH</code>）。新上位机在发送 0x101 升级启动命令前，先发 5 帧 0x104 keyhash（每帧 1B seq + 7B 数据）凑齐 32B；启动时校验不一致回 <code>KEYHASH_ERROR</code> 且不擦写 Flash。老上位机不发 keyhash 帧仍按原流程放行，兼容旧协议。</p>
+</blockquote>
 <ol>
+<li>平台通过 CAN 帧 0x104 分 5 帧发送 32B keyhash（新上位机，可跳过兼容）</li>
 <li>平台通过 CAN 帧 0x101 发送升级启动命令</li>
 <li>手柄初始化外部 SPI Flash 写入上下文</li>
 <li>平台通过 CAN 帧 0x103 分片传输固件数据</li>
