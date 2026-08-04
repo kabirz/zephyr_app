@@ -24,11 +24,3 @@ config GATEWAY_DATA_RX_PRIORITY
 config GATEWAY_UDP_INIT_PRIORITY
 	int "UDP app handler init priority (must run before udp_fw_upgrade lib)"
 	default 80
-
-config GATEWAY_LED_STACK
-	int "LED status thread stack size"
-	default 512
-
-config GATEWAY_LED_PRIORITY
-	int "LED status thread priority (lowest, do not preempt business threads)"
-	default 14

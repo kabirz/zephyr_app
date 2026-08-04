@@ -194,7 +194,7 @@ int main(void)
 	/* 加载持久化配置 (覆盖默认值) */
 	gw_config_load();
 
-	/* 初始化状态灯 (PA1 rf24 就绪常亮, PA2 灭, PA3 灭) */
+	/* 初始化状态灯 (PA1 rf24 常亮收发闪, PA2 sys 灭, PA3 err 灭) */
 	gw_led_init();
 
 	/* 初始化各模块 */
@@ -216,7 +216,7 @@ int main(void)
 	gw_params.running = true;
 	LOG_INF("Gateway ready");
 
-	/* 点亮系统灯 PA3 - 标志进入主循环 (系统就绪) */
+	/* 点亮系统灯 PA2 - 标志进入主循环 (系统就绪) */
 	gw_led_sys_on();
 
 	while (1) {

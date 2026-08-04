@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * 三路状态灯管理
- *   PA1 (led_rf24): 2.4G 状态灯 - rf24 初始化完成后常亮, 收发时闪烁
- *   PA2 (led_err):  错误灯     - 栈溢出/hardfault/关键硬件初始化失败点亮, 锁定不灭
- *   PA3 (led_sys):  系统灯     - 进入 main 循环前点亮
+ *   PA1 (led_rf24): 2.4G 活动灯 - 平时常亮, 收发时以固定频率闪烁
+ *   PA3 (led_err):  错误灯     - 栈溢出/hardfault/关键硬件初始化失败点亮, 锁定不灭
+ *   PA2 (led_sys):  系统灯     - 进入 main 循环前点亮
  *
  * 全部低电平亮 (GPIO_ACTIVE_LOW), 通过 DT 描述; 代码用 gpio_pin_set_dt 的逻辑电平
  * (1=亮, 0=灭), 不关心物理极性.
@@ -23,21 +23,24 @@ static const struct gpio_dt_spec led_rf24 = GPIO_DT_SPEC_GET(DT_ALIAS(led_rf24),
 static const struct gpio_dt_spec led_err  = GPIO_DT_SPEC_GET(DT_ALIAS(led_err), gpios);
 static const struct gpio_dt_spec led_sys  = GPIO_DT_SPEC_GET(DT_ALIAS(led_sys), gpios);
 
-/* 2.4G 收发活动时间戳 (由收发路径无锁更新, LED 线程读取).
- * 32-bit ms 回绕周期 ~49 天, 单调足够; 读写在 32-bit ARM 上原子. */
+static void led_blink_work_handler(struct k_work *work);
+
+/* 2.4G 活动指示: 平时常亮, 收发时以固定频率闪烁 (亮/灭各半周期).
+ * 用固定频率翻转而非跟随每次收发 —— 高速通信时收发间隔远小于人眼
+ * 响应, 跟随式亮脉冲/灭窗都会被吞掉 (退化为常亮或常灭, 完全无感);
+ * 固定 ~5Hz 翻转无论通信快慢都稳定可见. 收发停止超过超时后恢复常亮. */
+#define RF24_BLINK_HALF_PERIOD_MS  100   /* 半周期: 亮100ms灭100ms → 5Hz */
+#define RF24_ACTIVITY_TIMEOUT_MS   400   /* 无收发超过此值视为通信停止, 恢复常亮 */
+static struct k_work_delayable led_blink_work;
 static volatile uint32_t rf24_last_activity;
-/* 错误灯锁定标志 - 一旦置位, LED 线程不再干预 PA2 */
+/* 闪烁周期是否在跑 (避免收发路径重复提交 work) */
+static volatile bool blinking;
+
+/* 错误灯锁定标志 - 一旦置位, 不再熄灭 */
 static volatile bool error_latched;
 
-/* 活动闪烁窗口: 最后一次收发后此时间内灯灭, 之后恢复常亮.
- * 80ms 让肉眼能感知单帧引发的短暂熄灭, 又不会在连续流量时频繁抖动. */
-#define RF24_ACTIVITY_WINDOW_MS  80
-/* LED 线程扫描周期: 小于闪烁窗口以保证熄灭期不被漏判 */
-#define LED_SCAN_PERIOD_MS       30
-
 /* ================================================================
- * 初始化: PA1/PA2/PA3 配置为输出, 默认全灭; 随后点亮 PA1
- * (rf24 驱动初始化紧随其后, 此处点灯即"2.4G 模块就绪"指示).
+ * 初始化: PA1/PA2/PA3 配置为输出, 默认全灭; 随后点亮 PA1 (常亮=就绪).
  * ================================================================ */
 void gw_led_init(void)
 {
@@ -45,9 +48,12 @@ void gw_led_init(void)
 	gpio_pin_configure_dt(&led_err,  GPIO_OUTPUT_INACTIVE);
 	gpio_pin_configure_dt(&led_sys,  GPIO_OUTPUT_INACTIVE);
 
-	gpio_pin_set_dt(&led_rf24, 1);   /* 2.4G 就绪常亮 */
+	gpio_pin_set_dt(&led_rf24, 1);   /* 平时常亮 (2.4G 就绪) */
 	gpio_pin_set_dt(&led_err,  0);
 	gpio_pin_set_dt(&led_sys,  0);
+
+	k_work_init_delayable(&led_blink_work, led_blink_work_handler);
+	blinking = false;
 }
 
 void gw_led_sys_on(void)
@@ -61,40 +67,37 @@ void gw_led_error_on(void)
 	gpio_pin_set_dt(&led_err, 1);
 }
 
-void gw_led_rf24_activity(void)
+/* 闪烁翻转: 每半个周期翻转一次 LED.
+ * 仍在活跃窗口内 → 翻转 + 排下一次; 超时 (通信停止) → 停止翻转, 置常亮. */
+static void led_blink_work_handler(struct k_work *work)
 {
-	/* 仅一次赋值, 收发热路径零阻塞, 不取锁 */
-	rf24_last_activity = k_uptime_get_32();
-}
+	ARG_UNUSED(work);
 
-/* ================================================================
- * LED 扫描线程 (最低优先级, 不抢占任何业务线程)
- *   - 错误灯锁定后保持亮 (不灭)
- *   - PA1 在活动窗口内灭, 窗口外常亮 (高频收发持续灭, 间歇收发闪烁)
- * ================================================================ */
-static void led_thread(void)
-{
-	uint32_t last_rf24_state = 1;  /* 初始常亮, 避免启动时多余翻转 */
+	uint32_t elapsed = k_uptime_get_32() - rf24_last_activity;
 
-	while (1) {
-		uint32_t now = k_uptime_get_32();
-		uint32_t last = rf24_last_activity;
-		/* 处理 32-bit 回绕: (now - last) 在无符号减法下天然正确 */
-		uint32_t elapsed = now - last;
-		uint32_t target = (elapsed < RF24_ACTIVITY_WINDOW_MS) ? 0 : 1;
+	if (elapsed < RF24_ACTIVITY_TIMEOUT_MS) {
+		/* 用读当前电平来翻转, 避免维护额外状态变量 */
+		int cur = gpio_pin_get_dt(&led_rf24);
 
-		/* 仅在状态变化时写 GPIO, 减少 bus 访问 */
-		if (target != last_rf24_state) {
-			gpio_pin_set_dt(&led_rf24, target);
-			last_rf24_state = target;
-		}
-
-		k_msleep(LED_SCAN_PERIOD_MS);
+		gpio_pin_set_dt(&led_rf24, cur ? 0 : 1);
+		k_work_reschedule(&led_blink_work, K_MSEC(RF24_BLINK_HALF_PERIOD_MS));
+	} else {
+		/* 通信停止: 恢复常亮, 标记闪烁周期结束 */
+		gpio_pin_set_dt(&led_rf24, 1);
+		blinking = false;
 	}
 }
 
-K_THREAD_DEFINE(thread_led, CONFIG_GATEWAY_LED_STACK, led_thread, NULL, NULL, NULL,
-		CONFIG_GATEWAY_LED_PRIORITY, 0, 0);
+void gw_led_rf24_activity(void)
+{
+	rf24_last_activity = k_uptime_get_32();
+	/* 仅在闪烁未启动时提交, 避免收发路径重复排 work (零阻塞) */
+	if (!blinking) {
+		blinking = true;
+		gpio_pin_set_dt(&led_rf24, 0);   /* 进入闪烁: 先灭, 开始第一个半周期 */
+		k_work_reschedule(&led_blink_work, K_MSEC(RF24_BLINK_HALF_PERIOD_MS));
+	}
+}
 
 /* ================================================================
  * Zephyr fatal error handler - 覆盖默认弱符号

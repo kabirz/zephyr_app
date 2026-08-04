@@ -28,6 +28,9 @@ west flash
 | W5500 SCK/MISO/MOSI | PB3/PB4/PB5 | SPI3 | 8MHz |
 | W5500 CS | PA15 | SPI3 | 片选 |
 | W5500 INT / RST | PD2 / PC12 | — | 中断 / 复位 |
+| LED rf24 | PA1 | GPIO | 2.4G 活动灯 (平时常亮, 收发时 5Hz 闪烁) |
+| LED err | PA3 | GPIO | 错误灯 (栈溢出/hardfault 点亮锁定) |
+| LED sys | PA2 | GPIO | 系统灯 (进入主循环点亮) |
 
 > PB3/PB4/PA15 是 JTAG 引脚，Zephyr pinctrl 使用 SPI3 时自动释放 JTAG（保留 SWD）。
 
@@ -119,6 +122,7 @@ gateway/
   include/gateway.h          -- 公共定义 (帧 ID 枚举、配置参数)
   src/
     main.c                   -- 入口 + 网络初始化 (W5500 静态 IP)
+    led.c                    -- 三路状态灯 (PA1 rf24 活动 / PA2 sys / PA3 err)
     rf24.c                   -- nRF24L01P 收发
     rf24_shell.c             -- rf24 shell 测试命令
     udp.c                    -- UDP 透传 + 配置 + 固件升级
