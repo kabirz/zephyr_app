@@ -45,7 +45,7 @@ K_MSGQ_DEFINE(rf24_rx_msgq, sizeof(struct nrf24_frame), 8, 4);
  * 映射 0-4 档, 对应 LoRa 时代 SignalQuality_t
  * (NONE/BAD/FAIR/GOOD/EXCELLENT) 与信号图标 signal_levels[5].
  * ================================================================ */
-#define RF24_QUAL_ALPHA_NUM  3                     /* α = 3/8 ≈ 0.375 */
+#define RF24_QUAL_ALPHA_NUM  1                     /* α = 1/8, 平滑去抖 (原 3/8 对单次冲突波动太敏感) */
 #define RF24_QUAL_ALPHA_DEN  8
 #define RF24_QUAL_FAIL_DROP  (2 * RF24_QUAL_ALPHA_DEN) /* 每次 MAX_RT 失败下拉 2 档 */
 #define RF24_QUAL_INIT       (4 * RF24_QUAL_ALPHA_DEN) /* 初始满档 (×DEN) */
@@ -216,7 +216,8 @@ bool rf24_data_send(uint16_t can_id, const uint8_t *data, size_t len)
 		if (ret == 0 || attempt >= RF24_TX_RETRIES) {
 			break;
 		}
-		rf24_update_rssi(result.acked, result.retransmits);
+		/* 注意: 退避重试中的失败是暂时性冲突, 不更新 RSSI —— 否则一次发送
+		 * 会多次拉低 EMA, 冲突频繁时信号条剧烈抖动. 只用最终结果评估链路. */
 		uint32_t backoff = 1 + (k_uptime_get_32() % RF24_TX_BACKOFF_MS);
 
 		k_msleep(backoff);
