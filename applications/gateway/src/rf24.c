@@ -20,8 +20,7 @@ LOG_MODULE_REGISTER(gw_rf24, LOG_LEVEL_INF);
 #define RF24_PAYLOAD_MAX 32
 #define RF24_ID_SIZE     2
 #define RF24_TX_TIMEOUT  K_MSEC(100)
-#define RF24_TX_RETRIES    3    /* 半双工冲突退避重试次数 */
-#define RF24_TX_BACKOFF_MS 5    /* 随机退避上限 (ms), 下限 1ms */
+#define RF24_TX_RETRIES    5    /* 半双工冲突退避重试次数 (指数退避) */
 
 static const struct device *rf24_dev = DEVICE_DT_GET(DT_NODELABEL(nrf24));
 static K_MUTEX_DEFINE(rf24_tx_mutex);
@@ -126,8 +125,9 @@ bool gw_rf24_send(uint16_t can_id, const uint8_t *data, size_t len)
 	struct nrf24_tx_result result;
 
 	/* 半双工冲突退避重试: 双向自发通信时两边可能同时切 PTX, 互相收不到
-	 * ACK → MAX_RT 双失败. 失败后随机退避再重试, 打破同步避免再次撞车.
-	 * 退避放在 mutex 外, 释放 TX 锁让其他线程可发, 且让出空隙给对端. */
+	 * ACK → MAX_RT 双失败. 失败后指数退避再重试, 打破同步避免再次撞车.
+	 * 退避窗口随重试次数翻倍 (3/7/15/31/63ms 上限), 高冲突时逐步拉开
+	 * 间距, 比固定窗口更易躲开对端连续 PTX. 退避在 mutex 外, 让出空隙. */
 	int ret;
 
 	for (int attempt = 0; ; attempt++) {
@@ -138,8 +138,8 @@ bool gw_rf24_send(uint16_t can_id, const uint8_t *data, size_t len)
 		if (ret == 0 || attempt >= RF24_TX_RETRIES) {
 			break;
 		}
-		/* 随机退避 1~5ms: 用 uptime 抖动做简易熵源, 两边不会同步 */
-		uint32_t backoff = 1 + (k_uptime_get_32() % RF24_TX_BACKOFF_MS);
+		/* 指数退避: attempt 0→上限3ms, 1→7, 2→15, 3→31, 4→63; 加 1ms 下限 */
+		uint32_t backoff = 1 + (k_uptime_get_32() % ((1U << (attempt + 1)) + 1));
 
 		k_msleep(backoff);
 	}

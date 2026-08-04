@@ -29,8 +29,7 @@ LOG_MODULE_REGISTER(rf24_radio, LOG_LEVEL_INF);
 #define RF24_PAYLOAD_MAX  32
 #define RF24_ID_SIZE      2
 #define RF24_TX_TIMEOUT   K_MSEC(100)
-#define RF24_TX_RETRIES   3     /* 半双工冲突退避重试次数 */
-#define RF24_TX_BACKOFF_MS 5    /* 随机退避上限 (ms), 下限 1ms */
+#define RF24_TX_RETRIES   5     /* 半双工冲突退避重试次数 (指数退避) */
 
 static const struct device *rf24_dev = DEVICE_DT_GET(DT_NODELABEL(nrf24));
 static K_MUTEX_DEFINE(rf24_tx_mutex); /* 序列化多线程 TX (adc + gpio 按键) */
@@ -216,9 +215,10 @@ bool rf24_data_send(uint16_t can_id, const uint8_t *data, size_t len)
 		if (ret == 0 || attempt >= RF24_TX_RETRIES) {
 			break;
 		}
-		/* 注意: 退避重试中的失败是暂时性冲突, 不更新 RSSI —— 否则一次发送
-		 * 会多次拉低 EMA, 冲突频繁时信号条剧烈抖动. 只用最终结果评估链路. */
-		uint32_t backoff = 1 + (k_uptime_get_32() % RF24_TX_BACKOFF_MS);
+		/* 指数退避: attempt 0→上限3ms, 1→7, 2→15, 3→31, 4→63; 加 1ms 下限.
+		 * 退避中的失败是暂时性冲突, 不更新 RSSI —— 否则一次发送会多次拉低
+		 * EMA, 冲突频繁时信号条剧烈抖动. 只用最终结果评估链路. */
+		uint32_t backoff = 1 + (k_uptime_get_32() % ((1U << (attempt + 1)) + 1));
 
 		k_msleep(backoff);
 	}
