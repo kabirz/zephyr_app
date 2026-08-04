@@ -52,6 +52,10 @@
 		channel = <1>;
 		data-rate = "1m";
 		tx-power = "0dbm";
+		/* 半双工冲突优化: 缩短单次 TX 最坏占用 (ARD×ARC), 让冲突后更快切回
+		 * PRX 给对端 ACK 机会. ARD=1500us + ARC=9 → 最坏 ~13.5ms (默认 4ms×15=60ms). */
+		ard-us = <1500>;
+		arc = <9>;
 	};
 };
 

@@ -29,6 +29,8 @@ LOG_MODULE_REGISTER(rf24_radio, LOG_LEVEL_INF);
 #define RF24_PAYLOAD_MAX  32
 #define RF24_ID_SIZE      2
 #define RF24_TX_TIMEOUT   K_MSEC(100)
+#define RF24_TX_RETRIES   3     /* 半双工冲突退避重试次数 */
+#define RF24_TX_BACKOFF_MS 5    /* 随机退避上限 (ms), 下限 1ms */
 
 static const struct device *rf24_dev = DEVICE_DT_GET(DT_NODELABEL(nrf24));
 static K_MUTEX_DEFINE(rf24_tx_mutex); /* 序列化多线程 TX (adc + gpio 按键) */
@@ -201,13 +203,28 @@ bool rf24_data_send(uint16_t can_id, const uint8_t *data, size_t len)
 
 	struct nrf24_tx_result result;
 
-	k_mutex_lock(&rf24_tx_mutex, K_FOREVER);
-	int ret = nrf24_send(rf24_dev, buf, frame_len, RF24_TX_TIMEOUT, &result);
-	k_mutex_unlock(&rf24_tx_mutex);
+	/* 半双工冲突退避重试: 双向自发通信时两边可能同时切 PTX, 互相收不到
+	 * ACK → MAX_RT 双失败. 失败后随机退避再重试, 打破同步避免再次撞车.
+	 * 退避放在 mutex 外, 释放 TX 锁让其他线程可发, 且让出空隙给对端. */
+	int ret;
+
+	for (int attempt = 0; ; attempt++) {
+		k_mutex_lock(&rf24_tx_mutex, K_FOREVER);
+		ret = nrf24_send(rf24_dev, buf, frame_len, RF24_TX_TIMEOUT, &result);
+		k_mutex_unlock(&rf24_tx_mutex);
+
+		if (ret == 0 || attempt >= RF24_TX_RETRIES) {
+			break;
+		}
+		rf24_update_rssi(result.acked, result.retransmits);
+		uint32_t backoff = 1 + (k_uptime_get_32() % RF24_TX_BACKOFF_MS);
+
+		k_msleep(backoff);
+	}
 
 	if (ret != 0) {
-		LOG_WRN("nRF24 send failed (id=0x%03x ret=%d acked=%d retrans=%d)",
-			can_id, ret, result.acked, result.retransmits);
+		LOG_WRN("nRF24 send failed (id=0x%03x ret=%d tries=%d)", can_id, ret,
+			RF24_TX_RETRIES + 1);
 		rf24_update_rssi(result.acked, result.retransmits);
 		return false;
 	}
