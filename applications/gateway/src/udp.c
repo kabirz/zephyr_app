@@ -6,10 +6,10 @@
  * + 网络配置命令处理 (固件升级由 udp_fw_upgrade 库自管)
  *
  * 双端口架构:
- *   - 数据端口 (默认 9090, 可通过 UDP_CMD_SET_CONFIG 配置, 持久化):
+ *   - 数据端口 (默认 9600, 可通过 UDP_CMD_SET_CONFIG 配置, 持久化):
  *       nRF24 → 上位机数据转发 (gw_udp_send) + 上位机 → nRF24 扫描仪数据透传
  *       转发策略: 目标与本机同子网 → 单播; 跨子网/未学习 → 广播
- *   - 配置端口 (固定 9200, 由 udp_fw_upgrade 库自管):
+ *   - 配置端口 (固定 8601, 由 udp_fw_upgrade 库自管):
  *       库内部处理固件升级命令 (FW_START/DATA/END/VERSION/REBOOT),
  *       其余配置命令 (IP/掩码/网关/端口/RF24) 通过回调分发到此模块.
  *
@@ -228,7 +228,7 @@ static bool app_cmd_handler(uint8_t cmd, const uint8_t *cmd_data, size_t cmd_len
 }
 
 /* ================================================================
- * 数据端口接收线程 (绑定 gw_params.data_port, 默认 9090)
+ * 数据端口接收线程 (绑定 gw_params.data_port, 默认 9600)
  * 收到上位机扫描仪数据帧 → 透传到 nRF24; 同时学习 data_remote_addr
  * (nRF24 数据转发目标, 见 gw_udp_send)
  * ================================================================ */

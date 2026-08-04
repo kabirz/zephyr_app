@@ -269,7 +269,7 @@ void mod_display_scanner(const scanner_data_t *s)
 
 /* Row 1 */
 #if SCANNER_USE_8x16
-	int_to_decimal_str(s->overbreak_value, s->overbreak_valid, line, sizeof(line), "OB:");
+	int_to_decimal_str(s->overbreak_value, s->overbreak_valid, line, sizeof(line), "OB: ");
 	display_5x8_str_pad(" ", 0, 16, 128);
 	display_8x16_str_pad(line, 0, 24, 128);
 #else

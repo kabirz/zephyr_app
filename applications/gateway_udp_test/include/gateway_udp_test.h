@@ -35,7 +35,7 @@ enum can_ids {
 #define RF24_ADDR_MAX_CH 125
 #define RF24_DEFAULT_CH  76
 
-/* UDP 配置命令 (走配置端口 9200, 由 udp_fw_upgrade 库 RX 线程分发到 app_cmd_handler).
+/* UDP 配置命令 (由 udp_fw_upgrade 库 RX 线程分发到 app_cmd_handler).
  * 0x01-0x05 由库内部处理 (FW_START/DATA/END/GET_VERSION/REBOOT), 不会到达此处.
  * 静态模式下掩码固定 255.255.255.0, 网关 = IP 末段改 1 (a.b.c.1), 均不在帧中传输.
  * DHCP 模式下 IP/掩码/网关由 DHCP 服务器分配, GET_NET 回复 live interface 地址. */
@@ -53,9 +53,8 @@ enum udp_cmd {
  * 静态模式: 掩码固定 255.255.255.0, 网关 = IP 末段改 1 (运行时派生, 不存储)
  * DHCP 模式: IP/掩码/网关由 DHCP 服务器分配
  * ================================================================ */
-#define GUT_DEFAULT_IP         "192.168.1.100"
-#define GUT_DATA_PORT_DEFAULT  9090  /* 数据端口 (可配, UDP_CMD_SET_NET) */
-#define GUT_CONFIG_PORT        9200  /* 配置端口 (固定, 不受 SET_NET 影响) */
+#define GUT_DEFAULT_IP         "192.168.11.220"
+#define GUT_DATA_PORT_DEFAULT  9600  /* 数据端口 (可配, UDP_CMD_SET_NET) */
 #define GUT_USE_DHCP_DEFAULT   0     /* 默认静态 IP (0=静态, 1=DHCP) */
 
 /* ================================================================

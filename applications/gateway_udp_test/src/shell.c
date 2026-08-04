@@ -62,7 +62,7 @@ static int cmd_gut_info(const struct shell *ctx, size_t argc, char **argv)
 		shell_print(ctx, "gateway:   %s (derived)", ip_str);
 	}
 	shell_print(ctx, "data port: %d", gut_params.data_port);
-	shell_print(ctx, "cfg port:  %d", GUT_CONFIG_PORT);
+	shell_print(ctx, "cfg port:  %d", CONFIG_UDP_FW_CONFIG_PORT);
 	shell_print(ctx, "rf24 ch:   %d", gut_params.rf24_channel);
 	shell_print(ctx, "rf24 addr: %02x %02x %02x %02x %02x",
 		    gut_params.rf24_addr[0], gut_params.rf24_addr[1],

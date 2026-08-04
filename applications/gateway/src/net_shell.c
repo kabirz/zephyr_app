@@ -23,6 +23,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/sys_io.h>
+#include <zephyr/storage/flash_map.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -67,7 +68,7 @@ static int cmd_gw_info(const struct shell *ctx, size_t argc, char **argv)
 		shell_print(ctx, "gateway:   %s (derived)", ip_str);
 	}
 	shell_print(ctx, "data port: %d", gw_params.data_port);
-	shell_print(ctx, "cfg port:  %d", GATEWAY_CONFIG_PORT);
+	shell_print(ctx, "cfg port:  %d", CONFIG_UDP_FW_CONFIG_PORT);
 	shell_print(ctx, "running:   %s", gw_params.running ? "yes" : "no");
 	return 0;
 }
@@ -185,6 +186,31 @@ static int cmd_gw_port(const struct shell *ctx, size_t argc, char **argv)
 	return 0;
 }
 
+static int cmd_gw_reset(const struct shell *ctx, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	/* 擦除整个 settings 分区 (FCB 后端), 清除所有持久化配置.
+	 * 擦除后 gw_params 内存值仍在, 但重启后 settings 为空, 代码用默认值重新初始化. */
+	const struct flash_area *fa;
+	int rc = flash_area_open(PARTITION_ID(cfg_partition), &fa);
+
+	if (rc != 0) {
+		shell_error(ctx, "open settings partition failed: %d", rc);
+		return -EIO;
+	}
+	rc = flash_area_erase(fa, 0, fa->fa_size);
+	flash_area_close(fa);
+	if (rc != 0) {
+		shell_error(ctx, "erase settings partition failed: %d", rc);
+		return -EIO;
+	}
+	shell_print(ctx, "All settings cleared (rf24/ip/port/dhcp)");
+	shell_print(ctx, "Reboot to apply defaults");
+	return 0;
+}
+
 SHELL_STATIC_SUBCMD_SET_CREATE(
 	sub_gw_cmds,
 	SHELL_CMD_ARG(info, NULL, "Show network config", cmd_gw_info, 1, 0),
@@ -194,6 +220,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 	SHELL_CMD_ARG(ping, NULL, "Send TEST_FRAME (0x777) [count=5]", cmd_gw_ping, 1, 1),
 	SHELL_CMD_ARG(ip, NULL, "Get/set IP <addr>", cmd_gw_ip, 1, 1),
 	SHELL_CMD_ARG(port, NULL, "Get/set data port <1-65535>", cmd_gw_port, 1, 1),
+	SHELL_CMD_ARG(reset, NULL, "Clear all settings (reboot to apply)", cmd_gw_reset, 1, 0),
 	SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(gw, &sub_gw_cmds, "gateway UDP network test commands", NULL);

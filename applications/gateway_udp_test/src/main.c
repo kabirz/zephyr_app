@@ -203,7 +203,7 @@ int main(void)
 
 	gut_params.running = true;
 	LOG_INF("gateway_udp_test ready (data:%d config:%d)", gut_params.data_port,
-		GUT_CONFIG_PORT);
+		CONFIG_UDP_FW_CONFIG_PORT);
 
 	while (1) {
 		k_sleep(K_MSEC(1000));
