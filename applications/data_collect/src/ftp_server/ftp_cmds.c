@@ -11,6 +11,27 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(ftp, LOG_LEVEL_INF);
 
+#include <zephyr/kernel.h>
+
+/* FTP 命令处理用定长缓冲池（替代 malloc/free）。
+ * 单线程 select 模型，同一时刻只有一个命令在执行，2 块余量足够。
+ * 所有 reply/读写缓冲统一用 1024B 块（含原 4096B 的 STOR 传输缓冲，
+ * 分块从 4096 改为 1024 与 RETR 对称，结果等价）。
+ */
+K_MEM_SLAB_DEFINE_STATIC(ftp_buf_slab, 1024, 2, 4);
+
+static inline char *ftp_buf_alloc(void)
+{
+	char *p;
+
+	return k_mem_slab_alloc(&ftp_buf_slab, (void **)&p, K_NO_WAIT) ? NULL : p;
+}
+
+static inline void ftp_buf_free(void *p)
+{
+	k_mem_slab_free(&ftp_buf_slab, p);
+}
+
 static int ftp_data_send(int fd, uint8_t *data, size_t len)
 {
 	int send_bytes = 0;
@@ -233,7 +254,10 @@ static int pasv_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 {
 	struct sockaddr_in bind_addr;
 	socklen_t addr_len = sizeof(bind_addr);
-	char *reply = malloc(1024);
+	char *reply = ftp_buf_alloc();
+	if (reply == NULL) {
+		return -1;
+	}
 
 	session->pasvs_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (session->pasvs_fd < 0) {
@@ -275,21 +299,21 @@ static int pasv_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 	}
 passv_end:
 	send(session->fd, reply, strlen(reply), 0);
-	free(reply);
+	ftp_buf_free(reply);
 
 	return 0;
 }
 
 static int pwd_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 {
-	char *reply = malloc(1024);
+	char *reply = ftp_buf_alloc();
 	if (reply == NULL) {
 		return -1;
 	}
 
 	snprintf(reply, 1024, "257 \"%s\" is current directory.\r\n", session->currentdir);
 	send(session->fd, reply, strlen(reply), 0);
-	free(reply);
+	ftp_buf_free(reply);
 	return 0;
 }
 
@@ -422,14 +446,14 @@ static int list_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 
 	DIR *dir = opendir(session->currentdir);
 	if (dir == NULL) {
-		reply = malloc(1024);
+		reply = ftp_buf_alloc();
 		if (reply == NULL) {
 			return -1;
 		}
 
 		snprintf(reply, 1024, "550 directory \"%s\" can't open.\r\n", session->currentdir);
 		send(session->fd, reply, strlen(reply), 0);
-		free(reply);
+		ftp_buf_free(reply);
 		return 0;
 	}
 
@@ -443,7 +467,7 @@ static int list_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 	struct dirent *dirent = NULL;
 	int offset = 0;
 	struct stat s;
-	reply = malloc(1024);
+	reply = ftp_buf_alloc();
 	char *tmp = reply + 1024 - 256;
 	do {
 		dirent = readdir(dir);
@@ -467,7 +491,7 @@ static int list_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 		memcpy(reply+offset, tmp, stat_len);
 		offset += stat_len;
 	} while (dirent != NULL);
-	free(reply);
+	ftp_buf_free(reply);
 
 	closedir(dir);
 
@@ -499,14 +523,14 @@ static int nlist_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 
 	DIR *dir = opendir(session->currentdir);
 	if (dir == NULL) {
-		reply = malloc(1024);
+		reply = ftp_buf_alloc();
 		if (reply == NULL) {
 			return -1;
 		}
 
 		snprintf(reply, 1024, "550 directory \"%s\" can't open.\r\n", session->currentdir);
 		send(session->fd, reply, strlen(reply), 0);
-		free(reply);
+		ftp_buf_free(reply);
 		return 0;
 	}
 
@@ -568,27 +592,27 @@ static int cwd_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 	char *reply = NULL;
 	DIR *dir = opendir(session->currentdir);
 	if (dir == NULL) {
-		reply = malloc(1024);
+		reply = ftp_buf_alloc();
 		if (reply == NULL) {
 			return -1;
 		}
 
 		snprintf(reply, 1024, "550 directory \"%s\" can't open.\r\n", session->currentdir);
 		send(session->fd, reply, strlen(reply), 0);
-		free(reply);
+		ftp_buf_free(reply);
 		return 0;
 	}
 
 	closedir(dir);
 
-	reply = malloc(1024);
+	reply = ftp_buf_alloc();
 	if (reply == NULL) {
 		return -1;
 	}
 
 	snprintf(reply, 1024, "250 Changed to directory \"%s\"\r\n", session->currentdir);
 	send(session->fd, reply, strlen(reply), 0);
-	free(reply);
+	ftp_buf_free(reply);
 	return 0;
 }
 
@@ -601,27 +625,27 @@ static int cdup_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 	char *reply = NULL;
 	DIR *dir = opendir(session->currentdir);
 	if (dir == NULL) {
-		reply = malloc(1024);
+		reply = ftp_buf_alloc();
 		if (reply == NULL) {
 			return -1;
 		}
 
 		snprintf(reply, 1024, "550 directory \"%s\" can't open.\r\n", session->currentdir);
 		send(session->fd, reply, strlen(reply), 0);
-		free(reply);
+		ftp_buf_free(reply);
 		return 0;
 	}
 
 	closedir(dir);
 
-	reply = malloc(1024);
+	reply = ftp_buf_alloc();
 	if (reply == NULL) {
 		return -1;
 	}
 
 	snprintf(reply, 1024, "250 Changed to directory \"%s\"\r\n", session->currentdir);
 	send(session->fd, reply, strlen(reply), 0);
-	free(reply);
+	ftp_buf_free(reply);
 	return 0;
 }
 
@@ -640,7 +664,7 @@ static int mkd_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 		return -1;
 	}
 
-	reply = malloc(1024);
+	reply = ftp_buf_alloc();
 	if (reply == NULL) {
 		return -1;
 	}
@@ -652,7 +676,7 @@ static int mkd_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 	}
 
 	send(session->fd, reply, strlen(reply), 0);
-	free(reply);
+	ftp_buf_free(reply);
 	return 0;
 }
 
@@ -671,7 +695,7 @@ static int rmd_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 		return -1;
 	}
 
-	reply = malloc(1024);
+	reply = ftp_buf_alloc();
 	if (reply == NULL) {
 		return -1;
 	}
@@ -683,7 +707,7 @@ static int rmd_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 	}
 
 	send(session->fd, reply, strlen(reply), 0);
-	free(reply);
+	ftp_buf_free(reply);
 	return 0;
 }
 
@@ -702,7 +726,7 @@ static int dele_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 		return -1;
 	}
 
-	reply = malloc(1024);
+	reply = ftp_buf_alloc();
 	if (reply == NULL) {
 		return -1;
 	}
@@ -714,7 +738,7 @@ static int dele_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 	}
 
 	send(session->fd, reply, strlen(reply), 0);
-	free(reply);
+	ftp_buf_free(reply);
 	return 0;
 }
 
@@ -730,37 +754,37 @@ static int size_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 	struct stat s;
 	memset(&s, 0, sizeof(struct stat));
 	if (stat(path, &s) != 0) {
-		reply = malloc(1024);
+		reply = ftp_buf_alloc();
 		if (reply == NULL) {
 			return -1;
 		}
 
 		snprintf(reply, 1024, "550 \"%s\" : not a regular file\r\n", path);
 		send(session->fd, reply, strlen(reply), 0);
-		free(reply);
+		ftp_buf_free(reply);
 		return 0;
 	}
 
 	if (!S_ISREG(s.st_mode)) {
-		reply = malloc(1024);
+		reply = ftp_buf_alloc();
 		if (reply == NULL) {
 			return -1;
 		}
 
 		snprintf(reply, 1024, "550 \"%s\" : not a regular file\r\n", path);
 		send(session->fd, reply, strlen(reply), 0);
-		free(reply);
+		ftp_buf_free(reply);
 		return 0;
 	}
 
-	reply = malloc(1024);
+	reply = ftp_buf_alloc();
 	if (reply == NULL) {
 		return -1;
 	}
 
 	snprintf(reply, 1024, "213 %ld\r\n", s.st_size);
 	send(session->fd, reply, strlen(reply), 0);
-	free(reply);
+	ftp_buf_free(reply);
 	return 0;
 }
 
@@ -805,14 +829,14 @@ static int retr_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 
 	int fd = open(path, O_RDONLY);
 	if (fd < 0) {
-		reply = malloc(1024);
+		reply = ftp_buf_alloc();
 		if (reply == NULL) {
 			return -1;
 		}
 
 		snprintf(reply, 1024, "550 \"%s\" : not a regular file\r\n", path);
 		send(session->fd, reply, strlen(reply), 0);
-		free(reply);
+		ftp_buf_free(reply);
 		session->offset = 0;
 		return 0;
 	}
@@ -832,19 +856,19 @@ static int retr_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 	if (rc != 0) {
 		close(fd);
 
-		reply = malloc(1024);
+		reply = ftp_buf_alloc();
 		if (reply == NULL) {
 			return -1;
 		}
 
 		snprintf(reply, 1024, "550 \"%s\" : not a regular file\r\n", path);
 		send(session->fd, reply, strlen(reply), 0);
-		free(reply);
+		ftp_buf_free(reply);
 		session->offset = 0;
 		return 0;
 	}
 
-	reply = malloc(1024);
+	reply = ftp_buf_alloc();
 	if (reply == NULL) {
 		close(fd);
 		return -1;
@@ -874,7 +898,7 @@ static int retr_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 			break;
 		}
 	}
-	free(reply);
+	ftp_buf_free(reply);
 	close(fd);
 	close(session->port_pasv_fd);
 	session->port_pasv_fd = -1;
@@ -965,31 +989,31 @@ static int stor_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 
 	int fd = open(path, O_CREAT | O_RDWR | O_TRUNC);
 	if (fd < 0) {
-		reply = malloc(1024);
+		reply = ftp_buf_alloc();
 		if (reply == NULL) {
 			return -1;
 		}
 
 		snprintf(reply, 1024, "550 Cannot open \"%s\" for writing.\r\n", path);
 		send(session->fd, reply, strlen(reply), 0);
-		free(reply);
+		ftp_buf_free(reply);
 		return 0;
 	}
 
-	reply = malloc(4096);
+	reply = ftp_buf_alloc();
 	if (reply == NULL) {
 		close(fd);
 		return -1;
 	}
 
-	snprintf(reply, 4096, "150 Opening binary mode data connection for \"%s\".\r\n", path);
+	snprintf(reply, 1024, "150 Opening binary mode data connection for \"%s\".\r\n", path);
 	send(session->fd, reply, strlen(reply), 0);
 
 	int result = 0;
 	int timeout = 3000;
 	while (1) {
 		int recv_bytes =
-			stor_cmd_receive(session->port_pasv_fd, (uint8_t *)reply, 4096, timeout);
+			stor_cmd_receive(session->port_pasv_fd, (uint8_t *)reply, 1024, timeout);
 		if (recv_bytes < 0) {
 			result = -1;
 			break;
@@ -1006,7 +1030,7 @@ static int stor_cmd_fn(struct ftp_session *session, char *cmd, char *cmd_param)
 		timeout = 3000;
 	}
 
-	free(reply);
+	ftp_buf_free(reply);
 	close(fd);
 	close(session->port_pasv_fd);
 	session->port_pasv_fd = -1;
