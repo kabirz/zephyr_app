@@ -40,3 +40,11 @@ config UDP_FW_INIT_PRIORITY
 	  SYS_INIT priority. Must run after networking is up
 	  (NET_L2/NET_MGMT level). The library waits for NET_EVENT_IF_UP
 	  internally before binding the socket.
+
+config UDP_FW_UPGRADE_MAX_HANDLERS
+	int "Max number of app command handlers"
+	default 4
+	depends on UDP_FW_UPGRADE
+	help
+	  Capacity of the business-command callback array. Each registered
+	  callback receives every non-firmware-upgrade command (broadcast).

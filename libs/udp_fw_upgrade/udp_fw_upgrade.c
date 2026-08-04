@@ -57,9 +57,12 @@ enum fw_start_status {
  * 全局状态
  * ================================================================ */
 
-/* 应用命令回调 */
-static udp_fw_app_cmd_cb_t app_handler;
-static void *app_user_data;
+/* 已注册的业务命令 handler 列表 (RX 线程按序遍历广播) */
+struct udp_fw_handler {
+	udp_fw_app_cmd_cb_t cb;
+	void *user_data;
+};
+static struct udp_fw_handler handlers[CONFIG_UDP_FW_UPGRADE_MAX_HANDLERS];
 
 /* 配置端口 socket + 发送方地址 (回复路由用) */
 static int config_sock = -1;
@@ -310,13 +313,18 @@ static void udp_fw_rx_thread(void *p1, void *p2, void *p3)
 			continue;
 		}
 
-		/* 其他命令: 分发给应用回调 */
-		if (app_handler) {
-			if (!app_handler(cmd, cmd_data, cmd_len, app_user_data)) {
-				LOG_WRN("unhandled UDP cmd: 0x%02x", cmd);
+		/* 其他命令: 广播给所有已注册的应用回调; 若均未处理则告警 */
+		bool handled = false;
+
+		for (int i = 0; i < CONFIG_UDP_FW_UPGRADE_MAX_HANDLERS; i++) {
+			if (handlers[i].cb &&
+			    handlers[i].cb(cmd, cmd_data, cmd_len,
+					   handlers[i].user_data)) {
+				handled = true;
 			}
-		} else {
-			LOG_WRN("no app handler for UDP cmd: 0x%02x", cmd);
+		}
+		if (!handled) {
+			LOG_WRN("unhandled UDP cmd: 0x%02x", cmd);
 		}
 	}
 }
@@ -406,6 +414,27 @@ SYS_INIT(udp_fw_init, APPLICATION, CONFIG_UDP_FW_INIT_PRIORITY);
  * ================================================================ */
 void udp_fw_set_app_handler(udp_fw_app_cmd_cb_t cb, void *user_data)
 {
-	app_handler = cb;
-	app_user_data = user_data;
+	if (cb == NULL) {
+		return;
+	}
+	for (int i = 0; i < CONFIG_UDP_FW_UPGRADE_MAX_HANDLERS; i++) {
+		if (handlers[i].cb == NULL) {
+			handlers[i].cb = cb;
+			handlers[i].user_data = user_data;
+			return;
+		}
+	}
+	LOG_WRN("handler array full (%d)", CONFIG_UDP_FW_UPGRADE_MAX_HANDLERS);
+}
+
+int udp_fw_remove_handler(udp_fw_app_cmd_cb_t cb)
+{
+	for (int i = 0; i < CONFIG_UDP_FW_UPGRADE_MAX_HANDLERS; i++) {
+		if (handlers[i].cb == cb) {
+			handlers[i].cb = NULL;
+			handlers[i].user_data = NULL;
+			return 0;
+		}
+	}
+	return -ENOENT;
 }

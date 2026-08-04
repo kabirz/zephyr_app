@@ -42,15 +42,21 @@ typedef bool (*udp_fw_app_cmd_cb_t)(uint8_t cmd, const uint8_t *data,
 				    size_t len, void *user_data);
 
 /**
- * @brief 注册业务命令回调
+ * @brief 添加业务命令回调 (可多次调用注册多个)
  *
- * 库 RX 线程收到非固件升级命令时调用此回调. 建议在主线程初始化阶段调用
- * (库 RX 线程 SYS_INIT 后启动, 初始化时机足够早).
+ * 库 RX 线程收到非固件升级命令时, 按注册顺序广播给所有已注册的回调。
+ * 建议在主线程初始化阶段调用 (库 RX 线程 SYS_INIT 后启动, 初始化时机足够早)。
  *
  * @param cb        回调 (NULL 无操作)
  * @param user_data 透传给回调
  */
 void udp_fw_set_app_handler(udp_fw_app_cmd_cb_t cb, void *user_data);
+
+/**
+ * @brief 移除已注册的业务命令回调
+ * @return 0 成功, -ENOENT 未找到
+ */
+int udp_fw_remove_handler(udp_fw_app_cmd_cb_t cb);
 
 /**
  * @brief 通过配置端口回复上位机
