@@ -6,11 +6,8 @@
 #include <common.h>
 
 enum {
-	PLATFORM_RX = 0x101,
-	PLATFORM_TX = 0x102,
-	FW_DATA_RX = 0x103,
-	RF24_CONFIG_CMD = 0x104,    /* 平台→手柄: 设置/查询 rf24 通道 */
-	RF24_CONFIG_RESP = 0x105,   /* 手柄→平台: rf24 配置响应 */
+	RF24_CONFIG_CMD = 0x110,    /* 平台→手柄: 设置/查询 rf24 通道 */
+	RF24_CONFIG_RESP = 0x111,   /* 手柄→平台: rf24 配置响应 */
 	COBID_HEATBEAT = 0x763,
 	TEST_FRAME = 0x777,
 	HANDLER_STATE = 0x1E3,

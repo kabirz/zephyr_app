@@ -73,7 +73,7 @@ static void rf24_update_rssi(bool acked, uint8_t retrans)
 {
 	uint8_t lv = rf24_tx_level(acked, retrans);
 
-	rf24_quality = (lv * RF24_QUAL_ALPHA_NUM
+	rf24_quality = (lv * RF24_QUAL_ALPHA_DEN * RF24_QUAL_ALPHA_NUM
 			+ rf24_quality * (RF24_QUAL_ALPHA_DEN - RF24_QUAL_ALPHA_NUM))
 		       / RF24_QUAL_ALPHA_DEN;
 	if (!acked) {
@@ -84,10 +84,21 @@ static void rf24_update_rssi(bool acked, uint8_t retrans)
 		}
 	}
 
-	uint8_t level = (uint8_t)(rf24_quality / RF24_QUAL_ALPHA_DEN);
+	/* 定点值 rf24_quality (满档 RF24_QUAL_INIT=32) → 0-4 档。
+	 * 不用 q/8 整数除法 (满档只对应 q==32 单点, 偶发重传即跌落且难爬回);
+	 * 改为分段映射, 满档窗口 q>=28 (约稳态的 87%), 通信良好即可稳定显示满档。 */
+	uint8_t level;
 
-	if (level > 4) {
+	if (rf24_quality >= 28) {
 		level = 4;
+	} else if (rf24_quality >= 20) {
+		level = 3;
+	} else if (rf24_quality >= 12) {
+		level = 2;
+	} else if (rf24_quality >= 4) {
+		level = 1;
+	} else {
+		level = 0;
 	}
 	if (global_params.rssi != level) {
 		global_params.rssi = level;

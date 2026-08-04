@@ -72,6 +72,8 @@ static struct can_fw_handler handlers[CONFIG_CAN_FW_UPGRADE_MAX_HANDLERS];
 
 static struct flash_img_context flash_img_ctx;
 static bool fw_img_initialized;
+static size_t fw_written;
+static size_t fw_total_size;
 
 #ifdef CONFIG_MCUBOOT_SIGNATURE_KEY_FILE
 /* 上位机 keyhash 累积缓冲 (4 x 8B 分帧) + 到齐位图 */
@@ -143,9 +145,11 @@ static void handle_platform_rx(struct can_frame *frame)
 				return;
 			}
 			fw_img_initialized = true;
+			fw_written = 0;
 		}
 
 		LOG_INF("FW upgrade start, size=%d", frame->data_32[1]);
+		fw_total_size = frame->data_32[1];
 		fw_can_reply(FW_CODE_OFFSET, 0);
 
 	} else if (cmd == FW_CMD_CONFIRM) {
@@ -156,8 +160,8 @@ static void handle_platform_rx(struct can_frame *frame)
 		flash_img_buffered_write(&flash_img_ctx, NULL, 0, true);
 		fw_img_initialized = false;
 
-		if (flash_img_bytes_written(&flash_img_ctx) == 0) {
-			LOG_ERR("FW upgrade failed: no data written");
+		if (fw_written != fw_total_size) {
+			LOG_ERR("FW upgrade failed: %zu != %zu", fw_written, fw_total_size);
 			fw_can_reply(FW_CODE_TRANFER_ERROR, 0);
 			return;
 		}
@@ -224,11 +228,12 @@ static void handle_fw_data(struct can_frame *frame)
 		return;
 	}
 
-	/* 每 64 字节回复进度 */
-	size_t written = flash_img_bytes_written(&flash_img_ctx);
+	fw_written += size;
 
-	if (written % 64 == 0) {
-		fw_can_reply(FW_CODE_OFFSET, written);
+	if (fw_written == fw_total_size) {
+		fw_can_reply(FW_CODE_UPDATE_SUCCESS, fw_total_size);
+	} else if (fw_written % 64 == 0) {
+		fw_can_reply(FW_CODE_OFFSET, fw_written);
 	}
 }
 
