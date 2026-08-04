@@ -1986,7 +1986,7 @@
 </span></code></pre></div>
 <p>Row 0 图标说明:
 - <strong>连接类型</strong> (8x16): "2.4G" 或 "CAN" 文本 (ROW0_ASCII 模式) / 标签图标 (label_rf24/label_can)
-- <strong>信号图标</strong> (16x16): 0-4 级柱状图
+- <strong>信号图标</strong> (16x16): 0-4 级柱状图 (基于 nRF24 TX 的 ACK 成功与重传次数做 EMA 估算，分段映射到 5 档)
 - <strong>电池图标</strong> (24x16): 毫伏阈值映射 4 级电量图标，充电时显示闪电标记</p>
 <p>启动时全屏刷新一次，之后各模块事件驱动更新对应行。所有 <code>display_write</code> 通过 <code>display_mutex</code> 保护，<code>display_str_pad</code> 用空格填充行尾清除旧数据残留。</p>
 <h2 id="can">CAN 通信协议<a class="headerlink" href="#can" title="Permanent link">&para;</a></h2>
@@ -2019,6 +2019,16 @@
 <td>0x104</td>
 <td>平台 → 手柄</td>
 <td>升级 keyhash (5 帧: <code>[seq 1B][chunk 7B]</code>, 共 32B)</td>
+</tr>
+<tr>
+<td>0x110</td>
+<td>平台 → 手柄</td>
+<td>RF24 配置命令（设置/查询信道与地址）</td>
+</tr>
+<tr>
+<td>0x111</td>
+<td>手柄 → 平台</td>
+<td>RF24 配置响应</td>
 </tr>
 <tr>
 <td>0x763</td>
