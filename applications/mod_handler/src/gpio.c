@@ -11,6 +11,7 @@
 #include <string.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/hwinfo.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/logging/log.h>
 #include <common.h>
@@ -247,9 +248,10 @@ static int power_init(void)
 	global_params.connect_type = CAN_TYPE;
 	global_params.log = false;
 
-	/* 读取芯片唯一码，转换为 5 字节地址 (SN) */
-	const uint8_t *uid = (const uint8_t *)UID_BASE;
+	/* 读 STM32 96-bit UID (经 hwinfo), 转换为 5 字节地址 (SN) */
+	uint8_t uid[12];
 
+	hwinfo_get_device_id(uid, sizeof(uid));
 	uid_to_sn(uid, global_params.rf24_addr);
 	LOG_INF("SN: %02x%02x%02x%02x%02x",
 		global_params.rf24_addr[0], global_params.rf24_addr[1],
