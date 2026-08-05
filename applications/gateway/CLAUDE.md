@@ -119,6 +119,7 @@ host       --UDP-->  gateway --nRF24--> mod_handler
 - **网络配置直写 prj.conf**：`CONFIG_NETWORKING`/`NET_IPV4`/`NET_UDP`/`NET_SOCKETS`/`POSIX_API`/`NET_L2_ETHERNET`/`NET_ARP` 直接写在 `prj.conf`。`ETH_DRIVER` 由 `NET_L2_ETHERNET` 自动拉起，`ETH_W5500` 由 devicetree W5500 节点自动拉起。
 - **SPI 分离**：nRF24 用 SPI2，W5500 用 SPI3，各自独立 CS，避免总线共享。
 - **STM32F103 无硬件 RNG**：网络栈随机源用 `CONFIG_TEST_RANDOM_GENERATOR`。
+- **W5500 MAC 由 UID 派生**：设备树 `local-mac-address`（`00:08:DC:01:02:03`）只是默认/回退值；`main.c::net_init` 在 `net_if_up` 前用 `hwinfo_get_device_id()` 读 STM32 96-bit UID，前 3B 沿用 Wiznet OUI `00:08:DC`，末 3B 由 12B UID 折叠而来，通过 `net_mgmt(NET_REQUEST_ETHERNET_SET_MAC_ADDRESS)` 覆盖（同时更新 W5500 SHAR 寄存器 + `net_if` link_addr），保证每块板 MAC 唯一，避免 ARP 冲突。需 `CONFIG_HWINFO=y` + `CONFIG_NET_L2_ETHERNET_MGMT=y`。
 - **固件升级走 UDP**：`udp_fw_upgrade` 库内置固件升级命令 (0x01~0x03)，通过 UDP 接收固件写入 slot1。
 - **帧 ID 复用历史编号**：`enum can_ids` 保留原 CAN 11-bit 编号作为 UDP/nRF24 帧的逻辑标识符，上位机协议兼容。
 

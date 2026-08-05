@@ -16,7 +16,10 @@
 #include <zephyr/net/socket.h>
 #include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/net_event.h>
+#include <zephyr/net/ethernet.h>
+#include <zephyr/net/ethernet_mgmt.h>
 #include <zephyr/net/dhcpv4.h>
+#include <zephyr/drivers/hwinfo.h>
 #ifndef CONFIG_FLASH_SIZE
 #define CONFIG_FLASH_SIZE 0x1000
 #endif
@@ -110,6 +113,37 @@ NET_MGMT_REGISTER_EVENT_HANDLER(net_ipv4_handler_cb, NET_EVENT_IPV4_ADDR_ADD,
 				net_ipv4_event_handler, NULL);
 
 /* ================================================================
+ * MAC 派生: 用 STM32 96-bit UID 生成唯一 MAC, 覆盖设备树默认值
+ * ================================================================
+ * 设备树 local-mac-address 是固定值 (00:08:DC:01:02:03), 同型号多块板会冲突.
+ * 这里前 3B 沿用 Wiznet OUI (00:08:DC), 末 3B 由 hwinfo 读出的 12B UID 折叠
+ * 而来, 保证每块板有不同 MAC. SET_MAC_ADDRESS 要求接口 admin down (在 net_if_up
+ * 前调用), 同时会更新 W5500 SHAR 寄存器 + net_if link_addr.
+ */
+static void derive_mac_from_uid(uint8_t *mac)
+{
+	static const uint8_t oui[3] = { 0x00, 0x08, 0xDC };
+	uint8_t uid[12];
+	ssize_t n = hwinfo_get_device_id(uid, sizeof(uid));
+
+	mac[0] = oui[0];
+	mac[1] = oui[1];
+	mac[2] = oui[2];
+
+	if (n >= (ssize_t)sizeof(uid)) {
+		/* 12B UID 折叠成 3B: 每 4B 异或到 1B, 充分利用全部熵 */
+		mac[3] = uid[0] ^ uid[3] ^ uid[6] ^ uid[9];
+		mac[4] = uid[1] ^ uid[4] ^ uid[7] ^ uid[10];
+		mac[5] = uid[2] ^ uid[5] ^ uid[8] ^ uid[11];
+	} else {
+		/* 取不到 UID: 回退设备树默认后缀, 至少能与 OUI 拼成合法 MAC */
+		mac[3] = 0x01;
+		mac[4] = 0x02;
+		mac[5] = 0x03;
+	}
+}
+
+/* ================================================================
  * 网络初始化 (静态 IP / DHCP)
  * ================================================================ */
 static int net_init(void)
@@ -119,6 +153,21 @@ static int net_init(void)
 	if (!iface) {
 		LOG_ERR("No network interface found");
 		return -ENODEV;
+	}
+
+	/* 用 UID 派生唯一 MAC 覆盖设备树默认值 (net_mgmt 要求 admin down, 故在
+	 * net_if_up 之前调用). 失败则沿用设备树 MAC. */
+	uint8_t mac[NET_ETH_ADDR_LEN];
+	struct ethernet_req_params params;
+
+	derive_mac_from_uid(mac);
+	memcpy(params.mac_address.addr, mac, NET_ETH_ADDR_LEN);
+	if (net_mgmt(NET_REQUEST_ETHERNET_SET_MAC_ADDRESS, iface,
+		     &params, sizeof(params)) != 0) {
+		LOG_WRN("set MAC from UID failed, using DT default");
+	} else {
+		LOG_INF("MAC (from UID): %02x:%02x:%02x:%02x:%02x:%02x",
+			mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 	}
 
 	/* 事件回调已静态注册 (NET_MGMT_REGISTER_EVENT_HANDLER). */
