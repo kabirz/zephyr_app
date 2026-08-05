@@ -154,7 +154,14 @@ static void handle_platform_rx(struct can_frame *frame)
 
 	} else if (cmd == FW_CMD_CONFIRM) {
 		/* val (data_32[1]): 0=临时升级 (重启后回滚), 1=永久升级.
-		 * 与 gateway UDP 侧语义一致, 直接透传给 boot_request_upgrade. */
+		 * 与 gateway UDP 侧语义一致, 直接透传给 boot_request_upgrade.
+		 * 未先成功 START 则拒绝 (不触碰 flash, 对齐 UDP 侧 fw_started 语义). */
+		if (!fw_img_initialized) {
+			LOG_WRN("FW confirm before start");
+			fw_can_reply(FW_CODE_TRANFER_ERROR, 0);
+			return;
+		}
+
 		uint32_t permanent = frame->data_32[1];
 
 		flash_img_buffered_write(&flash_img_ctx, NULL, 0, true);
@@ -217,6 +224,7 @@ static void handle_fw_data(struct can_frame *frame)
 {
 	if (!fw_img_initialized) {
 		LOG_WRN("FW data before start");
+		fw_can_reply(FW_CODE_TRANFER_ERROR, 0);
 		return;
 	}
 

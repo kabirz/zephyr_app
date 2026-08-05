@@ -200,7 +200,7 @@ static bool fw_verify_crc(uint16_t recv_crc)
 static bool handle_fw_cmd(uint8_t cmd, const uint8_t *data, size_t len)
 {
 	switch (cmd) {
-case FW_CMD_START: {
+	case FW_CMD_START: {
 		uint8_t status = FW_START_ERR_FAIL;
 
 		if (!fw_started && len >= 4) {
@@ -251,6 +251,8 @@ case FW_CMD_START: {
 				LOG_ERR("FW_DATA: flash write failed");
 				fw_started = false;
 			}
+		} else {
+			LOG_WRN("FW data before start");
 		}
 		udp_fw_reply(cmd, off, 4);
 		return true;
@@ -279,6 +281,8 @@ case FW_CMD_START: {
 				LOG_ERR("FW_END: CRC mismatch, upgrade rejected");
 			}
 			fw_started = false;
+		} else {
+			LOG_WRN("FW end before start");
 		}
 		udp_fw_reply(cmd, &result, 1);
 		return true;
