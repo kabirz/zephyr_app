@@ -172,6 +172,8 @@ int main(void)
 	strncpy(gw_params.ip_addr, GATEWAY_DEFAULT_IP, sizeof(gw_params.ip_addr) - 1);
 	gw_params.data_port = GATEWAY_DATA_PORT_DEFAULT;
 	gw_params.use_dhcp = GW_USE_DHCP_DEFAULT;
+	strncpy(gw_params.host_ip, GATEWAY_HOST_DEFAULT_IP, sizeof(gw_params.host_ip) - 1);
+	gw_params.host_port = GATEWAY_HOST_PORT_DEFAULT;
 	gw_params.log = false;   /* nRF24 详细日志默认关 (shell: rf24 log 1 开启) */
 
 	/* 加载持久化配置 (覆盖默认值) */

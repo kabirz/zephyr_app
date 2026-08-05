@@ -8,13 +8,20 @@
  * 双端口架构:
  *   - 数据端口 (默认 9600, 可通过 UDP_CMD_SET_CONFIG 配置, 持久化):
  *       nRF24 → 上位机数据转发 (gw_udp_send) + 上位机 → nRF24 扫描仪数据透传
- *       转发策略: 目标与本机同子网 → 单播; 跨子网/未学习 → 广播
+ *       转发目标固定为上位机 host_ip:host_port (默认 192.168.11.100:8602,
+ *       可通过 UDP_CMD_SET_HOST 配置, 持久化), 不再广播/学习.
  *   - 配置端口 (固定 8601, 由 udp_fw_upgrade 库自管):
  *       库内部处理固件升级命令 (FW_START/DATA/END/VERSION/REBOOT),
- *       其余配置命令 (IP/掩码/网关/端口/RF24) 通过回调分发到此模块.
+ *       其余配置命令 (IP/掩码/网关/端口/RF24/HOST) 通过回调分发到此模块.
  *
  * 配置命令帧格式: [cmd 1B][data...] (无魔数头, 配置端口只收命令)
  * 数据帧格式: [帧 ID 2B BE][payload]  (帧 ID 见 enum can_ids, 复用历史编号)
+ *
+ * UDP 数据转发目标:
+ *   nRF24 → 上位机: gw_udp_send 固定单播到 gw_params.host_ip:host_port
+ *                   (默认 192.168.11.100:8602, 通过 UDP_CMD_SET_HOST 配置, 持久化)
+ *   上位机 → nRF24: 数据端口绑定 gw_params.data_port (默认 9600)
+ *                   收到的扫描仪数据帧透传到 nRF24
  */
 
 #include <string.h>
@@ -30,13 +37,11 @@
 
 LOG_MODULE_REGISTER(gw_udp, LOG_LEVEL_INF);
 
-/* 数据端口 socket + 远端地址 (nRF24 数据转发目标).
- * data_remote_addr 为最近一次同子网数据发送方地址; 跨子网或未学习时为广播 */
+/* 数据端口 socket (绑定 gw_params.data_port, 默认 9600). */
 static int data_sock = -1;
-static struct sockaddr_in data_remote_addr;
 
 /* ================================================================
- * 本机 IP 查询 + 子网判断 + 数据端口发送
+ * 本机 IP 查询 + 上位机目标序列化
  * ================================================================ */
 
 /* 取本机 live IPv4 地址 (DHCP 分配或静态配置的当前地址), 失败返回 NULL.
@@ -51,28 +56,20 @@ struct in_addr *gw_get_live_ipv4(void)
 	return (struct in_addr *)net_if_ipv4_get_global_addr(iface, NET_ADDR_PREFERRED);
 }
 
-/* 判断发送方 IP 是否与本机同子网 (按 live interface 的实际 IP+掩码计算).
- * 数据端口用此函数决定单播目标, 无法判断时按同子网 (单播) */
-static bool is_same_subnet(struct in_addr sender_ip)
+/* 上位机目标序列化: [ip 4B][port 2B BE] = 6B (SET_HOST/GET_HOST 回复用) */
+static void pack_host(uint8_t *buf)
 {
-	struct net_if *iface = net_if_get_default();
-	struct in_addr *local_ip;
+	struct in_addr addr;
 
-	if (!iface) {
-		return true; /* 无法判断时按同子网处理 (单播) */
+	if (inet_pton(AF_INET, gw_params.host_ip, &addr) != 1) {
+		memset(buf, 0, 4);
+	} else {
+		memcpy(buf, &addr.s_addr, 4);
 	}
-	local_ip = gw_get_live_ipv4();
-	if (!local_ip) {
-		return true;
-	}
-	struct net_in_addr nm = net_if_ipv4_get_netmask_by_addr(
-		iface, (const struct net_in_addr *)local_ip);
-	struct in_addr mask = *(struct in_addr *)&nm;
-
-	return (sender_ip.s_addr & mask.s_addr) == (local_ip->s_addr & mask.s_addr);
+	sys_put_be16(gw_params.host_port, buf + 4);
 }
 
-/* 数据端口发送: nRF24 数据 → 上位机. 同子网单播到 data_remote_addr, 跨子网广播. */
+/* 数据端口发送: nRF24 数据 → 上位机. 固定单播到 host_ip:host_port (可配). */
 void gw_udp_send(const uint8_t *data, size_t len)
 {
 	if (data_sock < 0 || len == 0) {
@@ -83,17 +80,14 @@ void gw_udp_send(const uint8_t *data, size_t len)
 		return;
 	}
 
-	struct sockaddr_in dst;
+	struct sockaddr_in dst = {
+		.sin_family = AF_INET,
+		.sin_port = htons(gw_params.host_port),
+	};
 
-	if (is_same_subnet(data_remote_addr.sin_addr)) {
-		/* 同子网: 单播到学习到的上位机源地址 (端口=发送方源端口) */
-		dst = data_remote_addr;
-	} else {
-		/* 跨子网/未学习: 广播. 远程端口 = 本地端口 + 1 (约定上位机监听
-		 * data_port+1, 本地绑定 data_port; 单播时用源端口, 不受此约定影响) */
-		dst.sin_family = AF_INET;
-		dst.sin_port = htons(gw_params.data_port + 1);
-		dst.sin_addr.s_addr = INADDR_BROADCAST;
+	if (inet_pton(AF_INET, gw_params.host_ip, &dst.sin_addr) != 1) {
+		LOG_WRN("invalid host ip %s, drop", gw_params.host_ip);
+		return;
 	}
 
 	sendto(data_sock, data, len, 0, (struct sockaddr *)&dst, sizeof(dst));
@@ -222,6 +216,36 @@ static bool app_cmd_handler(uint8_t cmd, const uint8_t *cmd_data, size_t cmd_len
 		return true;
 	}
 
+	case UDP_CMD_SET_HOST: {
+		/* 设置上位机目标: [host ip 4B][port 2B BE] = 6B. 持久化, 即时生效.
+		 * gw_udp_send 每次都从 gw_params.host_ip/host_port 重新解析, 无需重建 socket.
+		 * 回复: 设置后的 6B (回显) */
+		if (cmd_len >= 6) {
+			struct in_addr addr;
+
+			memcpy(&addr.s_addr, cmd_data, 4);
+			inet_ntop(AF_INET, &addr, gw_params.host_ip, sizeof(gw_params.host_ip));
+			gw_params.host_port = sys_get_be16(cmd_data + 4);
+
+			LOG_INF("UDP set host: ip=%s port=%d", gw_params.host_ip,
+				gw_params.host_port);
+			persist_save_network_config();
+
+			uint8_t resp[6];
+			pack_host(resp);
+			udp_fw_reply(cmd, resp, sizeof(resp));
+		}
+		return true;
+	}
+
+	case UDP_CMD_GET_HOST: {
+		/* 查询上位机目标: (空) → [host ip 4B][port 2B BE] = 6B */
+		uint8_t resp[6];
+		pack_host(resp);
+		udp_fw_reply(cmd, resp, sizeof(resp));
+		return true;
+	}
+
 	default:
 		return false;
 	}
@@ -254,11 +278,6 @@ static void udp_data_rx_thread(void)
 
 	LOG_INF("data port %d listening", gw_params.data_port);
 
-	/* 默认广播目标: 未学习到同子网发送方前, nRF24 数据以广播发出 */
-	data_remote_addr.sin_family = AF_INET;
-	data_remote_addr.sin_port = htons(gw_params.data_port);
-	data_remote_addr.sin_addr.s_addr = INADDR_BROADCAST;
-
 	static uint8_t buf[512];
 
 	while (1) {
@@ -271,12 +290,6 @@ static void udp_data_rx_thread(void)
 			continue;
 		}
 
-		/* 仅学习同子网发送方地址 (供 nRF24→UDP 转发的单播目标) */
-		if (is_same_subnet(src_addr.sin_addr)) {
-			data_remote_addr = src_addr;
-		}
-
-		/* 数据端口处理扫描仪数据帧透传到 nRF24 */
 		if (received >= 2) {
 			uint16_t can_id = sys_get_be16(buf);
 

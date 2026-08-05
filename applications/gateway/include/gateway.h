@@ -44,6 +44,8 @@ enum udp_cmd {
 	UDP_CMD_GET_RF24 = 0x15,   /* (空) → [ch 1B][addr 5B] = 6B */
 	UDP_CMD_SET_NET_MODE = 0x16, /* [mode 1B] (0=静态,1=DHCP) → 回显 1B (持久化, 重启生效) */
 	UDP_CMD_GET_NET_MODE = 0x17, /* (空) → [mode 1B] */
+	UDP_CMD_SET_HOST = 0x18,   /* [host ip 4B][port 2B BE] = 6B → 回显同序 6B (持久化) */
+	UDP_CMD_GET_HOST = 0x19,   /* (空) → [host ip 4B][port 2B BE] = 6B */
 };
 
 /* ================================================================
@@ -54,6 +56,8 @@ enum udp_cmd {
 #define GATEWAY_DEFAULT_IP       "192.168.11.220"
 #define GATEWAY_DATA_PORT_DEFAULT 9600  /* 数据端口 (可配, UDP_CMD_SET_NET) */
 #define GW_USE_DHCP_DEFAULT      0     /* 默认静态 IP (0=静态, 1=DHCP) */
+#define GATEWAY_HOST_DEFAULT_IP  "192.168.11.100"  /* 上位机 IP (nRF24 数据转发目标, 可配) */
+#define GATEWAY_HOST_PORT_DEFAULT 8602  /* 上位机数据端口 (nRF24 数据转发目标端口, 可配) */
 
 /* ================================================================
  * 全局状态
@@ -68,6 +72,11 @@ typedef struct {
 	char ip_addr[16];     /* 静态 IP (DHCP 模式下仅作 fallback) */
 	uint16_t data_port;   /* 数据端口 (可配, 默认 GATEWAY_DATA_PORT_DEFAULT) */
 	uint8_t use_dhcp;     /* 0=静态 IP, 1=DHCP (持久化, 重启生效) */
+
+	/* 上位机 (HOST) 目标配置: nRF24 数据固定转发到 host_ip:host_port
+	 * (可配, 默认 GATEWAY_HOST_DEFAULT_IP:GATEWAY_HOST_PORT_DEFAULT, 持久化) */
+	char host_ip[16];
+	uint16_t host_port;
 
 	/* 运行状态 */
 	volatile bool running;
