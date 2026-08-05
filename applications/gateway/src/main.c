@@ -12,6 +12,7 @@
 #include <zephyr/settings/settings.h>
 #include <gateway.h>
 #include <zephyr/app_version.h>
+#include <fw_gitver.h>
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/net/net_mgmt.h>
@@ -209,15 +210,11 @@ int main(void)
 	LOG_INF("board: %s, system clk: %dMHz", CONFIG_BOARD_TARGET,
 		CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC / MHZ(1));
 	LOG_INF("flash size: %dKB, ram size: %dKB", CONFIG_FLASH_SIZE, CONFIG_SRAM_SIZE);
-	LOG_INF("version: %s", APP_VERSION_STRING);
+	LOG_INF("version: v%d.%d.%d_%s", APP_VERSION_MAJOR, APP_VERSION_MINOR,
+		APP_PATCHLEVEL, FW_GIT_VERSION);
 
 	/* 初始化默认配置 */
-	gw_params.rf24_channel = RF24_DEFAULT_CH;
-	gw_params.rf24_addr[0] = 0;
-	gw_params.rf24_addr[1] = 0;
-	gw_params.rf24_addr[2] = 0;
-	gw_params.rf24_addr[3] = 0;
-	gw_params.rf24_addr[4] = 0;
+	memset(gw_params.rf24_addr, 0, RF24_ADDR_LEN);
 	strncpy(gw_params.ip_addr, GATEWAY_DEFAULT_IP, sizeof(gw_params.ip_addr) - 1);
 	gw_params.data_port = GATEWAY_DATA_PORT_DEFAULT;
 	gw_params.use_dhcp = GW_USE_DHCP_DEFAULT;

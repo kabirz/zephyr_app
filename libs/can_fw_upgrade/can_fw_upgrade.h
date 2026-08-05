@@ -14,10 +14,15 @@
  *   0x102 平台应答             code + offset  (见 fw_code)
  *   0x103 固件数据             [8B 数据]
  *   0x104 keyhash (默认开启)   [0]=seq(0..4), [1..7]=7B chunk, 5 帧凑齐 32B
+ *   0x105 版本字符串 (设备发)  [0]=seq, [1..7]=7B 文本 (末帧 '\0' 填充)
  *
  * 响应码 fw_code:
  *   0 OFFSET / 1 UPDATE_SUCCESS / 2 VERSION / 3 CONFIRM
  *   4 FLASH_ERROR / 5 TRANSFER_ERROR / 6 KEYHASH_ERROR (keyhash 不一致, 已拒绝)
+ *
+ * 版本查询 (FW_CMD_VERSION):
+ *   先回 0x102 code=VERSION, offset=版本字符串总长度;
+ *   随后发 N 帧 0x105 分片 (每帧 1B seq + 7B 文本), 拼成 "v<M>.<m>.<p>_<6hex>".
  *
  * 升级 keyhash 校验 (默认开启, 由 CONFIG_MCUBOOT_SIGNATURE_KEY_FILE 提供 key):
  *   新上位机在发 0x101 START_UPDATE 前先发 5 帧 0x104 (32B keyhash 分帧,

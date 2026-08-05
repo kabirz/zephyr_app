@@ -9,6 +9,7 @@
  */
 
 #include <string.h>
+#include <stdio.h>
 #include <zephyr/kernel.h>
 #include <zephyr/app_version.h>
 #include <zephyr/drivers/can.h>
@@ -19,6 +20,7 @@
 #include <zephyr/dfu/mcuboot.h>
 #include <zephyr/sys/reboot.h>
 #include "can_fw_upgrade.h"
+#include <fw_gitver.h>
 
 #ifdef CONFIG_MCUBOOT_SIGNATURE_KEY_FILE
 #include <fw_keyhash.h>
@@ -31,6 +33,7 @@ LOG_MODULE_REGISTER(can_fw_upgrade, LOG_LEVEL_INF);
 #define CAN_FW_PLATFORM_TX  0x102
 #define CAN_FW_FW_DATA_RX   0x103
 #define CAN_FW_KEYHASH_RX   0x104   /* keyhash 帧: data[0]=seq, data[1..7]=7B chunk */
+#define CAN_FW_VERSION_TX   0x105   /* 版本字符串帧: data[0]=seq, data[1..7]=7B 文本 */
 
 /* keyhash 分帧: 每帧 1B seq + 7B keyhash (CAN DLC 上限 8B), 32B 需 5 帧 */
 #define CAN_FW_KEYHASH_CHUNK_BYTES 7
@@ -96,6 +99,27 @@ static void fw_can_reply(uint32_t code, uint32_t offset)
 	};
 
 	can_send(can_dev, &frame, K_MSEC(100), NULL, NULL);
+}
+
+/* 发送版本字符串分帧 (0x105). 每帧 data[0]=seq, data[1..7]=最多 7B 文本.
+ * 末帧不足 7B 用 '\0' 填充, 上位机遇 '\0' 截断.
+ * 版本字符串最长约 17B (v255.255.255_abcdef), 故最多 3 帧. */
+static void fw_can_send_version_string(const char *ver, uint8_t len)
+{
+	for (uint8_t off = 0, seq = 0; off < len; off += 7, seq++) {
+		struct can_frame frame = {
+			.id = CAN_FW_VERSION_TX,
+			.dlc = can_bytes_to_dlc(8),
+		};
+		uint8_t chunk = MIN(7, len - off);
+
+		frame.data[0] = seq;
+		memcpy(&frame.data[1], ver + off, chunk);
+		if (chunk < 7) {
+			memset(&frame.data[1 + chunk], 0, 7 - chunk);
+		}
+		can_send(can_dev, &frame, K_MSEC(100), NULL, NULL);
+	}
 }
 
 /* ================================================================
@@ -186,7 +210,15 @@ static void handle_platform_rx(struct can_frame *frame)
 		}
 
 	} else if (cmd == FW_CMD_VERSION) {
-		fw_can_reply(FW_CODE_VERSION, APPVERSION);
+		/* 版本字符串 "v<M>.<m>.<p>_<6hex>" 分帧回复:
+		 * 先发 FW_CODE_VERSION (offset=字符串总长度), 再发 N 帧 0x105 分片.
+		 * 上位机据 offset 等待对应字节数, 或遇 '\0' 截断. */
+		char ver[24];
+		int vlen = snprintf(ver, sizeof(ver), "v%d.%d.%d_%s",
+				    APP_VERSION_MAJOR, APP_VERSION_MINOR,
+				    APP_PATCHLEVEL, FW_GIT_VERSION);
+		fw_can_reply(FW_CODE_VERSION, (uint32_t)vlen);
+		fw_can_send_version_string(ver, (uint8_t)vlen);
 
 	} else if (cmd == FW_CMD_REBOOT) {
 		sys_reboot(SYS_REBOOT_WARM);
@@ -317,7 +349,8 @@ static int can_fw_init(void)
 
 	can_add_rx_filter_msgq(can_dev, &can_fw_rx_msgq, &filter);
 
-	LOG_INF("CAN FW upgrade initialized, version=0x%08x", APPVERSION);
+	LOG_INF("CAN FW upgrade initialized, version=v%d.%d.%d_%s",
+		APP_VERSION_MAJOR, APP_VERSION_MINOR, APP_PATCHLEVEL, FW_GIT_VERSION);
 	return 0;
 }
 SYS_INIT(can_fw_init, APPLICATION, CONFIG_CAN_FW_UPGRADE_INIT_PRIORITY);

@@ -4,7 +4,7 @@
 
 gateway 是运行在 STM32F103RCT6 (ARM Cortex-M3, 72MHz, 256KB Flash, 48KB RAM) 上的 Zephyr RTOS 嵌入式应用，作为 **数据中转网关**，在 mod_handler（手持控制器）与上位机之间转发数据。
 
-- **版本**: 0.1.0-dev
+- **版本**: v0.1.0_<6hex> (格式 `v<M>.<m>.<p>_<6位git commit>`)
 - **硬件平台**: nrf24_f103rct6 (网关板，独立 PCB)
 - **Bootloader**: MCUBoot (swap-with-scratch 模式)
 - **无线模块**: Nordic nRF24L01+ (SPI2，2.4GHz，中断驱动)
@@ -76,12 +76,12 @@ host       --UDP-->  gateway --nRF24--> mod_handler
 
 | 端口 | 用途 | 可配 | 默认 |
 |------|------|------|------|
-| **数据端口** | nRF24→上位机数据转发 + 上位机→nRF24 扫描仪数据透传 | `UDP_CMD_SET_NET` 可改，持久化 | 9600 |
-| **配置端口** | 所有配置命令（网络参数/RF24 参数/HOST 目标/重启/固件升级） | 固定 | 8601 |
+| **数据端口** | nRF24→上位机数据转发 + 上位机→nRF24 扫描仪数据透传 | 默认值，持久化后可改 | 9600 |
+| **配置端口** | 所有配置命令（网络参数/RF24 参数/HOST 目标/重启/固件升级） | Kconfig `CONFIG_UDP_FW_CONFIG_PORT` | 8600 |
 
 - **双端口均支持广播收发**（详见下方 Zephyr 广播约束）。
-- 配置端口绑定 `0.0.0.0:8601`，支持广播接收（上位机不知道设备 IP 时可广播配置）。
-- **数据转发目标固定**：nRF24 数据固定单播到上位机 `host_ip:host_port`（默认 `192.168.11.100:8602`，通过配置端口 `UDP_CMD_SET_HOST` 配置，持久化），不再广播/学习发送方。
+- 配置端口绑定 `0.0.0.0:8600`，支持广播接收（上位机不知道设备 IP 时可广播 `DISCOVER` 发现设备）。
+- **数据转发目标固定**：nRF24 数据固定单播到上位机 `host_ip:host_port`（默认 `192.168.11.150:9602`，通过配置端口 `UDP_CMD_SET_HOST` 配置，持久化），不再广播/学习发送方。
   - 数据端口：`gw_udp_send` 固定发往上位机 host_ip:host_port。
   - 配置端口：`config_send_resp` 按发送方 IP 判断。
 - 两个 socket + 两个线程独立工作，配置流量不会劫持数据流量目标地址。
@@ -98,18 +98,19 @@ host       --UDP-->  gateway --nRF24--> mod_handler
 - **数据帧**: `[帧 ID 2B BE][payload]`（透传扫描仪/手柄数据，走数据端口）
 - **命令帧**: `[cmd 1B][data...]`（无魔数头，走配置端口）
 - 固件升级命令 0x01~0x05（开始/数据/结束/查询版本/重启，由 `udp_fw_upgrade` 库内部处理）
-- 网络参数命令 0x12/0x13（SET_NET/GET_NET）；RF24 参数命令 0x14/0x15（SET_RF24/GET_RF24）；网络模式 0x16/0x17（SET_NET_MODE/GET_NET_MODE）
-- **上位机目标命令 0x18/0x19（SET_HOST/GET_HOST）**：配置 nRF24 数据转发目标 `host_ip:host_port`（默认 `192.168.11.100:8602`，持久化），不再广播/学习发送方
-- **广播回复限制**：配置端口支持广播接收，但跨子网广播回复会淹没子网内所有设备。`udp_fw_upgrade` 库新增 `CONFIG_UDP_FW_REPLY_BCAST_RESTRICT`（默认 `y`）开关：开启时仅对 `udp_fw_allow_broadcast_cmd()` 放行的命令做广播回复（gateway 放行 GET_NET/SET_NET，即"获取/设置 IP"），其余命令跨子网接收时静默丢弃；关闭时恢复任意命令广播回复的旧行为。
-- **`0x18/0x19 SET_HOST/GET_HOST`** 是固定单播目标配置（不涉及广播），不受上述限制影响。
-- 静态模式掩码固定 255.255.255.0，网关 = 设备 IP 末段改 1（运行时派生，不传输）；DHCP 模式（`use_dhcp`，持久化重启生效）由服务器分配，GET_NET 回复 live interface 地址
+- 网络参数命令 0x10/0x11（SET_IP/GET_NET）；RF24 参数命令 0x12/0x13（SET_RF24/GET_RF24）；上位机目标命令 0x14（SET_HOST）；广播发现 0x15（DISCOVER）
+- **上位机目标命令 0x14（SET_HOST）**：配置 nRF24 数据转发目标 `host_ip:host_port`（默认 `192.168.11.150:9602`，持久化），不再广播/学习发送方；查询用 GET_NET（0x11）即可覆盖
+- **广播回复限制**：配置端口支持广播接收，但跨子网广播回复会淹没子网内所有设备。`udp_fw_upgrade` 库新增 `CONFIG_UDP_FW_REPLY_BCAST_RESTRICT`（默认 `y`）开关：开启时仅对 `udp_fw_allow_broadcast_cmd()` 放行的命令做广播回复（gateway 仅放行 DISCOVER，即"设备发现"），其余命令跨子网接收时静默丢弃；关闭时恢复任意命令广播回复的旧行为。GET_NET/SET_IP 需定向单播（上位机先 DISCOVER 拿到设备 IP）。
+- **`0x14 SET_HOST`** 是固定单播目标配置（不涉及广播），不受上述限制影响。
+- 静态模式掩码固定 255.255.255.0，网关 = 设备 IP 末段改 1（运行时派生，不传输）；DHCP 模式（`use_dhcp`，持久化重启生效）由服务器分配，DISCOVER 回复 live interface 地址
 
 ### 命令响应格式
 
-- **0x13 GET_NET** 响应: `[0x13][ip 4B][port 2B BE]`（6 字节，IP 取自 live interface）
-- **0x15 GET_RF24** 响应: `[0x15][rf24_ch 1B][rf24_addr 5B]`（6 字节）
-- **0x17 GET_NET_MODE** 响应: `[0x17][mode 1B]`（0=静态, 1=DHCP）
-- **0x04 GET_VERSION** 响应: `[0x04][APP_VERSION_STRING 变长]`（如 `[0x04]0.1.0-dev`，不含末尾 `\0`）
+- **0x10 SET_IP** 响应: `[0x10][1B: 1=成功/0=失败]`（DHCP 模式或 IP 非法时回 0）
+- **0x11 GET_NET** 响应: `[0x11][data_port 2B][host_ip 4B][host_port 2B]`（8 字节；配置端口不在响应中返回，由 DISCOVER 带出）
+- **0x13 GET_RF24** 响应: `[0x13][rf24_addr 5B]`（5 字节；信道固定为 1，不在帧中返回）
+- **0x15 DISCOVER** 响应: `[0x15][ip 4B][config_port 2B]`（6 字节，IP 取自 live interface；上位机广播发现设备 IP + 配置端口）
+- **0x04 GET_VERSION** 响应: `[0x04][版本字符串]`（格式 `v<M>.<m>.<p>_<6hex>`，如 `v0.1.0_0b4ee3`，不含末尾 `\0`）
 
 ---
 
@@ -161,7 +162,7 @@ gateway/
 |--------|------|-----------|------|
 | `thread_rf24_rx` | `rf24_rx_thread` | 1024 / 8 | nRF24 接收，转发到数据端口 |
 | `thread_udp_data_rx` | `udp_data_rx_thread` | 1024 / 10 | 数据端口 (9600) 接收，扫描仪数据透传到 nRF24 |
-| `thread_udp_config_rx` | `udp_config_rx_thread` | 1024 / 10 | 配置端口 (8601) 接收，命令/固件升级分发 |
+| `thread_udp_config_rx` | `udp_config_rx_thread` | 1024 / 10 | 配置端口 (8600) 接收，命令/固件升级分发 |
 
 ---
 
@@ -170,7 +171,7 @@ gateway/
 - **无 CAN、无电源管理、无模式切换**：历史的双配置/CAN/snippet/linksw/电源管理代码已全部移除。
 - **修改引脚**：全部在 `boards/nrf24_f103rct6.overlay`。
 - **网络配置**：直接改 `prj.conf`，不涉及 Kconfig 开关。
-- **UDP 双端口**：数据端口 (默认 9600, 可配) + 配置端口 (固定 8601, 支持广播)。改端口分工看 `udp.c` 头注释。
+- **UDP 双端口**：数据端口 (默认 9600, 可配) + 配置端口 (默认 8600, Kconfig 可配, 支持广播)。改端口分工看 `udp.c` 头注释。
 - **修改帧协议**：同步更新 `gateway.h::enum can_ids`，并与 mod_handler 保持一致（共用协议）。
 - **`gateway_params_t gw_params`**（定义在 `main.c`）是全局共享状态：RF24 配置、网络配置、运行标志。
 - 与 mod_handler 的关系：mod_handler 是手柄端（采集+发送），gateway 是接收/中转端，通过 nRF24 无线连接。

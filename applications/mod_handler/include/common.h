@@ -45,8 +45,7 @@ typedef struct {
 	struct k_event event;
 	bool log;
 #define RF24_ADDR_LEN 5
-#define RF24_ADDR_MAX_CH 125
-	uint8_t rf24_channel;
+#define RF24_FIXED_CH  1   /* nRF24 信道固定为 1, 不可配 */
 	uint8_t rf24_addr[RF24_ADDR_LEN];
 } global_params_t;
 

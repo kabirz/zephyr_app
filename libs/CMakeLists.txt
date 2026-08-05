@@ -1,3 +1,8 @@
+# 生成 fw_gitver.h (6位 git commit hash), 供 CAN/UDP 固件升级库共用版本字符串
+# "v<M>.<m>.<p>_<6hex>". 无条件生成 (不依赖签名 key).
+include(${CMAKE_CURRENT_SOURCE_DIR}/gen_gitver.cmake)
+zephyr_include_directories(${CMAKE_CURRENT_BINARY_DIR})
+
 # 统一在 libs 顶层生成各固件升级库的 keyhash 头文件.
 # gen_keyhash.py 与本 CMakeLists.txt 同级, 供 CAN/UDP 升级库共用.
 # key 取自 app 配置的 CONFIG_MCUBOOT_SIGNATURE_KEY_FILE; 未配置签名

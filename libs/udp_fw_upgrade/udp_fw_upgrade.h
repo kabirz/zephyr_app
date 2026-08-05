@@ -4,7 +4,7 @@
  *
  * UDP 固件升级库 - 自包含实现 (参考 can_fw_upgrade)
  *
- * 库通过 SYS_INIT 自动创建配置端口 UDP socket (INADDR_ANY:9200),
+ * 库通过 SYS_INIT 自动创建配置端口 UDP socket (INADDR_ANY:8600),
  * 自管 RX 线程, 内部处理固件升级命令 (FW_START/DATA/END);
  * 其他配置命令通过应用注册的回调分发, 应用无需调用任何 init。
  *

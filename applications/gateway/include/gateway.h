@@ -14,11 +14,10 @@
 #include <stdint.h>
 
 /* ================================================================
- * RF24 地址/信道配置
+ * RF24 地址配置 (信道固定为 1, 不可配)
  * ================================================================ */
 #define RF24_ADDR_LEN    5
-#define RF24_ADDR_MAX_CH 125
-#define RF24_DEFAULT_CH  1
+#define RF24_FIXED_CH    1
 
 /* ================================================================
  * 帧 ID (与 mod_handler 保持一致; nRF24/UDP 帧协议的逻辑标识符,
@@ -33,19 +32,17 @@ enum can_ids {
 	COORD_Z = 0x463,
 };
 
-/* UDP 配置命令 (走配置端口 8601, 由 udp_fw_upgrade 库 RX 线程分发到 app_cmd_handler).
+/* UDP 配置命令 (走配置端口 8600, 由 udp_fw_upgrade 库 RX 线程分发到 app_cmd_handler).
  * 0x01-0x05 由库内部处理 (FW_START/DATA/END/GET_VERSION/REBOOT), 不会到达此处.
  * 静态模式下掩码固定 255.255.255.0, 网关 = IP 末段改 1 (a.b.c.1), 均不在帧中传输.
- * DHCP 模式下 IP/掩码/网关由 DHCP 服务器分配, GET_NET 回复 live interface 地址. */
+ * DHCP 模式下 IP/掩码/网关由 DHCP 服务器分配, DISCOVER 回复 live interface 地址. */
 enum udp_cmd {
-	UDP_CMD_SET_NET  = 0x12,   /* [ip 4B][port 2B BE] = 6B → 回显同序 6B */
-	UDP_CMD_GET_NET  = 0x13,   /* (空) → [ip 4B][port 2B BE] = 6B (IP 取自 live interface) */
-	UDP_CMD_SET_RF24 = 0x14,   /* [ch 1B][addr 5B] = 6B → 回显同序 6B */
-	UDP_CMD_GET_RF24 = 0x15,   /* (空) → [ch 1B][addr 5B] = 6B */
-	UDP_CMD_SET_NET_MODE = 0x16, /* [mode 1B] (0=静态,1=DHCP) → 回显 1B (持久化, 重启生效) */
-	UDP_CMD_GET_NET_MODE = 0x17, /* (空) → [mode 1B] */
-	UDP_CMD_SET_HOST = 0x18,   /* [host ip 4B][port 2B BE] = 6B → 回显同序 6B (持久化) */
-	UDP_CMD_GET_HOST = 0x19,   /* (空) → [host ip 4B][port 2B BE] = 6B */
+	UDP_CMD_SET_IP  = 0x10,   /* [ip 4B] → 回 [1B: 1=成功/0=失败] (持久化, 重启生效) */
+	UDP_CMD_GET_NET = 0x11,   /* (空) → [data_port 2B][host_ip 4B][host_port 2B] = 8B */
+	UDP_CMD_SET_RF24 = 0x12,   /* [addr 5B] → 回显 5B (信道固定为 1, 不在帧中) */
+	UDP_CMD_GET_RF24 = 0x13,   /* (空) → [addr 5B] = 5B */
+	UDP_CMD_SET_HOST = 0x14,   /* [host ip 4B][port 2B BE] = 6B → 回显同序 6B (持久化) */
+	UDP_CMD_DISCOVER = 0x15,  /* (空) → [ip 4B][config_port 2B] = 6B (广播发现) */
 };
 
 /* ================================================================
@@ -53,18 +50,17 @@ enum udp_cmd {
  * 静态模式: 掩码固定 255.255.255.0, 网关 = IP 末段改 1 (运行时派生, 不存储)
  * DHCP 模式: IP/掩码/网关由 DHCP 服务器分配
  * ================================================================ */
-#define GATEWAY_DEFAULT_IP       "192.168.11.220"
-#define GATEWAY_DATA_PORT_DEFAULT 9600  /* 数据端口 (可配, UDP_CMD_SET_NET) */
+#define GATEWAY_DEFAULT_IP       "192.168.11.100"
+#define GATEWAY_DATA_PORT_DEFAULT 9600  /* 数据端口 (本机监听, nRF24↔上位机透传) */
 #define GW_USE_DHCP_DEFAULT      0     /* 默认静态 IP (0=静态, 1=DHCP) */
-#define GATEWAY_HOST_DEFAULT_IP  "192.168.11.100"  /* 上位机 IP (nRF24 数据转发目标, 可配) */
-#define GATEWAY_HOST_PORT_DEFAULT 8602  /* 上位机数据端口 (nRF24 数据转发目标端口, 可配) */
+#define GATEWAY_HOST_DEFAULT_IP  "192.168.11.150"  /* 上位机 IP (nRF24 数据转发目标, 可配) */
+#define GATEWAY_HOST_PORT_DEFAULT 9602  /* 上位机接收端口 (nRF24 数据转发目标端口, 可配) */
 
 /* ================================================================
  * 全局状态
  * ================================================================ */
 typedef struct {
-	/* RF24 配置 */
-	uint8_t rf24_channel;
+	/* RF24 配置 (信道固定 RF24_FIXED_CH=1, 不存储; 仅地址可配) */
 	uint8_t rf24_addr[RF24_ADDR_LEN];
 
 	/* 网络配置 (静态模式下掩码固定 /24, 网关由 IP 派生, 均不存储;
@@ -102,7 +98,7 @@ void gw_led_rf24_activity(void);   /* 标记 2.4G 收发活动 (启动固定频�
 
 /* rf24.c */
 void gw_rf24_init(void);
-void gw_rf24_set_config(uint8_t channel, const uint8_t *addr);
+void gw_rf24_set_config(const uint8_t *addr);
 bool gw_rf24_send(uint16_t can_id, const uint8_t *data, size_t len);
 
 /**

@@ -16,7 +16,7 @@ config UDP_FW_UPGRADE
 
 config UDP_FW_CONFIG_PORT
 	int "UDP config port (firmware upgrade + app commands)"
-	default 8601
+	default 8600
 	depends on UDP_FW_UPGRADE
 	help
 	  UDP port the library binds to for receiving config commands

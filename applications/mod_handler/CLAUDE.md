@@ -4,7 +4,7 @@
 
 mod_handler 是一个运行在 STM32F103RCT6 (ARM Cortex-M3, 72MHz, 256KB Flash, 48KB RAM) 上的 Zephyr RTOS 嵌入式应用。它作为激光测距系统的**手持控制器模块**，负责采集操纵杆角度、电池状态，并通过 CAN 总线或 2.4G 无线 (nRF24L01+) 与激光设备通信，同时提供 OLED 显示、系统休眠和 OTA 固件升级能力。
 
-- **版本**: 0.1.4-release
+- **版本**: v0.1.4_<6hex> (格式 `v<M>.<m>.<p>_<6位git commit>`)
 - **硬件平台**: nrf24_f103rct6 (自定义板)
 - **Bootloader**: MCUBoot (swap-with-scratch 模式)
 - **无线模块**: Nordic nRF24L01+ (SPI 接口，2.4GHz，中断驱动)

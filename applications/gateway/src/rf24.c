@@ -31,9 +31,8 @@ K_MSGQ_DEFINE(rf24_rx_msgq, sizeof(struct nrf24_frame), 8, 4);
 /* ================================================================
  * RF24 配置
  * ================================================================ */
-void gw_rf24_set_config(uint8_t channel, const uint8_t *addr)
+void gw_rf24_set_config(const uint8_t *addr)
 {
-	gw_params.rf24_channel = channel;
 	memcpy(gw_params.rf24_addr, addr, RF24_ADDR_LEN);
 
 #ifdef CONFIG_NRF24L01P_CRYPT
@@ -46,7 +45,7 @@ void gw_rf24_set_config(uint8_t channel, const uint8_t *addr)
 	}
 
 	struct nrf24_cfg cfg = {
-		.channel = channel,
+		.channel = RF24_FIXED_CH,
 		.address_width = RF24_ADDR_LEN,
 		.tx_addr = gw_params.rf24_addr,
 	};
@@ -54,8 +53,8 @@ void gw_rf24_set_config(uint8_t channel, const uint8_t *addr)
 	nrf24_configure(rf24_dev, &cfg);
 	nrf24_start_rx(rf24_dev);
 
-	LOG_INF("RF24 config: ch=%d addr=%02x%02x%02x%02x%02x", channel, addr[0], addr[1], addr[2],
-		addr[3], addr[4]);
+	LOG_INF("RF24 config: ch=%d addr=%02x%02x%02x%02x%02x", RF24_FIXED_CH, addr[0], addr[1],
+		addr[2], addr[3], addr[4]);
 }
 
 /* ================================================================
@@ -70,7 +69,7 @@ void gw_rf24_init(void)
 	}
 
 	/* 应用配置 */
-	gw_rf24_set_config(gw_params.rf24_channel, gw_params.rf24_addr);
+	gw_rf24_set_config(gw_params.rf24_addr);
 
 	/* 注册 msgq */
 	nrf24_add_rx_msgq(rf24_dev, &rf24_rx_msgq);
@@ -83,7 +82,7 @@ void gw_rf24_init(void)
 		gw_led_error_on();
 		return;
 	}
-	LOG_INF("nRF24 ready (PRX, ch=%d)", gw_params.rf24_channel);
+	LOG_INF("nRF24 ready (PRX, ch=%d)", RF24_FIXED_CH);
 }
 
 /* ================================================================

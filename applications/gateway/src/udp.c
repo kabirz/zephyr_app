@@ -6,20 +6,20 @@
  * + 网络配置命令处理 (固件升级由 udp_fw_upgrade 库自管)
  *
  * 双端口架构:
- *   - 数据端口 (默认 9600, 可通过 UDP_CMD_SET_CONFIG 配置, 持久化):
+ *   - 数据端口 (默认 9600, 本机监听):
  *       nRF24 → 上位机数据转发 (gw_udp_send) + 上位机 → nRF24 扫描仪数据透传
- *       转发目标固定为上位机 host_ip:host_port (默认 192.168.11.100:8602,
+ *       转发目标固定为上位机 host_ip:host_port (默认 192.168.11.150:9602,
  *       可通过 UDP_CMD_SET_HOST 配置, 持久化), 不再广播/学习.
- *   - 配置端口 (固定 8601, 由 udp_fw_upgrade 库自管):
+ *   - 配置端口 (默认 8600, 由 udp_fw_upgrade 库自管, Kconfig CONFIG_UDP_FW_CONFIG_PORT):
  *       库内部处理固件升级命令 (FW_START/DATA/END/VERSION/REBOOT),
- *       其余配置命令 (IP/掩码/网关/端口/RF24/HOST) 通过回调分发到此模块.
+ *       其余配置命令 (IP/RF24/HOST/发现) 通过回调分发到此模块.
  *
  * 配置命令帧格式: [cmd 1B][data...] (无魔数头, 配置端口只收命令)
  * 数据帧格式: [帧 ID 2B BE][payload]  (帧 ID 见 enum can_ids, 复用历史编号)
  *
  * UDP 数据转发目标:
  *   nRF24 → 上位机: gw_udp_send 固定单播到 gw_params.host_ip:host_port
- *                   (默认 192.168.11.100:8602, 通过 UDP_CMD_SET_HOST 配置, 持久化)
+ *                   (默认 192.168.11.150:9602, 通过 UDP_CMD_SET_HOST 配置, 持久化)
  *   上位机 → nRF24: 数据端口绑定 gw_params.data_port (默认 9600)
  *                   收到的扫描仪数据帧透传到 nRF24
  */
@@ -56,7 +56,7 @@ struct in_addr *gw_get_live_ipv4(void)
 	return (struct in_addr *)net_if_ipv4_get_global_addr(iface, NET_ADDR_PREFERRED);
 }
 
-/* 上位机目标序列化: [ip 4B][port 2B BE] = 6B (SET_HOST/GET_HOST 回复用) */
+/* 上位机目标序列化: [ip 4B][port 2B BE] = 6B (SET_HOST 回复用) */
 static void pack_host(uint8_t *buf)
 {
 	struct in_addr addr;
@@ -67,6 +67,20 @@ static void pack_host(uint8_t *buf)
 		memcpy(buf, &addr.s_addr, 4);
 	}
 	sys_put_be16(gw_params.host_port, buf + 4);
+}
+
+/* IP 有效性校验: 排除 0.0.0.0 / 127.x 环回 / 224+ 组播 / 255.255.255.255 广播.
+ * 返回 true=合法单播地址. 用于 UDP_CMD_SET_IP 拒绝非法 IP. */
+static bool ip_is_valid(struct in_addr addr)
+{
+	uint32_t a = ntohl(addr.s_addr);
+	uint8_t b0 = (uint8_t)(a >> 24);
+
+	if (a == 0)          return false;  /* 0.0.0.0 */
+	if (a == 0xFFFFFFFF) return false;  /* 255.255.255.255 */
+	if (b0 == 127)       return false;  /* 环回 127.x.x.x */
+	if (b0 >= 224)       return false;  /* 组播 224-239 + 保留 240-255 */
+	return true;
 }
 
 /* 数据端口发送: nRF24 数据 → 上位机. 固定单播到 host_ip:host_port (可配). */
@@ -95,7 +109,8 @@ void gw_udp_send(const uint8_t *data, size_t len)
 
 /* ================================================================
  * 配置命令处理 (应用回调, 由 udp_fw_upgrade 库 RX 线程调用)
- * 处理业务命令: UDP_CMD_SET_CONFIG (0x10) / UDP_CMD_GET_CONFIG (0x11);
+ * 处理业务命令: SET_IP (0x10) / GET_NET (0x11) / SET/GET_RF24 (0x12/0x13) /
+ * SET_HOST (0x14) / DISCOVER (0x15);
  * 固件升级及版本/重启命令 (0x01-0x05) 由库内部处理, 不会到达此处.
  * 回复通过 udp_fw_reply 发送 (库自管 socket + 回复路由).
  * ================================================================ */
@@ -103,116 +118,75 @@ static bool app_cmd_handler(uint8_t cmd, const uint8_t *cmd_data, size_t cmd_len
 			    void *user_data)
 {
 	switch (cmd) {
-	case UDP_CMD_SET_NET: {
-		/* 设置网络参数: [ip 4B][port 2B BE] = 6B.
-		 * 静态模式: 写入 ip_addr + data_port (掩码固定 /24, 网关派生, 不存储).
-		 * DHCP 模式: 忽略 ip 字段 (IP 由 DHCP 服务器分配), 只写 data_port.
-		 * 回复: 设置后的 6B (IP 取自 live interface 或 ip_addr, 见 GET_NET) */
-		if (cmd_len >= 6) {
+	case UDP_CMD_SET_IP: {
+		/* 设置静态 IP: [ip 4B] → 回 [1B: 1=成功/0=失败].
+		 * 仅静态模式生效 (DHCP 模式 IP 由服务器分配, 拒绝并回 0).
+		 * IP 有效性: 排除 0.0.0.0 / 127.x / 224+ / 255.255.255.255.
+		 * 持久化, 重启生效 (掩码固定 /24, 网关派生, 见 main.c net_init). */
+		uint8_t ok = 0;
+
+		if (cmd_len >= 4 && !gw_params.use_dhcp) {
 			struct in_addr addr;
 
-			if (!gw_params.use_dhcp) {
-				memcpy(&addr.s_addr, cmd_data, 4);
+			memcpy(&addr.s_addr, cmd_data, 4);
+			if (ip_is_valid(addr)) {
 				inet_ntop(AF_INET, &addr, gw_params.ip_addr, sizeof(gw_params.ip_addr));
-			}
-			gw_params.data_port = sys_get_be16(cmd_data + 4);
-
-			LOG_INF("UDP set net: ip=%s port=%d dhcp=%d", gw_params.ip_addr,
-				gw_params.data_port, gw_params.use_dhcp);
-			persist_save_network_config();
-
-			uint8_t resp[6];
-			struct in_addr *live = gw_get_live_ipv4();
-
-			if (live) {
-				memcpy(resp, &live->s_addr, 4);
-			} else if (inet_pton(AF_INET, gw_params.ip_addr, &addr) == 1) {
-				memcpy(resp, &addr.s_addr, 4);
+				persist_save_network_config();
+				LOG_INF("UDP set ip: %s (reboot to apply)", gw_params.ip_addr);
+				ok = 1;
 			} else {
-				memset(resp, 0, 4);
+				LOG_WRN("UDP set ip: rejected invalid");
 			}
-			sys_put_be16(gw_params.data_port, resp + 4);
-			udp_fw_reply(cmd, resp, sizeof(resp));
+		} else if (cmd_len >= 4 && gw_params.use_dhcp) {
+			LOG_WRN("UDP set ip: rejected (DHCP mode)");
 		}
+		udp_fw_reply(cmd, &ok, sizeof(ok));
 		return true;
 	}
 
 	case UDP_CMD_GET_NET: {
-		/* 查询网络参数: (空) → [ip 4B][port 2B BE] = 6B.
-		 * IP 取自 live interface (DHCP 模式下是实际拿到的地址; 静态模式下与
-		 * gw_params.ip_addr 一致). 拿不到 live IP 时回退 gw_params.ip_addr. */
-		uint8_t buf[6];
-		struct in_addr addr;
-		struct in_addr *live = gw_get_live_ipv4();
+		/* 查询网络参数: (空) → [data_port 2B][host_ip 4B][host_port 2B] = 8B.
+		 * 配置端口不在响应中返回 (由 UDP_CMD_DISCOVER 发现时带出). */
+		uint8_t buf[8];
+		struct in_addr host;
 
-		if (live) {
-			memcpy(buf, &live->s_addr, 4);
-		} else if (inet_pton(AF_INET, gw_params.ip_addr, &addr) == 1) {
-			memcpy(buf, &addr.s_addr, 4);
+		sys_put_be16(gw_params.data_port, buf);
+		if (inet_pton(AF_INET, gw_params.host_ip, &host) == 1) {
+			memcpy(buf + 2, &host.s_addr, 4);
 		} else {
-			memset(buf, 0, 4);
+			memset(buf + 2, 0, 4);
 		}
-		sys_put_be16(gw_params.data_port, buf + 4);
+		sys_put_be16(gw_params.host_port, buf + 6);
 		udp_fw_reply(cmd, buf, sizeof(buf));
 		return true;
 	}
 
 	case UDP_CMD_SET_RF24: {
-		/* 设置 RF24 参数: [ch 1B][addr 5B] = 6B.
-		 * ch 非法 (>125) 时保持原值不更新, 但不拒绝整包.
-		 * 回复: 设置后的 6B (回显) */
-		if (cmd_len >= 6) {
-			uint8_t ch = cmd_data[0];
+		/* 设置 RF24 地址: [addr 5B]. 信道固定 RF24_FIXED_CH=1, 不可配.
+		 * 回复: 设置后的 5B (回显) */
+		if (cmd_len >= RF24_ADDR_LEN) {
+			memcpy(gw_params.rf24_addr, cmd_data, RF24_ADDR_LEN);
 
-			if (ch <= RF24_ADDR_MAX_CH) {
-				gw_params.rf24_channel = ch;
-			}
-			memcpy(gw_params.rf24_addr, cmd_data + 1, RF24_ADDR_LEN);
-
-			LOG_INF("UDP set rf24: ch=%d", gw_params.rf24_channel);
+			LOG_INF("UDP set rf24 addr=%02x%02x%02x%02x%02x", gw_params.rf24_addr[0],
+				gw_params.rf24_addr[1], gw_params.rf24_addr[2], gw_params.rf24_addr[3],
+				gw_params.rf24_addr[4]);
 			persist_save_rf24_config();
-			gw_rf24_set_config(gw_params.rf24_channel, gw_params.rf24_addr);
+			gw_rf24_set_config(gw_params.rf24_addr);
 
-			uint8_t resp[6];
+			uint8_t resp[RF24_ADDR_LEN];
 
-			resp[0] = gw_params.rf24_channel;
-			memcpy(resp + 1, gw_params.rf24_addr, RF24_ADDR_LEN);
+			memcpy(resp, gw_params.rf24_addr, RF24_ADDR_LEN);
 			udp_fw_reply(cmd, resp, sizeof(resp));
 		}
 		return true;
 	}
 
 	case UDP_CMD_GET_RF24: {
-		/* 查询 RF24 参数: (空) → [ch 1B][addr 5B] = 6B */
-		uint8_t buf[6];
+		/* 查询 RF24 地址: (空) → [addr 5B]. 信道固定为 1, 不在帧中返回. */
+		uint8_t buf[RF24_ADDR_LEN];
 
-		buf[0] = gw_params.rf24_channel;
-		memcpy(buf + 1, gw_params.rf24_addr, RF24_ADDR_LEN);
+		memcpy(buf, gw_params.rf24_addr, RF24_ADDR_LEN);
 		udp_fw_reply(cmd, buf, sizeof(buf));
-		return true;
-	}
-
-	case UDP_CMD_SET_NET_MODE: {
-		/* 设置网络模式: [mode 1B] (0=静态,1=DHCP). 持久化, 重启生效.
-		 * 回复: 设置后的 1B (回显) */
-		if (cmd_len >= 1) {
-			uint8_t mode = cmd_data[0];
-
-			if (mode <= 1) {
-				gw_params.use_dhcp = mode;
-				LOG_INF("UDP set net mode: %s", mode ? "DHCP" : "static");
-				persist_save_network_config();
-			}
-			uint8_t resp = gw_params.use_dhcp;
-			udp_fw_reply(cmd, &resp, sizeof(resp));
-		}
-		return true;
-	}
-
-	case UDP_CMD_GET_NET_MODE: {
-		/* 查询网络模式: (空) → [mode 1B] (0=静态,1=DHCP) */
-		uint8_t mode = gw_params.use_dhcp;
-		udp_fw_reply(cmd, &mode, sizeof(mode));
 		return true;
 	}
 
@@ -238,11 +212,24 @@ static bool app_cmd_handler(uint8_t cmd, const uint8_t *cmd_data, size_t cmd_len
 		return true;
 	}
 
-	case UDP_CMD_GET_HOST: {
-		/* 查询上位机目标: (空) → [host ip 4B][port 2B BE] = 6B */
-		uint8_t resp[6];
-		pack_host(resp);
-		udp_fw_reply(cmd, resp, sizeof(resp));
+	case UDP_CMD_DISCOVER: {
+		/* 广播发现: (空) → [ip 4B][config_port 2B] = 6B.
+		 * IP 取自 live interface (拿不到则回退 ip_addr);
+		 * config_port 取自编译期 Kconfig 宏 CONFIG_UDP_FW_CONFIG_PORT.
+		 * 上位机广播发现后即可获知本机 IP + 配置端口, 用于后续定向通信. */
+		uint8_t buf[6];
+		struct in_addr addr;
+		struct in_addr *live = gw_get_live_ipv4();
+
+		if (live) {
+			memcpy(buf, &live->s_addr, 4);
+		} else if (inet_pton(AF_INET, gw_params.ip_addr, &addr) == 1) {
+			memcpy(buf, &addr.s_addr, 4);
+		} else {
+			memset(buf, 0, 4);
+		}
+		sys_put_be16(CONFIG_UDP_FW_CONFIG_PORT, buf + 4);
+		udp_fw_reply(cmd, buf, sizeof(buf));
 		return true;
 	}
 
@@ -312,9 +299,10 @@ K_THREAD_DEFINE(thread_udp_data_rx, CONFIG_GATEWAY_DATA_RX_STACK, udp_data_rx_th
 static int gw_udp_init(void)
 {
 	udp_fw_set_app_handler(app_cmd_handler, NULL);
-	/* 网络发现: 仅 GET_NET/SET_NET 允许跨子网广播回复, 其余命令广播接收时静默丢弃 */
-	udp_fw_allow_broadcast_cmd(UDP_CMD_GET_NET);
-	udp_fw_allow_broadcast_cmd(UDP_CMD_SET_NET);
+	/* 仅 DISCOVER 允许跨子网广播接收+回复 (用于设备发现);
+	 * 其余命令广播接收时静默丢弃 (避免误触发配置/固件升级).
+	 * GET_NET/SET_IP 需定向发送 (上位机先 DISCOVER 拿到设备 IP 后再单播). */
+	udp_fw_allow_broadcast_cmd(UDP_CMD_DISCOVER);
 	return 0;
 }
 

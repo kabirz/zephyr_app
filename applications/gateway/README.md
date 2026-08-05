@@ -59,49 +59,45 @@ west flash
 
 | 端口 | 用途 | 可配 | 默认 |
 |------|------|------|------|
-| **数据端口** | nRF24↔上位机数据转发 (本机监听) | `UDP_CMD_SET_NET` 可改，持久化 | 9600 |
-| **配置端口** | 所有配置命令 + 固件升级 | 固定 | 8601 |
+| **数据端口** | nRF24↔上位机数据转发 (本机监听) | 默认值，持久化后可改 | 9600 |
+| **配置端口** | 所有配置命令 + 固件升级 | Kconfig `CONFIG_UDP_FW_CONFIG_PORT` | 8600 |
 
-- **数据转发目标固定**：nRF24 数据固定单播到上位机 `host_ip:host_port`（默认 `192.168.11.100:8602`，`UDP_CMD_SET_HOST` 可配，持久化），不再广播/学习发送方。
-- **配置端口支持广播接收**：上位机不知道设备 IP 时可向 `255.255.255.255:8601` 广播命令；回复同子网发送方单播，跨子网广播。
-- **广播命令限制**（`CONFIG_UDP_FW_REPLY_BCAST_RESTRICT`，默认开）：仅放行的命令跨子网（广播）接收时才处理并回复，其余静默丢弃，避免广播淹没子网内所有设备。gateway 放行 `GET_NET`/`SET_NET`（网络发现）。
-- **SET_NET MAC 守卫**：广播 `SET_NET` 帧首 6B 为目标设备 MAC，仅 MAC 匹配的设备执行，避免局域网设备被广播改成同一 IP。上位机先广播 `GET_NET`（回复带本机 MAC）拿到各设备 MAC，再精准广播 `SET_NET`。
+- **数据转发目标固定**：nRF24 数据固定单播到上位机 `host_ip:host_port`（默认 `192.168.11.150:9602`，`UDP_CMD_SET_HOST` 可配，持久化），不再广播/学习发送方。
+- **配置端口支持广播接收**：上位机不知道设备 IP 时可向 `255.255.255.255:8600` 广播 `DISCOVER` 命令发现设备；回复同子网发送方单播，跨子网广播。
+- **广播命令限制**（`CONFIG_UDP_FW_REPLY_BCAST_RESTRICT`，默认开）：仅放行的命令跨子网（广播）接收时才处理并回复，其余静默丢弃，避免广播淹没子网内所有设备。gateway 仅放行 `DISCOVER`（设备发现）；`GET_NET`/`SET_IP` 需上位机先 `DISCOVER` 拿到设备 IP 后定向单播。
 
 ### 数据帧格式
 `[帧 ID 2B BE][payload]` (透传手柄/扫描仪数据，走数据端口)
 
 ### 命令帧格式
-`[cmd 1B][data...]` (无魔数头，走配置端口 8601)
+`[cmd 1B][data...]` (无魔数头，走配置端口 8600)
 
 ### 配置命令
 
-业务命令从 0x12 起；0x01-0x05 由 `udp_fw_upgrade` 库内部处理 (FW_START/DATA/END/GET_VERSION/REBOOT)。
+业务命令从 0x10 起；0x01-0x05 由 `udp_fw_upgrade` 库内部处理 (FW_START/DATA/END/GET_VERSION/REBOOT)。
 
 > **升级 keyhash 校验（默认开启）**：`udp_fw_upgrade` 库在编译期由 `CONFIG_MCUBOOT_SIGNATURE_KEY_FILE` 派生 32B keyhash（SHA-256 of RSA 公钥 PKCS#1 DER，即镜像 `IMG_TLV_KEYHASH`）。新上位机可在 0x01 FW_START 后追加该 keyhash，不一致时回状态 2 拒绝且不擦写 flash；老上位机发不带 keyhash 的旧 4B 帧仍放行，兼容旧协议。
 
-> **网络参数**：静态模式下掩码固定 `255.255.255.0`，网关 = 设备 IP 末段改 1 (`a.b.c.x` → `a.b.c.1`)，均由固件运行时派生，不在帧中传输。DHCP 模式下 IP/掩码/网关由 DHCP 服务器分配，`GET_NET` 回复的是 live interface 的实际地址（DHCP 模式下上位机可广播 `GET_NET` 发现设备）。`config_port` 固定 8601，不在响应中返回（上位机硬编码）。
+> **网络参数**：静态模式下掩码固定 `255.255.255.0`，网关 = 设备 IP 末段改 1 (`a.b.c.x` → `a.b.c.1`)，均由固件运行时派生，不在帧中传输。DHCP 模式下 IP/掩码/网关由 DHCP 服务器分配，`DISCOVER` 回复的 IP 取自 live interface（DHCP 模式下上位机广播 `DISCOVER` 发现设备，回复带 `[ip 4B][config_port 2B]`）。配置端口由 Kconfig `CONFIG_UDP_FW_CONFIG_PORT` 决定（默认 8600），由 `DISCOVER` 回复带出，不在 `GET_NET` 中重复。
 
 | 命令 | 格式 | 说明 |
 |------|------|------|
 | 0x01 | `[0x01][size 4B LE][keyhash 32B]` | 开始固件升级 (库处理, 回 `[0x01][1/0/2]`；`[keyhash 32B]` 可选，携带时校验不一致回 2 拒绝) |
 | 0x02 | `[0x02][data ≤511B]` | 固件数据 (库处理, 回 `[0x02][offset 4B LE]`) |
 | 0x03 | `[0x03][test 1B][crc 2B LE]` | 结束固件升级并重启 (库处理, 回 `[0x03][1/0]`) |
-| 0x04 | `[0x04]` | 查询版本 (库处理, 回 APP_VERSION_STRING 变长) |
+| 0x04 | `[0x04]` | 查询版本 (库处理, 回 `v<M>.<m>.<p>_<6hex>` 变长, 如 `v0.1.0_0b4ee3`) |
 | 0x05 | `[0x05]` | 重启设备 (库处理) |
-| 0x12 | `[0x12][mac 6B][ip 4B][port 2B BE]` | 设置网络参数 (持久化; 首 6B 目标 MAC，广播时仅 MAC 匹配设备执行; 回 12B 同格式) |
-| 0x13 | `[0x13]` | 查询网络参数 (回 12B: `[mac 6B][ip 4B][port 2B BE]`，IP 取自 live interface，MAC 供上位机广播 SET_NET 定位) |
-| 0x14 | `[0x14][rf24_ch 1B][rf24_addr 5B]` | 设置 RF24 信道/地址 (持久化, 即时应用到硬件; 回 6B 设置后的值) |
-| 0x15 | `[0x15]` | 查询 RF24 信道/地址 (回 6B: `[rf24_ch 1B][rf24_addr 5B]`) |
-| 0x16 | `[0x16][mode 1B]` | 设置网络模式 (0=静态, 1=DHCP; 持久化, 重启生效; 回 1B 回显) |
-| 0x17 | `[0x17]` | 查询网络模式 (回 1B: 0=静态, 1=DHCP) |
-| 0x18 | `[0x18][host ip 4B][port 2B BE]` | 设置 nRF24 数据转发目标 host_ip:host_port (持久化; 回 6B 回显) |
-| 0x19 | `[0x19]` | 查询上位机目标 (回 6B: `[host ip 4B][port 2B BE]`) |
+| 0x10 | `[0x10][ip 4B]` | 设置静态 IP (持久化, 重启生效; IP 有效性校验: 拒绝 0.0.0.0/127.x/224+/255.255.255.255; DHCP 模式拒绝; 回 `[0x10][1=成功/0=失败]`) |
+| 0x11 | `[0x11]` | 查询网络参数 (回 8B: `[data_port 2B][host_ip 4B][host_port 2B]`) |
+| 0x12 | `[0x12][rf24_addr 5B]` | 设置 RF24 地址 (信道固定为 1; 持久化, 即时应用到硬件; 回 5B 设置后的值) |
+| 0x13 | `[0x13]` | 查询 RF24 地址 (回 5B: `[rf24_addr 5B]`) |
+| 0x14 | `[0x14][host ip 4B][port 2B BE]` | 设置 nRF24 数据转发目标 host_ip:host_port (持久化; 回 6B 回显) |
+| 0x15 | `[0x15]` | 广播发现 (回 6B: `[ip 4B][config_port 2B]`，IP 取自 live interface; 用于上位机跨子网发现设备 IP + 配置端口) |
 
 ## Shell 命令
 
 ```
-rf24 info                       查看 channel/addr/device 状态
-rf24 ch [0-125]                 get/set 信道
+rf24 info                       查看 addr/device 状态 (信道固定为 1)
 rf24 addr <b0 b1 b2 b3 b4>      设置 5 字节地址
 rf24 send <text...>             发送 DATA 帧
 rf24 ping [count=5] [iv_ms=200] ping/echo 往返测试, 统计 RTT

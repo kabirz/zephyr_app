@@ -17,18 +17,6 @@ static int gw_persist_set(const char *name, size_t len, settings_read_cb read_cb
 	const char *next;
 	size_t name_len = settings_name_next(name, &next);
 
-	if (!next && !strncmp(name, "rf24_channel", name_len)) {
-		if (len == sizeof(uint8_t)) {
-			uint8_t ch;
-
-			read_cb(cb_arg, &ch, sizeof(ch));
-			if (ch <= RF24_ADDR_MAX_CH) {
-				gw_params.rf24_channel = ch;
-			}
-		}
-		return 0;
-	}
-
 	if (!next && !strncmp(name, "rf24_addr", name_len)) {
 		if (len == RF24_ADDR_LEN) {
 			read_cb(cb_arg, gw_params.rf24_addr, RF24_ADDR_LEN);
@@ -78,7 +66,6 @@ static int gw_persist_set(const char *name, size_t len, settings_read_cb read_cb
 
 static int gw_persist_export(int (*cb)(const char *name, const void *value, size_t val_len))
 {
-	(void)cb("gw/rf24_channel", &gw_params.rf24_channel, sizeof(gw_params.rf24_channel));
 	(void)cb("gw/rf24_addr", gw_params.rf24_addr, RF24_ADDR_LEN);
 	(void)cb("gw/ip_addr", gw_params.ip_addr, strlen(gw_params.ip_addr));
 	(void)cb("gw/data_port", &gw_params.data_port, sizeof(gw_params.data_port));
@@ -98,20 +85,21 @@ static int settings_backend_init(void)
 		LOG_ERR("settings_subsys_init failed: %d", rc);
 	} else {
 		LOG_INF("Settings subsystem initialized");
-		/* 清除旧协议残留的历史键 (掩码/网关已不再持久化).
+		/* 清除旧协议残留的历史键 (掩码/网关/信道已不再持久化).
 		 * 不删除的话 settings_load 回放时会打 -ENOENT 错误日志. */
 		settings_delete("gw/netmask");
 		settings_delete("gw/gateway");
+		settings_delete("gw/rf24_channel");
 	}
 	return rc;
 }
 
 void persist_save_rf24_config(void)
 {
-	settings_save_one("gw/rf24_channel", &gw_params.rf24_channel,
-			  sizeof(gw_params.rf24_channel));
 	settings_save_one("gw/rf24_addr", gw_params.rf24_addr, RF24_ADDR_LEN);
-	LOG_INF("Saved rf24: ch=%d", gw_params.rf24_channel);
+	LOG_INF("Saved rf24 addr=%02x%02x%02x%02x%02x", gw_params.rf24_addr[0],
+		gw_params.rf24_addr[1], gw_params.rf24_addr[2], gw_params.rf24_addr[3],
+		gw_params.rf24_addr[4]);
 }
 
 void persist_save_network_config(void)

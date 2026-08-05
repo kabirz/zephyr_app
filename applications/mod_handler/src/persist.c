@@ -32,19 +32,6 @@ static int persist_set(const char *name, size_t len, settings_read_cb read_cb, v
 		return 0;
 	}
 
-	if (!next && !strncmp(name, "rf24_channel", name_len)) {
-		if (len == sizeof(uint8_t)) {
-			uint8_t ch;
-
-			read_cb(cb_arg, &ch, sizeof(ch));
-			if (ch <= RF24_ADDR_MAX_CH) {
-				global_params.rf24_channel = ch;
-				LOG_INF("Loaded rf24_channel: %d", ch);
-			}
-		}
-		return 0;
-	}
-
 	if (!next && !strncmp(name, "rf24_addr", name_len)) {
 		if (len == RF24_ADDR_LEN) {
 			read_cb(cb_arg, global_params.rf24_addr, RF24_ADDR_LEN);
@@ -63,8 +50,6 @@ static int persist_export(int (*cb)(const char *name, const void *value, size_t 
 {
 	(void)cb("persist/connect_type", &global_params.connect_type,
 		 sizeof(global_params.connect_type));
-	(void)cb("persist/rf24_channel", &global_params.rf24_channel,
-		 sizeof(global_params.rf24_channel));
 	(void)cb("persist/rf24_addr", global_params.rf24_addr,
 		 RF24_ADDR_LEN);
 	return 0;
@@ -80,6 +65,8 @@ static int settings_backend_init(void)
 		LOG_ERR("settings_subsys_init failed: %d", rc);
 	} else {
 		LOG_INF("settings subsystem initialized");
+		/* 清除旧协议残留的信道键 (信道已固定为 1, 不再持久化) */
+		settings_delete("persist/rf24_channel");
 	}
 	return rc;
 }
@@ -98,21 +85,12 @@ void persist_save_connect_type(void)
 
 void persist_save_rf24_config(void)
 {
-	int rc;
-
-	rc = settings_save_one("persist/rf24_channel", &global_params.rf24_channel,
-			       sizeof(global_params.rf24_channel));
-	if (rc) {
-		LOG_ERR("Failed to save rf24_channel: %d", rc);
-	}
-
-	rc = settings_save_one("persist/rf24_addr", global_params.rf24_addr,
-			       RF24_ADDR_LEN);
+	int rc = settings_save_one("persist/rf24_addr", global_params.rf24_addr,
+				   RF24_ADDR_LEN);
 	if (rc) {
 		LOG_ERR("Failed to save rf24_addr: %d", rc);
 	} else {
-		LOG_INF("Saved rf24 config: ch=%d addr=%02x%02x%02x%02x%02x",
-			global_params.rf24_channel,
+		LOG_INF("Saved rf24 addr=%02x%02x%02x%02x%02x",
 			global_params.rf24_addr[0], global_params.rf24_addr[1],
 			global_params.rf24_addr[2], global_params.rf24_addr[3],
 			global_params.rf24_addr[4]);

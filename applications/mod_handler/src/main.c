@@ -6,6 +6,7 @@
  */
 
 #include <zephyr/app_version.h>
+#include <fw_gitver.h>
 #ifndef CONFIG_FLASH_SIZE
 #define CONFIG_FLASH_SIZE 0x1000
 #endif
@@ -30,7 +31,8 @@ int main(void)
 	LOG_INF("board: %s, system clk: %dMHz", CONFIG_BOARD_TARGET,
 		CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC / MHZ(1));
 	LOG_INF("flash size: %dKB, ram size: %dKB", CONFIG_FLASH_SIZE, CONFIG_SRAM_SIZE);
-	LOG_INF("version: %s", APP_VERSION_STRING);
+	LOG_INF("version: v%d.%d.%d_%s", APP_VERSION_MAJOR, APP_VERSION_MINOR,
+		APP_PATCHLEVEL, FW_GIT_VERSION);
 
 	last_activity_time = k_uptime_get_32();
 	adc_init_channels();

@@ -257,7 +257,6 @@ static int power_init(void)
 		global_params.rf24_addr[0], global_params.rf24_addr[1],
 		global_params.rf24_addr[2], global_params.rf24_addr[3],
 		global_params.rf24_addr[4]);
-	global_params.rf24_channel = 1; /* nRF24 默认信道 */
 
 	k_event_init(&global_params.event);
 	k_event_post(&global_params.event, CAN_EVENT);
@@ -446,26 +445,6 @@ static int cmd_link_test(const struct shell *ctx, size_t argc, char **argv)
 	return 0;
 }
 
-/* 设置 nRF24 信道: link rf24_ch <0-125> */
-static int cmd_link_rf24_ch(const struct shell *ctx, size_t argc, char **argv)
-{
-	if (argc < 2) {
-		shell_print(ctx, "rf24 channel: %d", global_params.rf24_channel);
-		return 0;
-	}
-
-	int ch = (int)strtol(argv[1], NULL, 10);
-
-	if (ch < 0 || ch > RF24_ADDR_MAX_CH) {
-		shell_error(ctx, "invalid channel: %d (0-%d)", ch, RF24_ADDR_MAX_CH);
-		return -EINVAL;
-	}
-
-	global_params.rf24_channel = (uint8_t)ch;
-	shell_print(ctx, "rf24 channel set to: %d", global_params.rf24_channel);
-	return 0;
-}
-
 /* 查询当前 rf24 配置: link rf24_get */
 static int cmd_link_rf24_get(const struct shell *ctx, size_t argc, char **argv)
 {
@@ -477,7 +456,7 @@ static int cmd_link_rf24_get(const struct shell *ctx, size_t argc, char **argv)
 	for (int i = 0; i < RF24_ADDR_LEN; i++) {
 		snprintf(addr_str + i * 2, 3, "%02x", global_params.rf24_addr[i]);
 	}
-	shell_print(ctx, "rf24 channel: %d", global_params.rf24_channel);
+	shell_print(ctx, "rf24 channel: %d (fixed)", RF24_FIXED_CH);
 	shell_print(ctx, "rf24 addr:   %s", addr_str);
 	return 0;
 }
@@ -487,8 +466,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_link_cmds,
 	SHELL_CMD_ARG(rf24, NULL, "Switch to 2.4G (nRF24L01+)", cmd_link_rf24, 1, 0),
 	SHELL_CMD_ARG(test, NULL, "Test current link [count]", cmd_link_test, 1, 1),
 	SHELL_CMD_ARG(log, NULL, "Enable/disable debug log [0/1]", cmd_link_log, 1, 1),
-	SHELL_CMD_ARG(rf24_ch, NULL, "Get/set nRF24 channel [0-125]", cmd_link_rf24_ch, 1, 1),
-	SHELL_CMD_ARG(rf24_get, NULL, "Query current nRF24 config", cmd_link_rf24_get, 1, 0),
+	SHELL_CMD_ARG(rf24_get, NULL, "Query current nRF24 config (channel fixed to 1)", cmd_link_rf24_get, 1, 0),
 	SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(link, &sub_link_cmds, "Link switch commands", NULL);

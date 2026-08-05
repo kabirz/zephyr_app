@@ -4,7 +4,7 @@
  *
  * UDP 固件升级库 - 自包含实现 (参考 can_fw_upgrade)
  *
- * 库通过 SYS_INIT 自动创建配置端口 UDP socket (INADDR_ANY:9200),
+ * 库通过 SYS_INIT 自动创建配置端口 UDP socket (INADDR_ANY:8600),
  * 自管 RX 线程, 内部处理固件升级命令 (FW_START/DATA/END);
  * 其他配置命令通过应用注册的回调分发.
  */
@@ -27,6 +27,7 @@
 #include <zephyr/sys/crc.h>
 #include <zephyr/sys/reboot.h>
 #include "udp_fw_upgrade.h"
+#include <fw_gitver.h>
 
 #ifdef CONFIG_MCUBOOT_SIGNATURE_KEY_FILE
 #include <fw_keyhash.h>
@@ -196,6 +197,16 @@ static bool fw_verify_crc(uint16_t recv_crc)
 	return true;
 }
 
+/* 构造版本字符串 "v<M>.<m>.<p>_<6hex>" 到 buf, 返回字符串长度 (不含 '\0').
+ * 去掉 EXTRAVERSION (-dev 等), 加 v 前缀和 6 位 git commit 后缀.
+ * 示例: v0.1.0_6e199a */
+static int build_version_string(char *buf, size_t bufsz)
+{
+	return snprintf(buf, bufsz, "v%d.%d.%d_%s",
+			APP_VERSION_MAJOR, APP_VERSION_MINOR, APP_PATCHLEVEL,
+			FW_GIT_VERSION);
+}
+
 /* 处理固件升级命令. 返回 true 表示是固件命令 (已处理). */
 static bool handle_fw_cmd(uint8_t cmd, const uint8_t *data, size_t len)
 {
@@ -289,10 +300,14 @@ static bool handle_fw_cmd(uint8_t cmd, const uint8_t *data, size_t len)
 	}
 
 	case FW_CMD_GET_VERSION:
-		/* 响应 APP_VERSION_STRING (含 EXTRAVERSION, 如 "0.1.0-dev").
-		 * 变长字符串, 不含末尾 '\0' */
-		udp_fw_reply(cmd, (const uint8_t *)APP_VERSION_STRING,
-			     strlen(APP_VERSION_STRING));
+		/* 响应版本字符串 "v<M>.<m>.<p>_<6hex>" (无末尾 '\0').
+		 * 示例: v0.1.0_6e199a */
+		{
+			char ver[24];
+			int vlen = build_version_string(ver, sizeof(ver));
+
+			udp_fw_reply(cmd, (const uint8_t *)ver, vlen);
+		}
 		return true;
 
 	case FW_CMD_REBOOT:

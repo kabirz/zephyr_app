@@ -5,8 +5,7 @@
  * 2.4G 无线 (nRF24L01+) 互通测试 shell 命令
  *
  * 与 mod_handler 之间的链路测试:
- *   rf24 info                       查看 channel/addr/device 状态
- *   rf24 ch [0-125]                 get/set 信道
+ *   rf24 info                       查看 addr/device 状态 (信道固定为 1)
  *   rf24 addr <b0 b1 b2 b3 b4>      设置 5 字节地址
  *   rf24 send <text...>             发送 DATA 帧
  *   rf24 ping [count=5] [iv_ms=200] ping/echo 往返测试, 统计 RTT
@@ -124,30 +123,9 @@ static int cmd_rf24_info(const struct shell *ctx, size_t argc, char **argv)
 	}
 	shell_print(ctx, "device:  %s",
 		    device_is_ready(rf24_dev) ? "ready" : "NOT ready");
-	shell_print(ctx, "channel: %d", gw_params.rf24_channel);
+	shell_print(ctx, "channel: %d (fixed)", RF24_FIXED_CH);
 	shell_print(ctx, "addr:    %s", addr_str);
 	shell_print(ctx, "listen:  %s", listen_mode ? "on" : "off");
-	return 0;
-}
-
-static int cmd_rf24_ch(const struct shell *ctx, size_t argc, char **argv)
-{
-	if (argc < 2) {
-		shell_print(ctx, "channel: %d", gw_params.rf24_channel);
-		return 0;
-	}
-	int ch = (int)strtol(argv[1], NULL, 10);
-
-	if (ch < 0 || ch > RF24_ADDR_MAX_CH) {
-		shell_error(ctx, "invalid channel: %d (0-%d)", ch, RF24_ADDR_MAX_CH);
-		return -EINVAL;
-	}
-	if (!device_is_ready(rf24_dev)) {
-		shell_error(ctx, "nRF24 device not ready");
-		return -EIO;
-	}
-	gw_rf24_set_config((uint8_t)ch, gw_params.rf24_addr);
-	shell_print(ctx, "channel set to %d", gw_params.rf24_channel);
 	return 0;
 }
 
@@ -172,7 +150,7 @@ static int cmd_rf24_addr(const struct shell *ctx, size_t argc, char **argv)
 		}
 		addr[i] = (uint8_t)v;
 	}
-	gw_rf24_set_config(gw_params.rf24_channel, addr);
+	gw_rf24_set_config(addr);
 	persist_save_rf24_config();
 
 	char addr_str[RF24_ADDR_LEN * 3 + 1] = {0};
@@ -344,8 +322,7 @@ static int cmd_rf24_log(const struct shell *ctx, size_t argc, char **argv)
 
 SHELL_STATIC_SUBCMD_SET_CREATE(
 	sub_rf24_cmds,
-	SHELL_CMD_ARG(info, NULL, "Show RF24 channel/addr/state", cmd_rf24_info, 1, 0),
-	SHELL_CMD_ARG(ch, NULL, "Get/set channel [0-125]", cmd_rf24_ch, 1, 1),
+	SHELL_CMD_ARG(info, NULL, "Show RF24 addr/state", cmd_rf24_info, 1, 0),
 	SHELL_CMD_ARG(addr, NULL, "Set 5-byte addr <b0 b1 b2 b3 b4> (hex)", cmd_rf24_addr, 6, 0),
 	SHELL_CMD_ARG(send, NULL, "Send DATA frame <text...>", cmd_rf24_send, 2, 15),
 	SHELL_CMD_ARG(ping, NULL, "Ping test [count=5] [interval_ms=200]", cmd_rf24_ping, 1, 2),

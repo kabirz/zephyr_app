@@ -117,10 +117,10 @@ void rf24_init(void)
 	/* 上电 + 等 POR + 重新配置 + 进 PRX (电源由驱动按 power-gpios 管理) */
 	nrf24_power_enable(rf24_dev, true);
 
-	/* 应用持久化的地址和信道配置 */
-	if (global_params.rf24_channel <= RF24_ADDR_MAX_CH) {
+	/* 应用持久化的地址配置 (信道固定为 RF24_FIXED_CH) */
+	{
 		struct nrf24_cfg cfg = {
-			.channel = global_params.rf24_channel,
+			.channel = RF24_FIXED_CH,
 			.address_width = RF24_ADDR_LEN,
 			.tx_addr = global_params.rf24_addr,
 		};
@@ -133,7 +133,7 @@ void rf24_init(void)
 
 		nrf24_configure(rf24_dev, &cfg);
 		LOG_INF("nRF24 configured: ch=%d addr=%02x%02x%02x%02x%02x",
-			global_params.rf24_channel,
+			RF24_FIXED_CH,
 			global_params.rf24_addr[0], global_params.rf24_addr[1],
 			global_params.rf24_addr[2], global_params.rf24_addr[3],
 			global_params.rf24_addr[4]);

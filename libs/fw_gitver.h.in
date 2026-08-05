@@ -1,0 +1,9 @@
+#ifndef FW_GITVER_H
+#define FW_GITVER_H
+
+/* 6 位 git commit hash (编译期由 gen_gitver.cmake 注入).
+ * 无 git 或失败时 fallback 为 "000000". 供 CAN/UDP 固件升级库
+ * 拼接版本字符串 "v<M>.<m>.<p>_<6hex>" 使用. */
+#define FW_GIT_VERSION "@_git_sha@"
+
+#endif /* FW_GITVER_H */

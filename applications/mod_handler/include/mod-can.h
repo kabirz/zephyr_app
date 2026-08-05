@@ -6,7 +6,7 @@
 #include <common.h>
 
 enum {
-	RF24_CONFIG_CMD = 0x110,    /* 平台→手柄: 设置/查询 rf24 通道 */
+	RF24_CONFIG_CMD = 0x110,    /* 平台→手柄: 查询 rf24 地址 (信道固定为 1) */
 	RF24_CONFIG_RESP = 0x111,   /* 手柄→平台: rf24 配置响应 */
 	COBID_HEATBEAT = 0x763,
 	TEST_FRAME = 0x777,
@@ -18,8 +18,7 @@ enum {
 
 /* RF24_CONFIG_CMD 命令类型 */
 enum rf24_config_cmd {
-	RF24_CMD_SET_CHANNEL = 0x01,  /* 设置通道: [cmd 1B][channel 1B][reserved 6B] */
-	RF24_CMD_GET_CONFIG  = 0x02,  /* 查询配置: [cmd 1B][reserved 7B] */
+	RF24_CMD_GET_CONFIG = 0x02,  /* 查询配置: [cmd 1B][reserved 7B] */
 };
 
 int mod_can_send(struct can_frame *frame);
