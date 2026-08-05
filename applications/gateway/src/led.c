@@ -4,7 +4,8 @@
  *
  * 三路状态灯管理
  *   PA1 (led_rf24): 2.4G 活动灯 - 平时常亮, 收发时以固定频率闪烁
- *   PA3 (led_err):  错误灯     - 栈溢出/hardfault/关键硬件初始化失败点亮, 锁定不灭
+ *   PA3 (led_err):  错误灯     - 开机自检闪一下 (150ms) 后熄灭; 栈溢出/hardfault/
+ *                                关键硬件初始化失败点亮, 锁定不灭
  *   PA2 (led_sys):  系统灯     - 进入 main 循环前点亮
  *
  * 全部低电平亮 (GPIO_ACTIVE_LOW), 通过 DT 描述; 代码用 gpio_pin_set_dt 的逻辑电平
@@ -39,8 +40,21 @@ static volatile bool blinking;
 /* 错误灯锁定标志 - 一旦置位, 不再熄灭 */
 static volatile bool error_latched;
 
+/* 开机自检: 故障灯点亮 ERR_SELFTEST_MS 后熄灭 (仅指示 LED/GPIO 通路正常,
+ * 不置 latch). 用 delayed work 非阻塞, 不拖慢后续初始化. */
+#define ERR_SELFTEST_MS 150
+static struct k_work_delayable err_selftest_work;
+
+static void err_selftest_work_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+	gpio_pin_set_dt(&led_err, 0);
+}
+
 /* ================================================================
- * 初始化: PA1/PA2/PA3 配置为输出, 默认全灭; 随后点亮 PA1 (常亮=就绪).
+ * 初始化: PA1/PA2/PA3 配置为输出, 默认全灭; 随后点亮 PA1 (常亮=就绪),
+ * 故障灯做一次开机自检闪烁 (亮 150ms 后自动熄灭).
  * ================================================================ */
 void gw_led_init(void)
 {
@@ -49,11 +63,13 @@ void gw_led_init(void)
 	gpio_pin_configure_dt(&led_sys,  GPIO_OUTPUT_INACTIVE);
 
 	gpio_pin_set_dt(&led_rf24, 1);   /* 平时常亮 (2.4G 就绪) */
-	gpio_pin_set_dt(&led_err,  0);
+	gpio_pin_set_dt(&led_err,  1);   /* 开机自检: 点亮故障灯 */
 	gpio_pin_set_dt(&led_sys,  0);
 
 	k_work_init_delayable(&led_blink_work, led_blink_work_handler);
 	blinking = false;
+	k_work_init_delayable(&err_selftest_work, err_selftest_work_handler);
+	k_work_schedule(&err_selftest_work, K_MSEC(ERR_SELFTEST_MS));
 }
 
 void gw_led_sys_on(void)
