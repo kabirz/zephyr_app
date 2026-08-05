@@ -64,10 +64,24 @@ int udp_fw_remove_handler(udp_fw_app_cmd_cb_t cb);
  * 库自管回复路由: 同子网单播到发送方, 跨子网定向广播.
  * 应用在命令回调里调用此函数回复业务命令结果.
  *
+ * 跨子网 (广播) 回复默认关闭, 仅对已通过 udp_fw_allow_broadcast_cmd()
+ * 放行的命令发送, 避免广播回复淹没子网内所有设备.
+ *
  * @param cmd  回复命令码 (通常与请求相同)
  * @param data 回复数据 (NULL 表示无数据)
  * @param len  回复数据长度
  */
 void udp_fw_reply(uint8_t cmd, const uint8_t *data, uint8_t len);
+
+/**
+ * @brief 放行某命令的跨子网广播回复
+ *
+ * 配置端口支持广播接收, 但广播回复会送达子网内所有设备. 默认任何命令
+ * 都不允许广播回复 (跨子网接收时静默丢弃); 调用此函数注册的命令在
+ * 跨子网接收时仍会以广播回复 (如网络发现命令 GET_NET/SET_NET).
+ *
+ * @param cmd 允许广播回复的命令码
+ */
+void udp_fw_allow_broadcast_cmd(uint8_t cmd);
 
 #endif /* __UDP_FW_UPGRADE_H__ */

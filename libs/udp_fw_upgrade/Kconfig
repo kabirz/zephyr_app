@@ -48,3 +48,25 @@ config UDP_FW_UPGRADE_MAX_HANDLERS
 	help
 	  Capacity of the business-command callback array. Each registered
 	  callback receives every non-firmware-upgrade command (broadcast).
+
+config UDP_FW_UPGRADE_MAX_BCAST_CMDS
+	int "Max commands allowed to broadcast-reply"
+	default 8
+	depends on UDP_FW_UPGRADE && UDP_FW_REPLY_BCAST_RESTRICT
+	help
+	  Capacity of the broadcast-reply allowlist. Only commands registered
+	  via udp_fw_allow_broadcast_cmd() get a cross-subnet broadcast reply;
+	  all others are silently dropped when received cross-subnet.
+
+config UDP_FW_REPLY_BCAST_RESTRICT
+	bool "Restrict cross-subnet broadcast replies to allowed commands"
+	default y
+	depends on UDP_FW_UPGRADE
+	help
+	  When enabled, cross-subnet (broadcast) replies on the config port are
+	  only sent for commands registered via udp_fw_allow_broadcast_cmd();
+	  all other commands received cross-subnet are silently dropped. This
+	  prevents a broadcast reply from flooding every device on the subnet
+	  for non-discovery commands (e.g. RF24/network/firmware config).
+	  Disable to restore the legacy behavior where any command received
+	  cross-subnet is answered with an unrestricted broadcast reply.

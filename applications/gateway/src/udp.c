@@ -312,6 +312,9 @@ K_THREAD_DEFINE(thread_udp_data_rx, CONFIG_GATEWAY_DATA_RX_STACK, udp_data_rx_th
 static int gw_udp_init(void)
 {
 	udp_fw_set_app_handler(app_cmd_handler, NULL);
+	/* 网络发现: 仅 GET_NET/SET_NET 允许跨子网广播回复, 其余命令广播接收时静默丢弃 */
+	udp_fw_allow_broadcast_cmd(UDP_CMD_GET_NET);
+	udp_fw_allow_broadcast_cmd(UDP_CMD_SET_NET);
 	return 0;
 }
 

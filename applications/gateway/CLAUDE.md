@@ -100,6 +100,8 @@ host       --UDP-->  gateway --nRF24--> mod_handler
 - 固件升级命令 0x01~0x05（开始/数据/结束/查询版本/重启，由 `udp_fw_upgrade` 库内部处理）
 - 网络参数命令 0x12/0x13（SET_NET/GET_NET）；RF24 参数命令 0x14/0x15（SET_RF24/GET_RF24）；网络模式 0x16/0x17（SET_NET_MODE/GET_NET_MODE）
 - **上位机目标命令 0x18/0x19（SET_HOST/GET_HOST）**：配置 nRF24 数据转发目标 `host_ip:host_port`（默认 `192.168.11.100:8602`，持久化），不再广播/学习发送方
+- **广播回复限制**：配置端口支持广播接收，但跨子网广播回复会淹没子网内所有设备。`udp_fw_upgrade` 库新增 `CONFIG_UDP_FW_REPLY_BCAST_RESTRICT`（默认 `y`）开关：开启时仅对 `udp_fw_allow_broadcast_cmd()` 放行的命令做广播回复（gateway 放行 GET_NET/SET_NET，即"获取/设置 IP"），其余命令跨子网接收时静默丢弃；关闭时恢复任意命令广播回复的旧行为。
+- **`0x18/0x19 SET_HOST/GET_HOST`** 是固定单播目标配置（不涉及广播），不受上述限制影响。
 - 静态模式掩码固定 255.255.255.0，网关 = 设备 IP 末段改 1（运行时派生，不传输）；DHCP 模式（`use_dhcp`，持久化重启生效）由服务器分配，GET_NET 回复 live interface 地址
 
 ### 命令响应格式

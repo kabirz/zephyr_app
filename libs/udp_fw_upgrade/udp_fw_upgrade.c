@@ -68,6 +68,24 @@ static struct udp_fw_handler handlers[CONFIG_UDP_FW_UPGRADE_MAX_HANDLERS];
 static int config_sock = -1;
 static struct sockaddr_in config_remote_addr;
 
+/* 允许跨子网广播接收的命令 allowlist (默认空; 应用通过
+ * udp_fw_allow_broadcast_cmd() 放行, 如网络发现命令 GET_NET/SET_NET).
+ * 未放行的命令跨子网接收时被 RX 线程直接丢弃, 不执行也不回复. */
+#ifdef CONFIG_UDP_FW_REPLY_BCAST_RESTRICT
+static uint8_t bcast_allowed_cmds[CONFIG_UDP_FW_UPGRADE_MAX_BCAST_CMDS];
+static size_t bcast_allowed_cnt;
+
+static bool bcast_cmd_allowed(uint8_t cmd)
+{
+	for (size_t i = 0; i < bcast_allowed_cnt; i++) {
+		if (bcast_allowed_cmds[i] == cmd) {
+			return true;
+		}
+	}
+	return false;
+}
+#endif
+
 /* 固件升级状态 */
 static struct flash_img_context flash_img_ctx;
 static bool fw_started;
@@ -131,7 +149,8 @@ void udp_fw_reply(uint8_t cmd, const uint8_t *data, uint8_t len)
 		/* 同子网: 单播回复到发送方源地址 (端口=发送方源端口) */
 		dst = config_remote_addr;
 	} else {
-		/* 跨子网: 广播回复. 远程端口 = 本地端口 + 1 (上位机监听 config+1) */
+		/* 跨子网: 定向广播回复 (上位机监听 config+1).
+		 * 能走到这里说明命令已在 RX 线程通过广播放行检查, 可安全广播回复. */
 		dst.sin_family = AF_INET;
 		dst.sin_port = htons(CONFIG_UDP_FW_CONFIG_PORT + 1);
 		dst.sin_addr.s_addr = INADDR_BROADCAST;
@@ -308,6 +327,15 @@ static void udp_fw_rx_thread(void *p1, void *p2, void *p3)
 		const uint8_t *cmd_data = buf + 1;
 		size_t cmd_len = received - 1;
 
+#ifdef CONFIG_UDP_FW_REPLY_BCAST_RESTRICT
+		/* 跨子网/广播接收的命令: 仅处理放行的网络发现命令 (如 GET/SET IP),
+		 * 其余直接丢弃, 不执行任何操作也不回复, 避免误触发配置/固件升级 */
+		if (!is_same_subnet(src_addr.sin_addr) && !bcast_cmd_allowed(cmd)) {
+			LOG_DBG("drop cross-subnet cmd 0x%02x", cmd);
+			continue;
+		}
+#endif
+
 		/* 固件升级命令: 内部处理 */
 		if (handle_fw_cmd(cmd, cmd_data, cmd_len)) {
 			continue;
@@ -437,4 +465,20 @@ int udp_fw_remove_handler(udp_fw_app_cmd_cb_t cb)
 		}
 	}
 	return -ENOENT;
+}
+
+void udp_fw_allow_broadcast_cmd(uint8_t cmd)
+{
+#ifdef CONFIG_UDP_FW_REPLY_BCAST_RESTRICT
+	for (size_t i = 0; i < bcast_allowed_cnt; i++) {
+		if (bcast_allowed_cmds[i] == cmd) {
+			return;
+		}
+	}
+	if (bcast_allowed_cnt < CONFIG_UDP_FW_UPGRADE_MAX_BCAST_CMDS) {
+		bcast_allowed_cmds[bcast_allowed_cnt++] = cmd;
+	}
+#else
+	ARG_UNUSED(cmd);
+#endif
 }
