@@ -296,6 +296,13 @@ static void nrf24_irq_thread(void *p1, void *p2, void *p3)
 	struct nrf24_data *d = get_data(dev);
 
 	while (1) {
+		/* 断电 (ready=false) 时永久阻塞等待 IRQ 或上电, 不产生周期性
+		 * 轮询定时器 —— 否则每 50ms 的轮询会让 idle 时长恒 < min-residency,
+		 * 阻止系统进入并保持 STOP 低功耗模式 (串口等外设时钟不停). */
+		if (!d->ready) {
+			k_sem_take(&d->irq_sem, K_FOREVER);
+			continue;
+		}
 		/* [BUGFIX] STM32F1 EXTI 仅边沿触发, RX 紧接 TX (收 PING 后回 ECHO) 时,
 		 * 两个 IRQ 下降沿间隔太近会丢边沿, 导致 TX_DS/MAX_RT 永不被处理
 		 * (nrf24_send 等 tx_done_sem 超时 ret=-11). 改用 50ms 超时轮询兜底,
@@ -676,6 +683,8 @@ int nrf24_power_enable(const struct device *dev, bool enable)
 			d->ready = true;
 			d->mode = NRF24_MODE_PRX;
 			ce_set(dev, 1);
+			/* 唤醒阻塞在 K_FOREVER 的 irq 线程 (断电时进入的) */
+			k_sem_give(&d->irq_sem);
 		} else {
 			d->ready = false;
 			LOG_ERR("power enable failed: %d", ret);

@@ -82,7 +82,7 @@ void adc_read_thread(void)
 	LOG_INF("ADC read thread started");
 
 	while (true) {
-		if (global_params.sleeping) {
+		if (atomic_get(&global_params.sleeping)) {
 			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
 			continue;
 		}
@@ -164,7 +164,7 @@ void adc_power_thread(void)
 	(void)adc_sequence_init_dt(adc_voltage_channel, &sequence);
 
 	while (true) {
-		if (global_params.sleeping) {
+		if (atomic_get(&global_params.sleeping)) {
 			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
 			continue;
 		}

@@ -12,6 +12,9 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/hwinfo.h>
+#include <zephyr/pm/pm.h>
+#include <zephyr/pm/policy.h>
+#include <zephyr/pm/state.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/logging/log.h>
 #include <common.h>
@@ -76,7 +79,7 @@ static struct k_work_delayable sleep_work;
 
 static void btn_display_work_handler(struct k_work *work)
 {
-	if (global_params.sleeping) {
+	if (atomic_get(&global_params.sleeping)) {
 		return;
 	}
 	global_params.h_button = gpio_pin_get_dt(&handler_button);
@@ -145,7 +148,7 @@ void handler_power_enable(bool up)
 void system_sleep(void)
 {
 	k_event_clear(&global_params.event, WAKE_EVENT);
-	global_params.sleeping = true;
+	atomic_set(&global_params.sleeping, 1);
 
 	/* 等待各线程检测到 sleeping 标志并停止外设活动, 避免断电时 DMA 中断 */
 	k_msleep(100);
@@ -157,6 +160,32 @@ void system_sleep(void)
 	}
 	dis_power_enable(false);
 	handler_power_enable(false);
+
+	/* 真正进入 STM32 STOP 模式: 强制下一次 idle 进入 suspend-to-idle (STOP)。
+	 * 进入后 APB 时钟停止, UART 等外设不再响应; 仅 GPIO EXTI (电源键) 可唤醒。
+	 * 设备电源由本函数上方已断电, PM 层仅管理 CPU, 不依赖设备挂起 (见 overlay)。 */
+	static const struct pm_state_info stop_state = {
+		.state = PM_STATE_SUSPEND_TO_IDLE,
+		.substate_id = 1, /* STOP_LPREGU, 更低功耗 */
+	};
+
+	if (!pm_state_force(0, &stop_state)) {
+		LOG_ERR("pm_state_force STOP failed");
+	}
+}
+
+/* 自定义 PM policy (CONFIG_PM_POLICY_CUSTOM):
+ * 系统 sleeping 时无视任何空闲时长/定时器 (nrf24 轮询、shell 超时等),
+ * 每次 idle 都直接强制进入 STM32 STOP 模式 —— 保证外设 APB 时钟停止、
+ * 串口不再响应; 否则不主动进入低功耗, 保持启动时状态. */
+const struct pm_state_info *pm_policy_next_state(uint8_t cpu, int32_t ticks)
+{
+	ARG_UNUSED(ticks);
+
+	if (atomic_get(&global_params.sleeping)) {
+		return pm_state_get(cpu, PM_STATE_SUSPEND_TO_IDLE, 1);
+	}
+	return NULL;
 }
 
 static void system_wake(void)
@@ -171,7 +200,7 @@ static void system_wake(void)
 	k_msleep(200);
 	mod_display_reinit();
 	mod_display_all(&global_params);
-	global_params.sleeping = false;
+	atomic_set(&global_params.sleeping, 0);
 	last_activity_time = k_uptime_get_32();
 	k_event_post(&global_params.event, WAKE_EVENT);
 	LOG_INF("system woke up");
@@ -180,7 +209,7 @@ static void system_wake(void)
 static void sleep_work_handler(struct k_work *work)
 {
 	if (gpio_pin_get_dt(&power_button) == 0) {
-		if (global_params.sleeping) {
+		if (atomic_get(&global_params.sleeping)) {
 			system_wake();
 		}
 	}
@@ -207,7 +236,7 @@ void gpio_irq(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 	if (pins & BIT(power_button.pin)) {
 		k_work_reschedule(&sleep_work, K_MSEC(10));
 	} else if (pins & BIT(handler_button.pin)) {
-		if (global_params.sleeping) {
+		if (atomic_get(&global_params.sleeping)) {
 			return;
 		}
 		k_work_reschedule(&btn_display_work, K_MSEC(10));
@@ -216,7 +245,7 @@ void gpio_irq(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 
 static void linksw_irq(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
-	if (global_params.sleeping) {
+	if (atomic_get(&global_params.sleeping)) {
 		return;
 	}
 	k_work_reschedule(&linksw_work, K_MSEC(20));
@@ -470,4 +499,24 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_link_cmds,
 	SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(link, &sub_link_cmds, "Link switch commands", NULL);
+
+/* 手动进入系统睡眠 (STOP 模式)。等效于 10 分钟无操作自动休眠:
+ * 关闭外设电源 + pm_state_force 强制 CPU 进 STOP, 电源键 (PA1) 唤醒。 */
+static int cmd_sleep(const struct shell *ctx, size_t argc, char **argv)
+{
+	ARG_UNUSED(ctx);
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	if (atomic_get(&global_params.sleeping)) {
+		shell_print(ctx, "already sleeping");
+		return 0;
+	}
+
+	shell_print(ctx, "entering sleep...");
+	system_sleep();
+	return 0;
+}
+
+SHELL_CMD_REGISTER(sleep, NULL, "Enter system sleep (STOP mode)", cmd_sleep);
 #endif

@@ -41,7 +41,7 @@ typedef struct {
 	battery_status_t battery_status;
 	scanner_data_t scanner;
 	uint8_t rssi;
-	volatile bool sleeping;
+	atomic_t sleeping;
 	struct k_event event;
 	bool log;
 #define RF24_ADDR_LEN 5

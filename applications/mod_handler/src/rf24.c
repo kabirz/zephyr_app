@@ -258,7 +258,7 @@ static void rf24_rx_thread(void)
 	struct nrf24_frame frame;
 
 	while (true) {
-		if (global_params.sleeping) {
+		if (atomic_get(&global_params.sleeping)) {
 			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
 			continue;
 		}

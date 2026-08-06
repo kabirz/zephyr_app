@@ -23,6 +23,11 @@ LOG_MODULE_REGISTER(common_link, LOG_LEVEL_INF);
  */
 int send_handler_state(const uint8_t *data, uint8_t len)
 {
+	/* 最后防线: 休眠中禁止任何链路发送 (断电后 nRF24 SPI / CAN 操作会异常) */
+	if (atomic_get(&global_params.sleeping)) {
+		return -EBUSY;
+	}
+
 	if (global_params.connect_type == CAN_TYPE) {
 		struct can_frame frame = {
 			.id = HANDLER_STATE,
@@ -42,7 +47,7 @@ static void heart_thread(void)
 {
 	while (true) {
 		k_event_wait(&global_params.event, CAN_EVENT | RF24_EVENT, false, K_FOREVER);
-		if (global_params.sleeping) {
+		if (atomic_get(&global_params.sleeping)) {
 			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
 			continue;
 		}

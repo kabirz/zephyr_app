@@ -97,3 +97,14 @@
              <&rcc STM32_SRC_LSI RTC_SEL(2)>;
     status = "okay";
 };
+
+/* PM 低功耗状态: 设备电源由应用层 system_sleep/system_wake 管理 (GPIO 断电),
+ * PM 子系统只管 CPU 进 STOP 模式, 不挂起设备 —— 避免任何设备挂起失败导致
+ * STOP 被中止 (回退到普通 WFI, 串口等外设仍全速运行, 无法真正省电)。 */
+&stop0 {
+	zephyr,pm-device-disabled;
+};
+
+&stop1 {
+	zephyr,pm-device-disabled;
+};

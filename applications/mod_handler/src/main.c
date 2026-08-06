@@ -43,7 +43,7 @@ int main(void)
 	connect_switch(global_params.connect_type);
 
 	while (1) {
-		if (global_params.sleeping) {
+		if (atomic_get(&global_params.sleeping)) {
 			k_event_wait(&global_params.event, WAKE_EVENT, false, K_FOREVER);
 			continue;
 		}
