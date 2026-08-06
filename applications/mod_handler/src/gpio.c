@@ -77,6 +77,10 @@ static struct k_work_delayable btn_display_work;
 static struct k_work_delayable linksw_work;
 static struct k_work_delayable sleep_work;
 
+/* 唤醒过渡标志: system_wake 执行期间置 1, 阻止 pm_policy_next_state 再次强制进
+ * STOP (否则 k_msleep 期间 idle 反复尝试挂起设备, 慢速 I2C 超时拖慢唤醒)。 */
+static atomic_t waking;
+
 static void btn_display_work_handler(struct k_work *work)
 {
 	if (atomic_get(&global_params.sleeping)) {
@@ -182,7 +186,9 @@ const struct pm_state_info *pm_policy_next_state(uint8_t cpu, int32_t ticks)
 {
 	ARG_UNUSED(ticks);
 
-	if (atomic_get(&global_params.sleeping)) {
+	/* 唤醒过渡期间 (system_wake) 不强制进 STOP, 让 SysTick 正常运行,
+	 * 否则 k_msleep 会被反复挂起/恢复的慢速 I2C 超时拖慢。 */
+	if (atomic_get(&global_params.sleeping) && !atomic_get(&waking)) {
 		return pm_state_get(cpu, PM_STATE_SUSPEND_TO_IDLE, 1);
 	}
 	return NULL;
@@ -190,7 +196,7 @@ const struct pm_state_info *pm_policy_next_state(uint8_t cpu, int32_t ticks)
 
 static void system_wake(void)
 {
-	int64_t wake_t0 = k_uptime_get();
+	atomic_set(&waking, 1);
 	handler_power_enable(true);
 	dis_power_enable(true);
 	if (global_params.connect_type == CAN_TYPE) {
@@ -198,16 +204,13 @@ static void system_wake(void)
 	} else {
 		rf24_init();
 	}
-	LOG_INF("wake: power on +%lldms", (long long)(k_uptime_get() - wake_t0));
 	k_msleep(200);
-	LOG_INF("wake: 200ms delay done +%lldms", (long long)(k_uptime_get() - wake_t0));
 	/* reinit 期间保持 sleeping, 阻止其他线程 (rf24/adc) 并发写显示; 完成后再
 	 * 清标志并全屏刷新 (display_write_buf 以 sleeping 判断是否跳过) */
 	mod_display_reinit();
-	LOG_INF("wake: display reinit done +%lldms", (long long)(k_uptime_get() - wake_t0));
 	atomic_set(&global_params.sleeping, 0);
 	mod_display_all(&global_params);
-	LOG_INF("wake: redraw done +%lldms", (long long)(k_uptime_get() - wake_t0));
+	atomic_set(&waking, 0);
 	last_activity_time = k_uptime_get_32();
 	k_event_post(&global_params.event, WAKE_EVENT);
 	LOG_INF("system woke up");
@@ -216,7 +219,7 @@ static void system_wake(void)
 static void sleep_work_handler(struct k_work *work)
 {
 	if (gpio_pin_get_dt(&power_button) == 0) {
-		if (atomic_get(&global_params.sleeping)) {
+		if (atomic_get(&global_params.sleeping) && !atomic_get(&waking)) {
 			system_wake();
 		}
 	}
