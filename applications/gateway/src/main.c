@@ -156,8 +156,10 @@ static int net_init(void)
 		return -ENODEV;
 	}
 
-	/* 用 UID 派生唯一 MAC 覆盖设备树默认值 (net_mgmt 要求 admin down, 故在
-	 * net_if_up 之前调用). 失败则沿用设备树 MAC. */
+	/* 用 UID 派生唯一 MAC 覆盖设备树默认值. 接口自动 up 已通过
+	 * CONFIG_ETH_NET_IF_NO_AUTO_START 关闭 (net_if_post_init 不会自动 up ethernet
+	 * 接口), 故此时接口处于 admin down, SET_MAC_ADDRESS 可直接成功. 之后 net_if_up
+	 * 手动拉起. 失败则沿用设备树 MAC. */
 	uint8_t mac[NET_ETH_ADDR_LEN];
 	struct ethernet_req_params params;
 
