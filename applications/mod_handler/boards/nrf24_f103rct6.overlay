@@ -2,6 +2,7 @@
 	chosen {
 		zephyr,canbus = &can1;
 		zephyr,settings-partition = &cfg_partition;
+		zephyr,display = &sh1106_sh1106_128x64;
 	};
 
 	zephyr,user {
@@ -96,6 +97,30 @@
     clocks = <&rcc STM32_CLOCK_BUS_APB1 0x10000000>,
              <&rcc STM32_SRC_LSI RTC_SEL(2)>;
     status = "okay";
+};
+
+/* OLED 显示 (SH1106 @ 0x3C, I2C2, 400kHz 快速模式) */
+&i2c2 {
+	clock-frequency = <400000>;
+	pinctrl-0 = <&i2c2_scl_pb10 &i2c2_sda_pb11>;
+	pinctrl-1 = <&analog_pb11 &analog_pb11>;
+	pinctrl-names = "default", "sleep";
+	status = "okay";
+
+	sh1106_sh1106_128x64: ssd1306@3c {
+		compatible = "sinowealth,sh1106";
+		reg = <0x3c>;
+		width = <128>;
+		height = <64>;
+		segment-offset = <2>;
+		page-offset = <0>;
+		display-offset = <0>;
+		multiplex-ratio = <63>;
+		segment-remap;
+		com-invdir;
+		prechargep = <0x22>;
+		ready-time-ms = <100>;
+	};
 };
 
 /* PM 低功耗状态: 外设电源由应用层 system_sleep/system_wake 管理 (GPIO 断电),

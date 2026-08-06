@@ -18,7 +18,6 @@
 		zephyr,sram = &sram0;
 		zephyr,flash = &flash0;
 		zephyr,code-partition = &slot0_partition;
-		zephyr,display = &sh1106_sh1106_128x64;
 	};
 };
 
@@ -104,28 +103,6 @@
 			label = "image-0";
 			reg = <0x00010000 DT_SIZE_K(192)>;
 		};
-	};
-};
-
-&i2c2 {
-	pinctrl-0 = <&i2c2_scl_pb10 &i2c2_sda_pb11>;
-	pinctrl-1 = <&analog_pb11 &analog_pb11>;
-	pinctrl-names = "default", "sleep";
-	status = "okay";
-
-	sh1106_sh1106_128x64: ssd1306@3c {
-		compatible = "sinowealth,sh1106";
-		reg = <0x3c>;
-		width = <128>;
-		height = <64>;
-		segment-offset = <2>;
-		page-offset = <0>;
-		display-offset = <0>;
-		multiplex-ratio = <63>;
-		segment-remap;
-		com-invdir;
-		prechargep = <0x22>;
-		ready-time-ms = <100>;
 	};
 };
 
