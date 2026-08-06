@@ -25,6 +25,19 @@ config MODBUS_DIO_PRIORITY
 	help
 	  Use this to set modbus dio server priority
 
+config DC_NET_PRIORITY
+	int "network init task priority"
+	default 13
+	help
+	  Use this to set network init priority
+
+config DC_CAN_INIT_PRIORITY
+	int "CAN config handler init priority"
+	default 60
+	help
+	  SYS_INIT priority for registering the CAN business-frame handler.
+	  Must run before the can_fw_upgrade RX thread starts processing.
+
 config FTP_PRIORITY
 	int "ftp server priority"
 	default 13
@@ -61,6 +74,20 @@ config MODBUS_RTU_STACK_SIZE
 	help
 	  Use this to set modbus rtu server stack size
 
+config DC_NET_STACK_SIZE
+	int "network init stack size"
+	default 1024
+	help
+	  Use this to set network init stack size
+
+config DC_UDP_CMD_INIT_PRIORITY
+	int "udp command handler init priority"
+	default 10
+	help
+	  SYS_INIT priority for registering the UDP business-config command
+	  handler. Must run before the udp_fw_upgrade RX thread processes
+	  commands (network up).
+
 config FTP_STACK_SIZE
 	int "FTP server stack size"
 	default 2048
@@ -87,7 +114,7 @@ config MODBUS_INPUT_REGISTER_NUMBERS
 
 config MODBUS_HOLDING_REGISTER_NUMBERS
 	int "modbus HOLDING register numbers"
-	default 21
+	default 23
 	help
 	  Use this to set modbus holding register numbers
 

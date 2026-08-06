@@ -35,6 +35,8 @@ typedef enum {
 	HOLDING_HEART_EN_IDX,      /* heart enable */
 	HOLDING_HEART_TIMEOUT_IDX, /* heart timeout 10ms ~ 65535ms */
 	HOLDING_HEART_IDX,         /* heart */
+	HOLDING_TCP_PORT_IDX,      /* modbus tcp server port (default 502) */
+	HOLDING_NET_MODE_IDX,      /* net mode: 0=static, 1=DHCP */
 	HOLDING_MAX_IDX,
 } holding_idx;
 
@@ -71,5 +73,9 @@ void history_enable_write(bool enable);
 void set_timestamp(time_t t);
 
 #include <zephyr/logging/log.h>
+/* 默认让本目录所有文件共享 modbus_main 日志模块. 个别独立模块 (如 UDP/CAN
+ * 配置服务) 若自行 LOG_MODULE_REGISTER, 需在包含本文件前定义此宏跳过声明. */
+#ifndef DC_NO_MODBUS_LOG_MODULE
 LOG_MODULE_DECLARE(modbus_main, CONFIG_MODBUS_APP_LOG_LEVEL);
+#endif
 #endif

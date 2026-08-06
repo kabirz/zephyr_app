@@ -11,9 +11,9 @@
 #include <zephyr/net/socket.h>
 #include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/net_event.h>
+#include <data_collect.h>
 
 #define MAX_CLIENTS     3
-#define MODBUS_TCP_PORT 502
 static uint8_t data_buf[256];
 static struct modbus_client {
 	int fd;
@@ -107,6 +107,10 @@ void tcp_poll(void)
 		return;
 	}
 
+	/* 等网络配置完成 (net.c: 静态 IP 配置完成或 DHCP 拿到租约) 再建 server + bind.
+	 * 否则 DHCP 模式下无地址, bind 可能失败或连不上. */
+	dc_net_wait_ready();
+
 	serv = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (serv < 0) {
 		LOG_ERR("error: socket: %d", errno);
@@ -115,7 +119,7 @@ void tcp_poll(void)
 
 	bind_addr.sin_family = AF_INET;
 	bind_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	bind_addr.sin_port = htons(MODBUS_TCP_PORT);
+	bind_addr.sin_port = htons(get_holding_reg(HOLDING_TCP_PORT_IDX));
 
 	if (bind(serv, (struct sockaddr *)&bind_addr, sizeof(bind_addr)) < 0) {
 		LOG_ERR("error: bind: %d", errno);
@@ -127,7 +131,8 @@ void tcp_poll(void)
 		return;
 	}
 
-	LOG_INF("Started MODBUS TCP server on port %d", MODBUS_TCP_PORT);
+	LOG_INF("Started MODBUS TCP server on port %d",
+		get_holding_reg(HOLDING_TCP_PORT_IDX));
 
 	while (1) {
 		struct sockaddr_in client_addr;

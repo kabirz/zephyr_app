@@ -177,6 +177,10 @@ int mb_handle_get(const char *name, char *val, int val_len_max)
 			memcpy(val, holding_reg + HOLDING_RS485_BPS_IDX, val_len_max);
 		} else if (!strncmp(name, "slave_id", name_len)) {
 			memcpy(val, holding_reg + HOLDING_SLAVE_ID_IDX, val_len_max);
+		} else if (!strncmp(name, "tcp_port", name_len)) {
+			memcpy(val, holding_reg + HOLDING_TCP_PORT_IDX, val_len_max);
+		} else if (!strncmp(name, "net_mode", name_len)) {
+			memcpy(val, holding_reg + HOLDING_NET_MODE_IDX, val_len_max);
 		} else if (!strncmp(name, "ip", name_len)) {
 			memcpy(val, holding_reg + HOLDING_IP_ADDR_1_IDX, val_len_max);
 		}
@@ -247,6 +251,14 @@ int mb_handle_set(const char *name, size_t len, settings_read_cb read_cb, void *
 		} else if (!strncmp(name, "slave_id", name_len)) {
 			rc = read_cb(cb_arg, holding_reg + HOLDING_SLAVE_ID_IDX, sizeof(uint16_t));
 			LOG_INF("<modbus/slave_id> = %d", holding_reg[HOLDING_SLAVE_ID_IDX]);
+			return 0;
+		} else if (!strncmp(name, "tcp_port", name_len)) {
+			rc = read_cb(cb_arg, holding_reg + HOLDING_TCP_PORT_IDX, sizeof(uint16_t));
+			LOG_INF("<modbus/tcp_port> = %d", holding_reg[HOLDING_TCP_PORT_IDX]);
+			return 0;
+		} else if (!strncmp(name, "net_mode", name_len)) {
+			rc = read_cb(cb_arg, holding_reg + HOLDING_NET_MODE_IDX, sizeof(uint16_t));
+			LOG_INF("<modbus/net_mode> = %d", holding_reg[HOLDING_NET_MODE_IDX]);
 			return 0;
 		} else if (!strncmp(name, "ip", name_len)) {
 			rc = read_cb(cb_arg, holding_reg + HOLDING_IP_ADDR_1_IDX,
@@ -342,6 +354,8 @@ int mb_handle_export(int (*cb)(const char *name, const void *value, size_t val_l
 	(void)cb("modbus/can/bps", holding_reg + HOLDING_CAN_BPS_IDX, sizeof(uint16_t));
 	(void)cb("modbus/rs485_bps", holding_reg + HOLDING_RS485_BPS_IDX, sizeof(uint16_t));
 	(void)cb("modbus/slave_id", holding_reg + HOLDING_SLAVE_ID_IDX, sizeof(uint16_t));
+	(void)cb("modbus/tcp_port", holding_reg + HOLDING_TCP_PORT_IDX, sizeof(uint16_t));
+	(void)cb("modbus/net_mode", holding_reg + HOLDING_NET_MODE_IDX, sizeof(uint16_t));
 	/* check ip is valid */
 	if (get_holding_reg(HOLDING_IP_ADDR_4_IDX) != 0xff &&
 	    get_holding_reg(HOLDING_IP_ADDR_4_IDX) != 0 &&

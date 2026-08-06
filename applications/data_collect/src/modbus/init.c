@@ -1,11 +1,6 @@
 #include "init.h"
 #include <zephyr/app_version.h>
 #include <time.h>
-#ifdef CONFIG_NETWORKING
-#include <zephyr/net/net_ip.h>
-#include <zephyr/net/net_if.h>
-#include <zephyr/net/net_l2.h>
-#endif
 #ifdef CONFIG_SETTINGS
 #include <zephyr/settings/settings.h>
 #endif
@@ -18,15 +13,12 @@ static const uint16_t holding_regs[CONFIG_MODBUS_HOLDING_REGISTER_NUMBERS] = {
 	[HOLDING_SLAVE_ID_IDX] = 0x1,  [HOLDING_IP_ADDR_1_IDX] = 192,
 	[HOLDING_IP_ADDR_2_IDX] = 168, [HOLDING_IP_ADDR_3_IDX] = 12,
 	[HOLDING_IP_ADDR_4_IDX] = 101, [HOLDING_HEART_TIMEOUT_IDX] = 2000,
+	[HOLDING_TCP_PORT_IDX] = 502,  [HOLDING_NET_MODE_IDX] = 0,
 
 };
 
 int modbus_init(void)
 {
-	struct in_addr addr, netmask;
-#ifdef CONFIG_NETWORKING
-	struct net_if *iface;
-#endif
 	uint32_t t = time(NULL);
 
 	update_input_reg(INPUT_VER_IDX, APP_VERSION_MAJOR << 8 | APP_VERSION_MINOR);
@@ -44,28 +36,8 @@ int modbus_init(void)
 #endif
 	history_enable_write(!!get_holding_reg(HOLDING_HIS_SAVE_IDX));
 
-#ifdef CONFIG_NETWORKING
-	iface = net_if_get_first_by_type(&NET_L2_GET_NAME(ETHERNET));
-	if (!iface) {
-		LOG_ERR("No ethernet interfaces found.");
-		return -1;
-	}
-
-	addr.s4_addr[0] = get_holding_reg(HOLDING_IP_ADDR_1_IDX);
-	addr.s4_addr[1] = get_holding_reg(HOLDING_IP_ADDR_2_IDX);
-	addr.s4_addr[2] = get_holding_reg(HOLDING_IP_ADDR_3_IDX);
-	addr.s4_addr[3] = get_holding_reg(HOLDING_IP_ADDR_4_IDX);
-
-	netmask.s_addr = 0xffffff;
-	if (net_if_ipv4_addr_add(iface, &addr, NET_ADDR_MANUAL, 0) == NULL) {
-		LOG_ERR("Cannot add ip address to interface");
-		return -1;
-	}
-	if (net_if_ipv4_set_netmask_by_addr(iface, &addr, &netmask) == false) {
-		LOG_ERR("Cannot add netmask to interface");
-		return -1;
-	}
-#endif
+	/* 网络初始化 (静态 IP / DHCP) 由 net.c 的 dc_net_thread 负责,
+	 * 在 SYS_INIT 之后读取 NET_MODE/IP 寄存器并配置接口. */
 
 	return 0;
 }
