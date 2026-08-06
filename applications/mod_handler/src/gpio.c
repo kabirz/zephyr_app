@@ -163,7 +163,7 @@ void system_sleep(void)
 
 	/* 真正进入 STM32 STOP 模式: 强制下一次 idle 进入 suspend-to-idle (STOP)。
 	 * 进入后 APB 时钟停止, UART 等外设不再响应; 仅 GPIO EXTI (电源键) 可唤醒。
-	 * 设备电源由本函数上方已断电, PM 层仅管理 CPU, 不依赖设备挂起 (见 overlay)。 */
+	 * 设备电源由本函数上方已断电; PM 子系统挂起/恢复设备 (见 overlay)。 */
 	static const struct pm_state_info stop_state = {
 		.state = PM_STATE_SUSPEND_TO_IDLE,
 		.substate_id = 1, /* STOP_LPREGU, 更低功耗 */
@@ -190,6 +190,7 @@ const struct pm_state_info *pm_policy_next_state(uint8_t cpu, int32_t ticks)
 
 static void system_wake(void)
 {
+	int64_t wake_t0 = k_uptime_get();
 	handler_power_enable(true);
 	dis_power_enable(true);
 	if (global_params.connect_type == CAN_TYPE) {
@@ -197,10 +198,16 @@ static void system_wake(void)
 	} else {
 		rf24_init();
 	}
+	LOG_INF("wake: power on +%lldms", (long long)(k_uptime_get() - wake_t0));
 	k_msleep(200);
+	LOG_INF("wake: 200ms delay done +%lldms", (long long)(k_uptime_get() - wake_t0));
+	/* reinit 期间保持 sleeping, 阻止其他线程 (rf24/adc) 并发写显示; 完成后再
+	 * 清标志并全屏刷新 (display_write_buf 以 sleeping 判断是否跳过) */
 	mod_display_reinit();
-	mod_display_all(&global_params);
+	LOG_INF("wake: display reinit done +%lldms", (long long)(k_uptime_get() - wake_t0));
 	atomic_set(&global_params.sleeping, 0);
+	mod_display_all(&global_params);
+	LOG_INF("wake: redraw done +%lldms", (long long)(k_uptime_get() - wake_t0));
 	last_activity_time = k_uptime_get_32();
 	k_event_post(&global_params.event, WAKE_EVENT);
 	LOG_INF("system woke up");

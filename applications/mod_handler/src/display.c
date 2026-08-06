@@ -80,6 +80,11 @@ static K_MUTEX_DEFINE(display_mutex);
 /* 写入任意位图块 */
 static void display_write_buf(int x, int y, int w, int h, const void *data)
 {
+	/* 睡眠期间 OLED 已断电, 跳过显示写入: 避免 rf24/adc 线程在处理残留
+	 * 帧时对 I2C 写失败 (OLED 不响应) 刷屏错误日志, 拖慢进入 STOP */
+	if (atomic_get(&global_params.sleeping)) {
+		return;
+	}
 	buf_desc.buf_size = w * (h / 8);
 	buf_desc.height = h;
 	buf_desc.width = w;
